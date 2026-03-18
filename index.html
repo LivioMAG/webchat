@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wochenrapport Webplattform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+    <script defer src="./script.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <section id="loginView" class="login-view view active">
+        <div class="login-card panel">
+          <div class="brand-block">
+            <span class="eyebrow">Neue Webfassung</span>
+            <h1>Wochenrapport-System</h1>
+            <p>
+              Desktop-Plattform für Rapporte, Ferien-/Absenzanträge und den wöchentlichen
+              Gesamtexport als PDF.
+            </p>
+          </div>
+
+          <form id="loginForm" class="login-form">
+            <label>
+              <span>E-Mail</span>
+              <input id="emailInput" type="email" placeholder="admin@maraschow.cn" required />
+            </label>
+            <label>
+              <span>Passwort</span>
+              <input id="passwordInput" type="password" placeholder="••••••••" required />
+            </label>
+            <button type="submit" class="button button-primary">Einloggen</button>
+            <p class="helper-text">
+              Der Master-Account <strong>admin@maraschow.cn</strong> ist für die globale Sicht
+              vorbereitet. Die passenden RLS-/Storage-Regeln findest du in
+              <code>supabase-schema.sql</code>.
+            </p>
+          </form>
+
+          <div id="loginAlert" class="alert hidden"></div>
+        </div>
+      </section>
+
+      <section id="appView" class="dashboard view hidden">
+        <aside class="sidebar panel">
+          <div>
+            <span class="eyebrow">Administration</span>
+            <h2>Rapport Center</h2>
+          </div>
+
+          <div class="profile-card">
+            <div>
+              <p class="profile-name" id="userName">-</p>
+              <p class="profile-role" id="userRole">-</p>
+            </div>
+            <span id="userBadge" class="badge">–</span>
+          </div>
+
+          <nav class="nav-tabs">
+            <button class="nav-tab active" data-page="reports">Wochenrapporte</button>
+            <button class="nav-tab" data-page="absences">Ferien &amp; Absenzen</button>
+            <button class="nav-tab" data-page="security">Admin / Security</button>
+          </nav>
+
+          <div class="sidebar-footer">
+            <button id="reloadButton" class="button button-secondary">Daten neu laden</button>
+            <button id="logoutButton" class="button button-ghost">Ausloggen</button>
+          </div>
+        </aside>
+
+        <main class="content-area">
+          <header class="topbar panel">
+            <div>
+              <span class="eyebrow">Übersicht</span>
+              <h2 id="pageTitle">Wochenrapporte</h2>
+            </div>
+            <div class="status-row">
+              <span id="connectionBadge" class="badge badge-soft">Konfiguration wird geladen</span>
+              <span id="dataTimestamp" class="subtle-text">Noch keine Daten geladen</span>
+            </div>
+          </header>
+
+          <section id="reportsPage" class="page active">
+            <div class="toolbar panel">
+              <div class="toolbar-group">
+                <label>
+                  <span>Kalenderwoche</span>
+                  <input id="weekPicker" type="week" />
+                </label>
+                <button id="currentWeekButton" class="button button-secondary">Diese Woche</button>
+              </div>
+              <div class="toolbar-group toolbar-actions">
+                <button id="exportPdfButton" class="button button-primary">PDF exportieren</button>
+              </div>
+            </div>
+
+            <div class="stats-grid">
+              <article class="stat-card panel">
+                <span>Rapporte in dieser Woche</span>
+                <strong id="reportCount">0</strong>
+              </article>
+              <article class="stat-card panel">
+                <span>Erfasste Arbeitsstunden</span>
+                <strong id="totalHours">0.0 h</strong>
+              </article>
+              <article class="stat-card panel">
+                <span>Spesen gesamt</span>
+                <strong id="totalExpenses">CHF 0.00</strong>
+              </article>
+              <article class="stat-card panel warning">
+                <span>Fehlende Wochenrapporte</span>
+                <strong id="missingReports">0</strong>
+              </article>
+            </div>
+
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Alle Rapporte der gewählten Woche</h3>
+                  <p>
+                    Zeigt alle Mitarbeiter mit ihren Einträgen. Der Export bündelt daraus ein
+                    gemeinsames PDF inklusive Bildanhängen.
+                  </p>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Mitarbeiter</th>
+                      <th>Datum</th>
+                      <th>Kommission</th>
+                      <th>Zeit</th>
+                      <th>Stunden</th>
+                      <th>Spesen</th>
+                      <th>Bemerkungen</th>
+                      <th>Anhänge</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reportsTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="grid-two">
+              <div class="panel">
+                <div class="section-heading compact">
+                  <div>
+                    <h3>Rapport-Abgabe pro Mitarbeiter</h3>
+                    <p>Basierend auf <code>app_profiles</code> und den Rapporteinträgen.</p>
+                  </div>
+                </div>
+                <ul id="submissionList" class="status-list"></ul>
+              </div>
+
+              <div class="panel">
+                <div class="section-heading compact">
+                  <div>
+                    <h3>Fehlende Rapporte</h3>
+                    <p>Diese Profile haben in der gewählten Woche noch nichts eingereicht.</p>
+                  </div>
+                </div>
+                <ul id="missingList" class="status-list"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section id="absencesPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Ferien- und Absenzanträge</h3>
+                  <p>
+                    Für zentrale Prüfung von Ferien, Krankheit, Unfall, Militär und weiteren
+                    Absenzarten.
+                  </p>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Mitarbeiter</th>
+                      <th>Typ</th>
+                      <th>Von</th>
+                      <th>Bis</th>
+                      <th>Bemerkung</th>
+                      <th>Anhänge</th>
+                    </tr>
+                  </thead>
+                  <tbody id="absencesTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section id="securityPage" class="page hidden">
+            <div class="panel prose-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Master-Admin &amp; Security-Rules</h3>
+                  <p>
+                    Die folgenden Hinweise und SQL-Blöcke bereiten den Account
+                    <strong>admin@maraschow.cn</strong> als Master-Admin mit Vollzugriff vor.
+                  </p>
+                </div>
+              </div>
+
+              <div class="code-block">
+                <pre id="adminSqlPreview"></pre>
+              </div>
+
+              <div class="security-grid">
+                <article class="mini-card">
+                  <h4>1. Auth</h4>
+                  <p>
+                    Login erfolgt weiterhin normal über Supabase Auth mit E-Mail und Passwort.
+                    Die Admin-Rechte kommen über die RLS-Funktionen im SQL.
+                  </p>
+                </article>
+                <article class="mini-card">
+                  <h4>2. Tabellen</h4>
+                  <p>
+                    <code>app_profiles</code>, <code>weekly_reports</code> und
+                    <code>holiday_requests</code> erlauben dem Master-Admin globale Select/Insert/
+                    Update/Delete-Rechte.
+                  </p>
+                </article>
+                <article class="mini-card">
+                  <h4>3. Storage</h4>
+                  <p>
+                    Im Bucket <code>weekly-attachments</code> darf der Master-Admin alle Objekte
+                    lesen und verwalten, normale Benutzer weiterhin nur ihren eigenen Ordner.
+                  </p>
+                </article>
+                <article class="mini-card">
+                  <h4>4. Web-Export</h4>
+                  <p>
+                    Der PDF-Export erstellt ein kombiniertes Dokument pro Kalenderwoche und listet
+                    zusätzlich fehlende Rapporte auf.
+                  </p>
+                </article>
+              </div>
+            </div>
+          </section>
+        </main>
+      </section>
+    </div>
+  </body>
+</html>
