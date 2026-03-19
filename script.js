@@ -479,14 +479,14 @@ async function loadData() {
 
   try {
     const currentProfile = await fetchCurrentProfile();
-    state.currentProfile = currentProfile;
-    state.hasAdminAccess = hasIsAdminAccess(currentProfile);
+    state.currentProfile = currentProfile ?? buildFallbackProfileFromUser(state.user);
+    state.hasAdminAccess = hasIsAdminAccess(state.currentProfile, state.user);
 
     if (!state.hasAdminAccess) {
       state.profiles = [];
       state.weeklyReports = [];
       state.holidayRequests = [];
-      elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist nicht aktiviert';
+      elements.dataTimestamp.textContent = 'Kein Zugriff – Admin-Rechte fehlen';
       render();
       return;
     }
@@ -534,13 +534,13 @@ async function fetchCurrentProfile() {
     .from('app_profiles')
     .select('*')
     .eq('id', state.user.id)
-    .single();
+    .maybeSingle();
 
   if (error) {
     throw error;
   }
 
-  return data;
+  return data ?? null;
 }
 
 async function loadDemoData() {
@@ -591,7 +591,7 @@ function renderSidebar() {
   const profile = state.currentProfile;
   elements.userName.textContent = profile?.full_name ?? state.user.email;
   elements.userRole.textContent = profile?.role_label ?? 'Benutzer';
-  elements.userBadge.textContent = state.hasAdminAccess ? 'Underscore Admin' : 'Kein Zugriff';
+  elements.userBadge.textContent = isMasterAdminUser(profile, state.user) ? 'Master Admin' : state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
 }
 
 function renderPages() {
@@ -1165,8 +1165,27 @@ function formatDate(dateString) {
   return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('de-CH');
 }
 
-function hasIsAdminAccess(profile) {
-  return Boolean(profile?.is_admin);
+function buildFallbackProfileFromUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  const email = String(user.email || '').trim().toLowerCase();
+  return {
+    id: user.id,
+    email,
+    full_name: email || 'Benutzer',
+    role_label: isMasterAdminUser(user) ? 'Master Admin' : 'Benutzer',
+    is_admin: isMasterAdminUser(user),
+  };
+}
+
+function isMasterAdminUser(...sources) {
+  return sources.some((source) => String(source?.email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL);
+}
+
+function hasIsAdminAccess(profile, user = state.user) {
+  return Boolean(profile?.is_admin) || isMasterAdminUser(profile, user);
 }
 
 function escapeHtml(value) {
