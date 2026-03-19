@@ -194,6 +194,11 @@ const state = {
   holidayRequests: [],
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
+  employeeFilterQuery: '',
+  selectedEmployeeIds: [],
+  employeeSelectionInitialized: false,
+  editingReportId: null,
+  isSavingReport: false,
   isDemoMode: false,
   hasAdminAccess: false,
   configReady: false,
@@ -242,6 +247,26 @@ function cacheElements() {
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
   elements.missingList = document.getElementById('missingList');
+  elements.selectedEmployeesSummary = document.getElementById('selectedEmployeesSummary');
+  elements.employeeFilterInput = document.getElementById('employeeFilterInput');
+  elements.employeeFilterList = document.getElementById('employeeFilterList');
+  elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
+  elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.reportEditModal = document.getElementById('reportEditModal');
+  elements.reportEditForm = document.getElementById('reportEditForm');
+  elements.closeReportEditModalButton = document.getElementById('closeReportEditModalButton');
+  elements.cancelReportEditButton = document.getElementById('cancelReportEditButton');
+  elements.editReportId = document.getElementById('editReportId');
+  elements.editEmployeeName = document.getElementById('editEmployeeName');
+  elements.editWorkDate = document.getElementById('editWorkDate');
+  elements.editCommissionNumber = document.getElementById('editCommissionNumber');
+  elements.editStartTime = document.getElementById('editStartTime');
+  elements.editEndTime = document.getElementById('editEndTime');
+  elements.editTotalMinutes = document.getElementById('editTotalMinutes');
+  elements.editExpensesAmount = document.getElementById('editExpensesAmount');
+  elements.editOtherCostsAmount = document.getElementById('editOtherCostsAmount');
+  elements.editNotes = document.getElementById('editNotes');
+  elements.editExpenseNote = document.getElementById('editExpenseNote');
   elements.pages = {
     reports: document.getElementById('reportsPage'),
     absences: document.getElementById('absencesPage'),
@@ -266,6 +291,20 @@ function bindEvents() {
     await loadData();
   });
   elements.exportPdfButton.addEventListener('click', exportWeekPdf);
+  elements.employeeFilterInput.addEventListener('input', handleEmployeeFilterInput);
+  elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
+  elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
+  elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
+  elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
+  elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
+  elements.cancelReportEditButton.addEventListener('click', closeReportEditModal);
+  elements.reportEditForm.addEventListener('submit', handleReportEditSubmit);
+  elements.reportEditModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.closeModal === 'true') {
+      closeReportEditModal();
+    }
+  });
+  document.addEventListener('keydown', handleGlobalKeydown);
   elements.navTabs.forEach((tab) => {
     tab.addEventListener('click', () => setCurrentPage(tab.dataset.page));
   });
@@ -396,7 +435,13 @@ function resetAppState() {
   state.profiles = [];
   state.weeklyReports = [];
   state.holidayRequests = [];
+  state.employeeFilterQuery = '';
+  state.selectedEmployeeIds = [];
+  state.employeeSelectionInitialized = false;
+  state.editingReportId = null;
+  state.isSavingReport = false;
   state.hasAdminAccess = false;
+  closeReportEditModal();
 }
 
 async function loadData() {
@@ -454,6 +499,7 @@ async function loadData() {
     state.weeklyReports = reports ?? [];
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
+    syncEmployeeSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
     render();
   } catch (error) {
@@ -493,6 +539,7 @@ async function loadDemoData() {
   const reports = demoWeeklyReports.filter((report) => report.work_date >= weekRange.start && report.work_date <= weekRange.end);
   state.weeklyReports = reports;
   state.holidayRequests = [...demoHolidayRequests];
+  syncEmployeeSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
 }
 
@@ -506,12 +553,14 @@ function render() {
   elements.accessDeniedView.classList.toggle('hidden', !showAccessDenied);
 
   if (!hasAdminAccess) {
+    closeReportEditModal();
     return;
   }
 
   renderSidebar();
   renderPages();
   renderReportStats();
+  renderEmployeeFilters();
   renderReportsTable();
   renderSubmissionLists();
   renderAbsenceTable();
@@ -556,13 +605,49 @@ function renderReportStats() {
   elements.missingReports.textContent = String(missingProfiles.length);
 }
 
-function renderReportsTable() {
-  if (!state.weeklyReports.length) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="8">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
+function renderEmployeeFilters() {
+  elements.employeeFilterInput.value = state.employeeFilterQuery;
+  const profiles = getReportableProfiles();
+  const query = state.employeeFilterQuery.trim().toLowerCase();
+  const visibleProfiles = profiles.filter((profile) => profile.full_name.toLowerCase().includes(query));
+
+  elements.selectedEmployeesSummary.textContent = `${state.selectedEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
+
+  if (!profiles.length) {
+    elements.employeeFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden vorhanden.</div>';
     return;
   }
 
-  const sorted = [...state.weeklyReports].sort((a, b) => `${a.work_date}${a.start_time}`.localeCompare(`${b.work_date}${b.start_time}`));
+  elements.employeeFilterList.innerHTML = visibleProfiles.length
+    ? visibleProfiles
+        .map((profile) => `
+          <label class="employee-filter-chip">
+            <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
+            <span>${escapeHtml(profile.full_name)}</span>
+          </label>
+        `)
+        .join('')
+    : '<div class="empty-state">Keine Mitarbeitenden für diesen Suchbegriff gefunden.</div>';
+}
+
+function renderReportsTable() {
+  if (!state.weeklyReports.length) {
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
+    return;
+  }
+
+  const filteredReports = getFilteredReports();
+  if (!filteredReports.length) {
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
+    return;
+  }
+
+  const sorted = [...filteredReports].sort((a, b) => {
+    const profileCompare = (getProfileById(a.profile_id)?.full_name ?? '').localeCompare(getProfileById(b.profile_id)?.full_name ?? '');
+    if (profileCompare !== 0) return profileCompare;
+    return `${a.work_date}${a.start_time}`.localeCompare(`${b.work_date}${b.start_time}`);
+  });
+
   elements.reportsTableBody.innerHTML = sorted
     .map((report) => {
       const profile = getProfileById(report.profile_id);
@@ -576,6 +661,12 @@ function renderReportsTable() {
           <td>${formatCurrency(Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0))}</td>
           <td>${escapeHtml(report.notes || report.expense_note || '–')}</td>
           <td>${renderAttachmentLinks(report.attachments)}</td>
+          <td><button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}">Bestätigen</button></td>
+          <td>
+            <div class="table-row-actions">
+              <button class="button button-small button-secondary" type="button" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">Bearbeiten</button>
+            </div>
+          </td>
         </tr>
       `;
     })
@@ -607,34 +698,216 @@ function renderAbsenceTable() {
 }
 
 function renderSubmissionLists() {
-  const groups = groupReportsByProfile(state.weeklyReports);
-  const submittedItems = getReportableProfiles().map((profile) => {
-    const count = groups.get(profile.id)?.length ?? 0;
-    return `
-      <li>
-        <div>
-          <strong>${escapeHtml(profile.full_name)}</strong>
-          <div class="subtle-text">${escapeHtml(profile.role_label || 'Profil')}</div>
+  const summaries = getProfileSubmissionSummary();
+  const submittedItems = summaries.map((summary) => `
+      <li class="align-start">
+        <div class="status-stack">
+          <strong>${escapeHtml(summary.profile.full_name)}</strong>
+          <div class="subtle-text">${escapeHtml(summary.profile.role_label || 'Profil')}</div>
+          <div class="subtle-text">${summary.hasSubmission ? `${summary.entryCount} Einträge in dieser Woche` : 'Noch kein Rapport erfasst'}</div>
         </div>
-        <span class="pill ${count > 0 ? 'success' : 'warning'}">${count > 0 ? `${count} Einträge` : 'Keine Abgabe'}</span>
+        <div class="status-meta">
+          <span class="pill ${summary.hasSubmission ? 'success' : 'warning'}">${summary.hasSubmission ? 'Rapport erfasst' : 'Fehlt'}</span>
+          <strong>${formatMinutes(summary.totalMinutes)}</strong>
+        </div>
       </li>
-    `;
-  });
+    `);
 
-  const missingItems = getMissingProfiles().map(
-    (profile) => `
-      <li>
-        <div>
-          <strong>${escapeHtml(profile.full_name)}</strong>
-          <div class="subtle-text">${escapeHtml(profile.email)}</div>
+  const missingItems = summaries
+    .filter((summary) => !summary.hasSubmission)
+    .map(
+      (summary) => `
+      <li class="align-start">
+        <div class="status-stack">
+          <strong>${escapeHtml(summary.profile.full_name)}</strong>
+          <div class="subtle-text">${escapeHtml(summary.profile.email)}</div>
+          <div class="subtle-text">${escapeHtml(summary.profile.role_label || 'Profil')}</div>
         </div>
-        <span class="pill warning">Fehlt</span>
+        <div class="status-meta">
+          <span class="pill warning">Fehlt</span>
+          <strong>0.00 h</strong>
+        </div>
       </li>
     `,
-  );
+    );
 
   elements.submissionList.innerHTML = submittedItems.join('') || '<li>Keine Profile vorhanden.</li>';
   elements.missingList.innerHTML = missingItems.join('') || '<li>Alle Profile haben abgegeben.</li>';
+}
+
+function handleEmployeeFilterInput(event) {
+  state.employeeFilterQuery = event.target.value;
+  renderEmployeeFilters();
+}
+
+function handleEmployeeSelectionChange(event) {
+  if (event.target?.type !== 'checkbox') {
+    return;
+  }
+
+  const profileId = event.target.value;
+  if (event.target.checked) {
+    if (!state.selectedEmployeeIds.includes(profileId)) {
+      state.selectedEmployeeIds = [...state.selectedEmployeeIds, profileId];
+    }
+  } else {
+    state.selectedEmployeeIds = state.selectedEmployeeIds.filter((id) => id !== profileId);
+  }
+
+  state.employeeSelectionInitialized = true;
+  render();
+}
+
+function selectAllEmployees() {
+  state.selectedEmployeeIds = getReportableProfiles().map((profile) => profile.id);
+  state.employeeSelectionInitialized = true;
+  render();
+}
+
+function clearEmployeeSelection() {
+  state.selectedEmployeeIds = [];
+  state.employeeSelectionInitialized = true;
+  render();
+}
+
+function syncEmployeeSelection() {
+  const validIds = getReportableProfiles().map((profile) => profile.id);
+  const validIdSet = new Set(validIds);
+  const selected = state.selectedEmployeeIds.filter((id) => validIdSet.has(id));
+
+  if (!state.employeeSelectionInitialized) {
+    state.selectedEmployeeIds = [...validIds];
+    state.employeeSelectionInitialized = true;
+    return;
+  }
+
+  state.selectedEmployeeIds = selected;
+}
+
+function getFilteredReports() {
+  const selectedIds = new Set(state.selectedEmployeeIds);
+  return state.weeklyReports.filter((report) => selectedIds.has(report.profile_id));
+}
+
+function getProfileSubmissionSummary() {
+  const groups = groupReportsByProfile(state.weeklyReports);
+  return getReportableProfiles().map((profile) => {
+    const reports = groups.get(profile.id) ?? [];
+    const totalMinutes = reports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
+    return {
+      profile,
+      reports,
+      entryCount: reports.length,
+      totalMinutes,
+      hasSubmission: reports.length > 0,
+    };
+  });
+}
+
+function handleReportsTableClick(event) {
+  const trigger = event.target.closest('[data-action]');
+  if (!trigger) {
+    return;
+  }
+
+  const reportId = trigger.dataset.reportId;
+  if (!reportId) {
+    return;
+  }
+
+  if (trigger.dataset.action === 'edit-report') {
+    openReportEditModal(reportId);
+    return;
+  }
+
+  if (trigger.dataset.action === 'confirm-report') {
+    alert('Der Bestätigen-Button ist vorbereitet. Die eigentliche Kontroll-Logik folgt im nächsten Schritt.');
+  }
+}
+
+function openReportEditModal(reportId) {
+  const report = state.weeklyReports.find((item) => item.id === reportId);
+  if (!report) {
+    return;
+  }
+
+  const profile = getProfileById(report.profile_id);
+  state.editingReportId = report.id;
+  elements.editReportId.value = report.id;
+  elements.editEmployeeName.value = profile?.full_name ?? 'Unbekannt';
+  elements.editWorkDate.value = report.work_date || '';
+  elements.editCommissionNumber.value = report.commission_number || '';
+  elements.editStartTime.value = report.start_time || '';
+  elements.editEndTime.value = report.end_time || '';
+  elements.editTotalMinutes.value = Number(report.total_work_minutes || 0);
+  elements.editExpensesAmount.value = Number(report.expenses_amount || 0);
+  elements.editOtherCostsAmount.value = Number(report.other_costs_amount || 0);
+  elements.editNotes.value = report.notes || '';
+  elements.editExpenseNote.value = report.expense_note || '';
+  elements.reportEditModal.classList.remove('hidden');
+}
+
+function closeReportEditModal() {
+  state.editingReportId = null;
+  if (!elements.reportEditModal || !elements.reportEditForm) {
+    return;
+  }
+
+  elements.reportEditModal.classList.add('hidden');
+  elements.reportEditForm.reset();
+}
+
+async function handleReportEditSubmit(event) {
+  event.preventDefault();
+  if (!state.editingReportId || state.isSavingReport) {
+    return;
+  }
+
+  const reportId = state.editingReportId;
+  const updates = {
+    work_date: elements.editWorkDate.value,
+    commission_number: elements.editCommissionNumber.value.trim(),
+    start_time: elements.editStartTime.value,
+    end_time: elements.editEndTime.value,
+    total_work_minutes: Number(elements.editTotalMinutes.value || 0),
+    expenses_amount: Number(elements.editExpensesAmount.value || 0),
+    other_costs_amount: Number(elements.editOtherCostsAmount.value || 0),
+    notes: elements.editNotes.value.trim(),
+    expense_note: elements.editExpenseNote.value.trim(),
+  };
+
+  state.isSavingReport = true;
+  try {
+    if (state.isDemoMode) {
+      updateDemoReport(reportId, updates);
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
+      if (error) throw error;
+    }
+
+    await loadData();
+    closeReportEditModal();
+  } catch (error) {
+    console.error(error);
+    alert(`Rapport konnte nicht aktualisiert werden: ${error.message}`);
+  } finally {
+    state.isSavingReport = false;
+  }
+}
+
+function updateDemoReport(reportId, updates) {
+  const report = demoWeeklyReports.find((item) => item.id === reportId);
+  if (!report) {
+    throw new Error('Demo-Rapport nicht gefunden');
+  }
+
+  Object.assign(report, updates);
+}
+
+function handleGlobalKeydown(event) {
+  if (event.key === 'Escape' && !elements.reportEditModal.classList.contains('hidden')) {
+    closeReportEditModal();
+  }
 }
 
 function setCurrentPage(page) {

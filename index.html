@@ -123,7 +123,7 @@
             </div>
 
             <div class="panel table-panel">
-              <div class="section-heading">
+              <div class="section-heading report-section-heading">
                 <div>
                   <h3>Alle Rapporte der gewählten Woche</h3>
                   <p>
@@ -131,7 +131,23 @@
                     gemeinsames PDF inklusive Bildanhängen.
                   </p>
                 </div>
+                <div class="report-filter-summary subtle-text" id="selectedEmployeesSummary"></div>
               </div>
+
+              <div class="report-filter-panel">
+                <div class="report-filter-toolbar">
+                  <label>
+                    <span>Mitarbeiter filtern</span>
+                    <input id="employeeFilterInput" type="search" placeholder="Nach Name suchen" />
+                  </label>
+                  <div class="report-filter-actions">
+                    <button id="selectAllEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
+                    <button id="clearEmployeeSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
+                  </div>
+                </div>
+                <div id="employeeFilterList" class="employee-filter-list"></div>
+              </div>
+
               <div class="table-wrapper">
                 <table>
                   <thead>
@@ -144,6 +160,8 @@
                       <th>Spesen</th>
                       <th>Bemerkungen</th>
                       <th>Anhänge</th>
+                      <th>Kontrolle</th>
+                      <th>Bearbeiten</th>
                     </tr>
                   </thead>
                   <tbody id="reportsTableBody"></tbody>
@@ -277,6 +295,69 @@
           </button>
         </div>
       </section>
+      <div id="reportEditModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="reportEditTitle">
+        <div class="modal-backdrop" data-close-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="reportEditTitle">Rapport bearbeiten</h3>
+              <p>Bestehende Rapporte können hier kontrolliert und angepasst werden.</p>
+            </div>
+            <button id="closeReportEditModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <form id="reportEditForm" class="report-edit-form">
+            <input id="editReportId" type="hidden" />
+            <div class="report-edit-grid">
+              <label>
+                <span>Mitarbeiter</span>
+                <input id="editEmployeeName" type="text" readonly />
+              </label>
+              <label>
+                <span>Datum</span>
+                <input id="editWorkDate" type="date" required />
+              </label>
+              <label>
+                <span>Kommission</span>
+                <input id="editCommissionNumber" type="text" />
+              </label>
+              <label>
+                <span>Start</span>
+                <input id="editStartTime" type="time" />
+              </label>
+              <label>
+                <span>Ende</span>
+                <input id="editEndTime" type="time" />
+              </label>
+              <label>
+                <span>Arbeitsminuten</span>
+                <input id="editTotalMinutes" type="number" min="0" step="15" />
+              </label>
+              <label>
+                <span>Spesen</span>
+                <input id="editExpensesAmount" type="number" min="0" step="0.05" />
+              </label>
+              <label>
+                <span>Weitere Kosten</span>
+                <input id="editOtherCostsAmount" type="number" min="0" step="0.05" />
+              </label>
+            </div>
+            <label>
+              <span>Bemerkungen</span>
+              <textarea id="editNotes" rows="4" placeholder="Bemerkungen zum Rapport"></textarea>
+            </label>
+            <label>
+              <span>Spesenbemerkung</span>
+              <textarea id="editExpenseNote" rows="3" placeholder="Zusätzliche Infos zu Spesen"></textarea>
+            </label>
+            <div class="modal-actions">
+              <button class="button button-secondary" type="button" id="cancelReportEditButton">Abbrechen</button>
+              <button class="button button-primary" type="submit">Änderungen speichern</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
     </div>
   </body>
 </html>
