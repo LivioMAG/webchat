@@ -279,15 +279,15 @@
             <span class="eyebrow">Kein Zugriff</span>
             <h1>Diese Web-App ist nur für Admins sichtbar.</h1>
             <p>
-              In <code>app_profiles</code> muss bei deinem Profil <code>is_admin</code> auf
-              <strong>true</strong> stehen. Solange das nicht gesetzt ist, bleibt die Anwendung im
-              Frontend gesperrt.
+              Diese Ansicht ist nur für Admin-Profile verfügbar. Der Master-Admin
+              <strong>admin@maraschow.cn</strong> erhält den Vollzugriff direkt über die
+              Supabase-Regeln; zusätzliche Benutzer brauchen ein Admin-Profil.
             </p>
           </div>
 
           <div class="alert">
-            Dein Login war erfolgreich, aber ohne aktiviertes <code>is_admin</code> werden
-            keine Rapporte, Absenzen oder Profile angezeigt.
+            Dein Login war erfolgreich, aber für dieses Konto wurden keine Admin-Rechte erkannt.
+            Darum bleiben Rapporte, Absenzen und Profile ausgeblendet.
           </div>
 
           <button id="accessDeniedLogoutButton" type="button" class="button button-ghost">
