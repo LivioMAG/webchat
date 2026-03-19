@@ -1,4 +1,3 @@
-const MASTER_ADMIN_EMAIL = 'admin@maraschow.cn';
 const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
@@ -10,88 +9,92 @@ const HOLIDAY_TYPE_LABELS = {
   krankheit: 'Krankheit',
 };
 const ABSENCE_TYPES = new Set(['ferien', 'militaer', 'zivildienst', 'unfall', 'krankheit', 'feiertag']);
-const ADMIN_ROLE_LABELS = new Set(['admin', 'administrator', 'administration', 'master admin']);
-
-const ADMIN_SQL_SNIPPET = `-- Master-Admin für admin@maraschow.cn
-create or replace function public.is_master_admin()
-returns boolean
-language sql
-stable
-as $$
-  select lower(coalesce(auth.jwt() ->> 'email', '')) = '${MASTER_ADMIN_EMAIL}';
-$$;
-
-alter table public.app_profiles
-add column if not exists is_admin boolean not null default false;
-
-update public.app_profiles
-set is_admin = true
-where lower(role_label) in ('admin', 'administrator', 'administration', 'master admin')
-   or lower(email) = '${MASTER_ADMIN_EMAIL}';
+const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
 
-drop policy if exists "master admin full access app_profiles" on public.app_profiles;
-drop policy if exists "master admin read app_profiles" on public.app_profiles;
-drop policy if exists "master admin insert app_profiles" on public.app_profiles;
-drop policy if exists "master admin update app_profiles" on public.app_profiles;
-drop policy if exists "master admin delete app_profiles" on public.app_profiles;
+create or replace function public.is_admin_user()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.app_profiles
+    where id = auth.uid()
+      and is_admin = true
+  );
+$$;
 
-create policy "master admin read app_profiles"
+drop policy if exists "authenticated full access app_profiles" on public.app_profiles;
+drop policy if exists "authenticated full access weekly_reports" on public.weekly_reports;
+drop policy if exists "authenticated full access holiday_requests" on public.holiday_requests;
+drop policy if exists "authenticated attachment read" on storage.objects;
+drop policy if exists "authenticated attachment write" on storage.objects;
+drop policy if exists "app_profiles own or admin" on public.app_profiles;
+drop policy if exists "app_profiles insert own or admin" on public.app_profiles;
+drop policy if exists "app_profiles update own or admin" on public.app_profiles;
+drop policy if exists "app_profiles delete own or admin" on public.app_profiles;
+drop policy if exists "weekly_reports own or admin" on public.weekly_reports;
+drop policy if exists "holiday_requests own or admin" on public.holiday_requests;
+drop policy if exists "weekly attachment read own or admin" on storage.objects;
+drop policy if exists "weekly attachment write own or admin" on storage.objects;
+
+create policy "app_profiles own or admin"
 on public.app_profiles
 for select
-using (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id);
 
-create policy "master admin insert app_profiles"
+create policy "app_profiles insert own or admin"
 on public.app_profiles
 for insert
-with check (public.is_master_admin() or auth.uid() = id);
+with check (public.is_admin_user() or auth.uid() = id);
 
-create policy "master admin update app_profiles"
+create policy "app_profiles update own or admin"
 on public.app_profiles
 for update
-using (public.is_master_admin() or auth.uid() = id)
-with check (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id)
+with check (public.is_admin_user() or auth.uid() = id);
 
-create policy "master admin delete app_profiles"
+create policy "app_profiles delete own or admin"
 on public.app_profiles
 for delete
-using (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id);
 
-create policy "master admin full access weekly_reports"
+create policy "weekly_reports own or admin"
 on public.weekly_reports
 for all
-using (public.is_master_admin() or auth.uid() = profile_id)
-with check (public.is_master_admin() or auth.uid() = profile_id);
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
 
-create policy "master admin full access holiday_requests"
+create policy "holiday_requests own or admin"
 on public.holiday_requests
 for all
-using (public.is_master_admin() or auth.uid() = profile_id)
-with check (public.is_master_admin() or auth.uid() = profile_id);
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
 
-create policy "master admin bucket read"
+create policy "weekly attachment read own or admin"
 on storage.objects
 for select
 using (
   bucket_id = '${STORAGE_BUCKET}' and (
-    public.is_master_admin() or auth.uid()::text = split_part(name, '/', 1)
+    public.is_admin_user() or auth.uid()::text = split_part(name, '/', 1)
   )
 );
 
-create policy "master admin bucket write"
+create policy "weekly attachment write own or admin"
 on storage.objects
 for all
 using (
   bucket_id = '${STORAGE_BUCKET}' and (
-    public.is_master_admin() or auth.uid()::text = split_part(name, '/', 1)
+    public.is_admin_user() or auth.uid()::text = split_part(name, '/', 1)
   )
 )
 with check (
   bucket_id = '${STORAGE_BUCKET}' and (
-    public.is_master_admin() or auth.uid()::text = split_part(name, '/', 1)
+    public.is_admin_user() or auth.uid()::text = split_part(name, '/', 1)
   )
 );`;
 
@@ -423,7 +426,7 @@ async function handleLogin(event) {
     const demoProfile = demoProfiles.find((profile) => profile.email === email) ?? demoProfiles[0];
     state.user = { id: demoProfile.id, email: demoProfile.email };
     state.currentProfile = demoProfile;
-    state.hasAdminAccess = hasIsAdminAccess(demoProfile);
+    state.hasAdminAccess = isAdminProfile(demoProfile);
     await loadDemoData();
     showLoginMessage('Demo-Login erfolgreich.', false);
     render();
@@ -498,13 +501,13 @@ async function loadData() {
   try {
     const currentProfile = await fetchCurrentProfile();
     state.currentProfile = currentProfile ?? buildFallbackProfileFromUser(state.user);
-    state.hasAdminAccess = hasIsAdminAccess(state.currentProfile, state.user);
+    state.hasAdminAccess = isAdminProfile(state.currentProfile);
 
     if (!state.hasAdminAccess) {
       state.profiles = [];
       state.weeklyReports = [];
       state.holidayRequests = [];
-      elements.dataTimestamp.textContent = 'Kein Zugriff – Admin-Rechte fehlen';
+      elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
       render();
       return;
     }
@@ -543,7 +546,9 @@ async function loadData() {
     render();
   } catch (error) {
     console.error(error);
-    alert(`Daten konnten nicht geladen werden: ${error.message}`);
+    const hint = getAccessConfigurationHint(error);
+    elements.dataTimestamp.textContent = hint || 'Daten konnten nicht geladen werden';
+    alert(`Daten konnten nicht geladen werden: ${error.message}${hint ? `\n\nHinweis: ${hint}` : ''}`);
   }
 }
 
@@ -562,13 +567,13 @@ async function fetchCurrentProfile() {
 }
 
 async function loadDemoData() {
-  const isAdmin = state.hasAdminAccess;
   state.currentProfile = demoProfiles.find((profile) => profile.id === state.user.id) ?? demoProfiles[0];
-  if (!isAdmin) {
+
+  if (!state.hasAdminAccess) {
     state.profiles = [];
     state.weeklyReports = [];
     state.holidayRequests = [];
-    elements.dataTimestamp.textContent = 'Kein Zugriff – das Profil ist nicht als Admin erkennbar';
+    elements.dataTimestamp.textContent = 'Kein Zugriff – Demo-Profil hat is_admin = false';
     return;
   }
 
@@ -609,14 +614,14 @@ function renderSidebar() {
   const profile = state.currentProfile;
   elements.userName.textContent = profile?.full_name ?? state.user.email;
   elements.userRole.textContent = profile?.role_label ?? 'Benutzer';
-  elements.userBadge.textContent = isMasterAdminUser(profile, state.user) ? 'Master Admin' : state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
+  elements.userBadge.textContent = state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
 }
 
 function renderPages() {
   const pageTitles = {
     reports: 'Wochenrapporte',
     absences: 'Ferien & Absenzen',
-    security: 'Admin / Security',
+    security: 'Admin-Zugriff',
   };
 
   elements.pageTitle.textContent = pageTitles[state.currentPage];
@@ -1190,7 +1195,7 @@ function getMissingProfiles({ selectedOnly = false } = {}) {
 }
 
 function getReportableProfiles() {
-  return state.profiles.filter((profile) => !hasIsAdminAccess(profile));
+  return state.profiles.filter((profile) => !isAdminProfile(profile));
 }
 
 function groupReportsByProfile(reports) {
@@ -1295,36 +1300,26 @@ function buildFallbackProfileFromUser(user) {
     id: user.id,
     email,
     full_name: email || 'Benutzer',
-    role_label: isMasterAdminUser(user) ? 'Master Admin' : 'Benutzer',
-    is_admin: isMasterAdminUser(user),
+    role_label: 'Benutzer',
+    is_admin: false,
   };
 }
 
-function isMasterAdminUser(...sources) {
-  return sources.some((source) => String(source?.email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL);
-}
+function getAccessConfigurationHint(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (!message) {
+    return '';
+  }
 
-function getNormalizedRoleLabel(source) {
-  return String(source?.role_label || source?.role || '')
-    .trim()
-    .toLowerCase();
+  if (message.includes('row-level security') || message.includes('permission denied') || message.includes('not allowed')) {
+    return 'Bitte das aktualisierte SQL aus supabase-schema.sql im Supabase-Projekt ausführen, damit Profile mit is_admin = true Vollzugriff erhalten.';
+  }
+
+  return '';
 }
 
 function isAdminProfile(profile) {
-  if (!profile) {
-    return false;
-  }
-
-  const explicitAdminFlags = [profile.is_admin, profile.isAdmin, profile.admin, profile.is_super_admin, profile.isSuperAdmin];
-  if (explicitAdminFlags.some((value) => value === true)) {
-    return true;
-  }
-
-  return ADMIN_ROLE_LABELS.has(getNormalizedRoleLabel(profile));
-}
-
-function hasIsAdminAccess(profile, user = state.user) {
-  return isAdminProfile(profile) || isMasterAdminUser(profile, user);
+  return profile?.is_admin === true || profile?.is_admin === 'true' || profile?.is_admin === 1;
 }
 
 function escapeHtml(value) {

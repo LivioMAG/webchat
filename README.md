@@ -5,7 +5,7 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
 - Login über Supabase Auth
 - zentrale Wochenrapport-Übersicht mit Wochenfilter
 - separate Seite für Ferien- und Absenzanträge
-- Master-Admin `admin@maraschow.cn` mit vorbereiteten RLS-/Storage-Regeln
+- Vollzugriff auf die Web-Visualisierung nur für Profile mit `app_profiles.is_admin = true`
 - kombinierten PDF-Export pro Kalenderwoche inklusive fehlender Rapporte und Bildanhängen
 
 ## Dateien
@@ -13,7 +13,7 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
 - `index.html`: Layout der Webplattform
 - `style.css`: Desktop-/Responsive-Styling
 - `script.js`: Login, Supabase-Integration, Datenabfragen, Rendering und PDF-Export
-- `supabase-schema.sql`: Tabellen, Trigger, RLS und Storage-Policies für den Master-Admin
+- `supabase-schema.sql`: Tabellen, Trigger, RLS und Storage-Policies mit Vollzugriff über `is_admin`
 - `supabase-config.example.json`: Vorlage für die lokale Supabase-Konfiguration
 
 ## Lokale Nutzung
@@ -27,5 +27,7 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
 ## Hinweise
 
 - Ohne `supabase-config.json` läuft die Oberfläche automatisch im Demo-Modus.
-- Für echte Admin-Rechte muss das SQL aus `supabase-schema.sql` im Supabase-Projekt ausgeführt werden.
+- Für den produktiven Einsatz muss das SQL aus `supabase-schema.sql` im Supabase-Projekt
+  ausgeführt werden, damit Profile mit `is_admin = true` die Daten im Frontend vollständig
+  sehen und bearbeiten können.
 - Der PDF-Export nutzt `jsPDF` und `jspdf-autotable` direkt per CDN.
