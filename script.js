@@ -246,6 +246,8 @@ const state = {
   hasAdminAccess: false,
   configReady: false,
   authListenerBound: false,
+  isLoadingData: false,
+  loadRequestId: 0,
 };
 
 const elements = {};
@@ -501,6 +503,26 @@ async function refreshData() {
   await loadData();
 }
 
+function beginDataLoad() {
+  state.isLoadingData = true;
+  const requestId = ++state.loadRequestId;
+  render();
+  return requestId;
+}
+
+function isActiveDataLoad(requestId) {
+  return requestId === state.loadRequestId;
+}
+
+function finishDataLoad(requestId) {
+  if (!isActiveDataLoad(requestId)) {
+    return false;
+  }
+
+  state.isLoadingData = false;
+  return true;
+}
+
 function resetAppState() {
   state.session = null;
   state.user = null;
@@ -515,6 +537,8 @@ function resetAppState() {
   state.editingReportId = null;
   state.isSavingReport = false;
   state.hasAdminAccess = false;
+  state.isLoadingData = false;
+  state.loadRequestId = 0;
   closeReportEditModal();
   elements.dataTimestamp.textContent = 'Noch keine Daten geladen';
 }
@@ -525,14 +549,22 @@ async function loadData() {
     return;
   }
 
+  const requestId = beginDataLoad();
+
   if (state.isDemoMode) {
     await loadDemoData();
+    if (!finishDataLoad(requestId)) {
+      return;
+    }
     render();
     return;
   }
 
   try {
     const currentProfile = await fetchCurrentProfile();
+    if (!isActiveDataLoad(requestId)) {
+      return;
+    }
     state.currentProfile = currentProfile ?? buildFallbackProfileFromUser(state.user);
     state.hasAdminAccess = isAdminProfile(state.currentProfile);
 
@@ -541,6 +573,7 @@ async function loadData() {
       state.weeklyReports = [];
       state.holidayRequests = [];
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
+      finishDataLoad(requestId);
       render();
       return;
     }
@@ -570,14 +603,21 @@ async function loadData() {
     if (reportsError) throw reportsError;
     if (profilesError) throw profilesError;
     if (absencesError) throw absencesError;
+    if (!isActiveDataLoad(requestId)) {
+      return;
+    }
 
     state.weeklyReports = reports ?? [];
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
     syncEmployeeSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
+    finishDataLoad(requestId);
     render();
   } catch (error) {
+    if (!finishDataLoad(requestId)) {
+      return;
+    }
     console.error(error);
     const hint = getAccessConfigurationHint(error);
     elements.dataTimestamp.textContent = hint || 'Daten konnten nicht geladen werden';
@@ -674,6 +714,9 @@ function renderWeekSummary() {
   elements.weekPicker.value = state.selectedWeek;
   elements.weekLabel.textContent = getWeekLabel(state.selectedWeek);
   elements.weekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
+  const disableWeekNavigation = state.isLoadingData || state.isSavingReport;
+  elements.previousWeekButton.disabled = disableWeekNavigation;
+  elements.nextWeekButton.disabled = disableWeekNavigation;
 }
 
 function renderReportStats() {
@@ -715,6 +758,12 @@ function renderEmployeeFilters() {
 }
 
 function renderReportsTable() {
+  if (state.isLoadingData) {
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Rapporte für ${escapeHtml(getWeekLabel(state.selectedWeek))} werden geladen …</td></tr>`;
+    renderReportsPagination({ totalItems: 0, totalPages: 1, currentPage: 1, startIndex: 0, endIndex: 0 });
+    return;
+  }
+
   const allReports = getSortedFilteredReports();
   const pagination = getReportsPaginationMeta(allReports);
 
