@@ -53,15 +53,7 @@
         <aside class="sidebar panel">
           <div>
             <span class="eyebrow">Administration</span>
-            <h2>Rapport Center</h2>
-          </div>
-
-          <div class="profile-card">
-            <div>
-              <p class="profile-name" id="userName">-</p>
-              <p class="profile-role" id="userRole">-</p>
-            </div>
-            <span id="userBadge" class="badge">–</span>
+            <h2>Rapportcenter</h2>
           </div>
 
           <nav class="nav-tabs">
@@ -111,18 +103,11 @@
                   aria-live="polite"
                   disabled
                 >
-                  <span id="reportStatusIcon" aria-hidden="true">⚠️</span>
-                  <span id="reportStatusText">Wochenrapporte fehlen</span>
+                  <span id="reportStatusIcon" class="report-status-icon" aria-hidden="true">0</span>
+                  <span id="reportStatusText">fehlende Wochenrapporte</span>
                 </button>
                 <button id="exportPdfButton" class="button button-primary">PDF exportieren</button>
               </div>
-            </div>
-
-            <div class="stats-grid stats-grid-single">
-              <article class="stat-card panel warning">
-                <span>Fehlende Wochenrapporte</span>
-                <strong id="missingReports">0</strong>
-              </article>
             </div>
 
             <div class="panel table-panel report-overview-panel">
