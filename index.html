@@ -104,30 +104,28 @@
                 <button id="nextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
               </div>
               <div class="toolbar-group toolbar-actions">
+                <button
+                  id="reportStatusButton"
+                  class="button button-secondary report-status-button"
+                  type="button"
+                  aria-live="polite"
+                  disabled
+                >
+                  <span id="reportStatusIcon" aria-hidden="true">⚠️</span>
+                  <span id="reportStatusText">Wochenrapporte fehlen</span>
+                </button>
                 <button id="exportPdfButton" class="button button-primary">PDF exportieren</button>
               </div>
             </div>
 
-            <div class="stats-grid">
-              <article class="stat-card panel">
-                <span>Rapporte in dieser Woche</span>
-                <strong id="reportCount">0</strong>
-              </article>
-              <article class="stat-card panel">
-                <span>Erfasste Arbeitsstunden</span>
-                <strong id="totalHours">0.0 h</strong>
-              </article>
-              <article class="stat-card panel">
-                <span>Spesen gesamt</span>
-                <strong id="totalExpenses">CHF 0.00</strong>
-              </article>
+            <div class="stats-grid stats-grid-single">
               <article class="stat-card panel warning">
                 <span>Fehlende Wochenrapporte</span>
                 <strong id="missingReports">0</strong>
               </article>
             </div>
 
-            <div class="panel table-panel">
+            <div class="panel table-panel report-overview-panel">
               <div class="section-heading report-section-heading">
                 <div>
                   <h3>Alle Rapporte der gewählten Woche</h3>
@@ -143,7 +141,7 @@
                 <div class="report-filter-toolbar">
                   <label>
                     <span>Mitarbeiter filtern</span>
-                    <input id="employeeFilterInput" type="search" placeholder="Nach Name oder E-Mail suchen" />
+                    <input id="employeeFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
                   </label>
                   <div class="report-filter-actions">
                     <button id="selectAllEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
@@ -152,7 +150,6 @@
                 </div>
                 <div class="employee-directory-heading">
                   <strong>Alle Mitarbeitenden</strong>
-                  <span class="subtle-text">Klicke auf eine E-Mail, um die Tabelle auf diesen Mitarbeiter zu filtern.</span>
                 </div>
                 <div id="employeeFilterList" class="employee-filter-list"></div>
               </div>
@@ -185,17 +182,17 @@
             </div>
 
             <div class="grid-two">
-              <div class="panel">
+              <div class="panel report-status-panel">
                 <div class="section-heading compact">
                   <div>
                     <h3>Rapport-Abgabe pro Mitarbeiter</h3>
-                    <p>Basierend auf <code>app_profiles</code> und den Rapporteinträgen.</p>
+                    <p>Zeigt je Mitarbeiter den aktuellen Stand der Abgabe in der gewählten Woche.</p>
                   </div>
                 </div>
                 <ul id="submissionList" class="status-list"></ul>
               </div>
 
-              <div class="panel">
+              <div class="panel report-status-panel">
                 <div class="section-heading compact">
                   <div>
                     <h3>Fehlende Rapporte</h3>

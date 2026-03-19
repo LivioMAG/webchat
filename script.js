@@ -284,14 +284,14 @@ function cacheElements() {
   elements.previousWeekButton = document.getElementById('previousWeekButton');
   elements.nextWeekButton = document.getElementById('nextWeekButton');
   elements.exportPdfButton = document.getElementById('exportPdfButton');
+  elements.reportStatusButton = document.getElementById('reportStatusButton');
+  elements.reportStatusIcon = document.getElementById('reportStatusIcon');
+  elements.reportStatusText = document.getElementById('reportStatusText');
   elements.reloadButton = document.getElementById('reloadButton');
   elements.connectionRefreshButton = document.getElementById('connectionRefreshButton');
   elements.logoutButton = document.getElementById('logoutButton');
   elements.reportsTableBody = document.getElementById('reportsTableBody');
   elements.absencesTableBody = document.getElementById('absencesTableBody');
-  elements.reportCount = document.getElementById('reportCount');
-  elements.totalHours = document.getElementById('totalHours');
-  elements.totalExpenses = document.getElementById('totalExpenses');
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
   elements.missingList = document.getElementById('missingList');
@@ -352,7 +352,6 @@ function bindEvents() {
   elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
-  elements.employeeFilterList.addEventListener('click', handleEmployeeFilterListClick);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
@@ -678,26 +677,21 @@ function renderWeekSummary() {
 }
 
 function renderReportStats() {
-  const totalMinutes = state.weeklyReports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
-  const totalExpenses = state.weeklyReports.reduce(
-    (sum, report) => sum + Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0),
-    0,
-  );
   const missingProfiles = getMissingProfiles();
+  const hasMissingReports = missingProfiles.length > 0;
 
-  elements.reportCount.textContent = String(state.weeklyReports.length);
-  elements.totalHours.textContent = `${(totalMinutes / 60).toFixed(1)} h`;
-  elements.totalExpenses.textContent = formatCurrency(totalExpenses);
   elements.missingReports.textContent = String(missingProfiles.length);
+  elements.reportStatusButton.classList.toggle('is-missing', hasMissingReports);
+  elements.reportStatusButton.classList.toggle('is-complete', !hasMissingReports);
+  elements.reportStatusIcon.textContent = hasMissingReports ? '⚠️' : '✔️';
+  elements.reportStatusText.textContent = hasMissingReports ? 'Wochenrapporte fehlen' : 'Alle Wochenrapporte vorhanden';
 }
 
 function renderEmployeeFilters() {
   elements.employeeFilterInput.value = state.employeeFilterQuery;
   const profiles = getReportableProfiles();
   const query = state.employeeFilterQuery.trim().toLowerCase();
-  const visibleProfiles = profiles.filter((profile) =>
-    `${profile.full_name} ${profile.email}`.toLowerCase().includes(query),
-  );
+  const visibleProfiles = profiles.filter((profile) => `${profile.full_name}`.toLowerCase().includes(query));
 
   elements.selectedEmployeesSummary.textContent = `${state.selectedEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
 
@@ -714,9 +708,6 @@ function renderEmployeeFilters() {
               <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
               <span>${escapeHtml(profile.full_name)}</span>
             </label>
-            <button class="employee-email-button" type="button" data-action="filter-single-employee" data-profile-id="${escapeAttribute(profile.id)}">
-              ${escapeHtml(profile.email || 'Keine E-Mail')}
-            </button>
           </div>
         `)
         .join('')
@@ -797,8 +788,7 @@ function renderSubmissionLists() {
       <li class="align-start">
         <div class="status-stack">
           <strong>${escapeHtml(summary.profile.full_name)}</strong>
-          <div class="subtle-text">${escapeHtml(summary.profile.email || 'Keine E-Mail')}</div>
-          <div class="subtle-text">${summary.entryCount} Einträge in dieser Woche</div>
+          <div class="subtle-text">${summary.entryCount} Rapporteinträge in dieser Woche</div>
         </div>
         <div class="status-meta">
           <span class="pill success">Rapport erfasst</span>
@@ -814,8 +804,7 @@ function renderSubmissionLists() {
       <li class="align-start">
         <div class="status-stack">
           <strong>${escapeHtml(summary.profile.full_name)}</strong>
-          <div class="subtle-text">${escapeHtml(summary.profile.email)}</div>
-          <div class="subtle-text">${escapeHtml(summary.profile.role_label || 'Profil')}</div>
+          <div class="subtle-text">Für diese Woche wurde noch kein Rapport eingereicht.</div>
         </div>
         <div class="status-meta">
           <span class="pill warning">Fehlt</span>
@@ -863,23 +852,6 @@ function selectAllEmployees() {
 
 function clearEmployeeSelection() {
   state.selectedEmployeeIds = [];
-  state.employeeSelectionInitialized = true;
-  state.reportsPage = 1;
-  render();
-}
-
-function handleEmployeeFilterListClick(event) {
-  const button = event.target.closest('[data-action="filter-single-employee"]');
-  if (!button) {
-    return;
-  }
-
-  const profileId = button.dataset.profileId;
-  if (!profileId) {
-    return;
-  }
-
-  state.selectedEmployeeIds = [profileId];
   state.employeeSelectionInitialized = true;
   state.reportsPage = 1;
   render();
