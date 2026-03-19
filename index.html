@@ -40,9 +40,8 @@
             </label>
             <button type="submit" class="button button-primary">Einloggen</button>
             <p class="helper-text">
-              Der Master-Account <strong>admin@maraschow.cn</strong> ist für die globale Sicht
-              vorbereitet. Die passenden RLS-/Storage-Regeln findest du in
-              <code>supabase-schema.sql</code>.
+              Vollzugriff gibt es nur für Profile mit <code>is_admin = true</code>. Die passenden
+              Supabase-/Storage-Regeln findest du in <code>supabase-schema.sql</code>.
             </p>
           </form>
 
@@ -68,7 +67,7 @@
           <nav class="nav-tabs">
             <button class="nav-tab active" data-page="reports">Wochenrapporte</button>
             <button class="nav-tab" data-page="absences">Ferien &amp; Absenzen</button>
-            <button class="nav-tab" data-page="security">Admin / Security</button>
+            <button class="nav-tab" data-page="security">Admin-Zugriff</button>
           </nav>
 
           <div class="sidebar-footer">
@@ -235,10 +234,10 @@
             <div class="panel prose-panel">
               <div class="section-heading">
                 <div>
-                  <h3>Master-Admin &amp; Security-Rules</h3>
+                  <h3>Admin-Zugriff &amp; Supabase-Regeln</h3>
                   <p>
-                    Die folgenden Hinweise und SQL-Blöcke bereiten den Account
-                    <strong>admin@maraschow.cn</strong> als Master-Admin mit Vollzugriff vor.
+                    Die folgenden Hinweise und SQL-Blöcke koppeln den Vollzugriff an
+                    <code>app_profiles.is_admin = true</code>.
                   </p>
                 </div>
               </div>
@@ -252,22 +251,24 @@
                   <h4>1. Auth</h4>
                   <p>
                     Login erfolgt weiterhin normal über Supabase Auth mit E-Mail und Passwort.
-                    Die Admin-Rechte kommen über die RLS-Funktionen im SQL.
+                    Die Visualisierung wird nur angezeigt, wenn das eingeloggte Profil
+                    <code>is_admin = true</code> hat.
                   </p>
                 </article>
                 <article class="mini-card">
                   <h4>2. Tabellen</h4>
                   <p>
+                    Admin-Profile mit <code>is_admin = true</code> erhalten globalen Zugriff auf
                     <code>app_profiles</code>, <code>weekly_reports</code> und
-                    <code>holiday_requests</code> erlauben dem Master-Admin globale Select/Insert/
-                    Update/Delete-Rechte.
+                    <code>holiday_requests</code>.
                   </p>
                 </article>
                 <article class="mini-card">
                   <h4>3. Storage</h4>
                   <p>
-                    Im Bucket <code>weekly-attachments</code> darf der Master-Admin alle Objekte
-                    lesen und verwalten, normale Benutzer weiterhin nur ihren eigenen Ordner.
+                    Im Bucket <code>weekly-attachments</code> dürfen Admin-Profile alle Objekte
+                    lesen und verwalten; normale Benutzer bleiben auf ihren eigenen Ordner
+                    beschränkt.
                   </p>
                 </article>
                 <article class="mini-card">
@@ -287,17 +288,17 @@
         <div class="login-card panel access-denied-card">
           <div class="brand-block">
             <span class="eyebrow">Kein Zugriff</span>
-            <h1>Diese Web-App ist nur für Admins sichtbar.</h1>
+            <h1>Diese Web-App ist nur für Admin-Profile sichtbar.</h1>
             <p>
-              Diese Ansicht ist nur für Admin-Profile verfügbar. Der Master-Admin
-              <strong>admin@maraschow.cn</strong> erhält den Vollzugriff direkt über die
-              Supabase-Regeln; zusätzliche Benutzer brauchen ein Admin-Profil.
+              Für diese Visualisierung braucht dein Profil in <code>app_profiles</code> den Wert
+              <code>is_admin = true</code>.
             </p>
           </div>
 
           <div class="alert">
-            Dein Login war erfolgreich, aber für dieses Konto wurden keine Admin-Rechte erkannt.
-            Darum bleiben Rapporte, Absenzen und Profile ausgeblendet.
+            Dein Login war erfolgreich, aber dieses Profil hat aktuell kein
+            <code>is_admin = true</code>. Darum bleiben Rapporte, Absenzen und Profile
+            ausgeblendet.
           </div>
 
           <button id="accessDeniedLogoutButton" type="button" class="button button-ghost">
@@ -305,6 +306,7 @@
           </button>
         </div>
       </section>
+
       <div id="reportEditModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="reportEditTitle">
         <div class="modal-backdrop" data-close-modal="true"></div>
         <div class="modal-card panel">

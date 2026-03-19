@@ -55,10 +55,18 @@ create table if not exists public.holiday_requests (
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
 
-update public.app_profiles
-set is_admin = true
-where lower(role_label) in ('admin', 'administrator', 'administration', 'master admin')
-   or lower(email) = 'admin@maraschow.cn';
+create or replace function public.is_admin_user()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.app_profiles
+    where id = auth.uid()
+      and is_admin = true
+  );
+$$;
 
 create index if not exists weekly_reports_profile_work_date_idx on public.weekly_reports (profile_id, work_date);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
@@ -78,19 +86,11 @@ before update on public.holiday_requests
 for each row
 execute procedure public.set_updated_at();
 
-create or replace function public.is_master_admin()
-returns boolean
-language sql
-stable
-as $$
-  select lower(coalesce(auth.jwt() ->> 'email', '')) = 'admin@maraschow.cn';
-$$;
-
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
 
--- Alte Policies bei Bedarf entfernen, bevor dieses Script erneut ausgeführt wird.
+-- Vollzugriff nur für Profile mit is_admin = true.
 drop policy if exists "app_profiles own or master" on public.app_profiles;
 drop policy if exists "app_profiles select own or master" on public.app_profiles;
 drop policy if exists "app_profiles insert own or master" on public.app_profiles;
@@ -98,39 +98,48 @@ drop policy if exists "app_profiles update own or master" on public.app_profiles
 drop policy if exists "app_profiles delete own or master" on public.app_profiles;
 drop policy if exists "weekly_reports own or master" on public.weekly_reports;
 drop policy if exists "holiday_requests own or master" on public.holiday_requests;
+drop policy if exists "authenticated full access app_profiles" on public.app_profiles;
+drop policy if exists "authenticated full access weekly_reports" on public.weekly_reports;
+drop policy if exists "authenticated full access holiday_requests" on public.holiday_requests;
+drop policy if exists "app_profiles own or admin" on public.app_profiles;
+drop policy if exists "app_profiles insert own or admin" on public.app_profiles;
+drop policy if exists "app_profiles update own or admin" on public.app_profiles;
+drop policy if exists "app_profiles delete own or admin" on public.app_profiles;
+drop policy if exists "weekly_reports own or admin" on public.weekly_reports;
+drop policy if exists "holiday_requests own or admin" on public.holiday_requests;
 
-create policy "app_profiles select own or master"
+create policy "app_profiles own or admin"
 on public.app_profiles
 for select
-using (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id);
 
-create policy "app_profiles insert own or master"
+create policy "app_profiles insert own or admin"
 on public.app_profiles
 for insert
-with check (public.is_master_admin() or auth.uid() = id);
+with check (public.is_admin_user() or auth.uid() = id);
 
-create policy "app_profiles update own or master"
+create policy "app_profiles update own or admin"
 on public.app_profiles
 for update
-using (public.is_master_admin() or auth.uid() = id)
-with check (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id)
+with check (public.is_admin_user() or auth.uid() = id);
 
-create policy "app_profiles delete own or master"
+create policy "app_profiles delete own or admin"
 on public.app_profiles
 for delete
-using (public.is_master_admin() or auth.uid() = id);
+using (public.is_admin_user() or auth.uid() = id);
 
-create policy "weekly_reports own or master"
+create policy "weekly_reports own or admin"
 on public.weekly_reports
 for all
-using (public.is_master_admin() or auth.uid() = profile_id)
-with check (public.is_master_admin() or auth.uid() = profile_id);
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
 
-create policy "holiday_requests own or master"
+create policy "holiday_requests own or admin"
 on public.holiday_requests
 for all
-using (public.is_master_admin() or auth.uid() = profile_id)
-with check (public.is_master_admin() or auth.uid() = profile_id);
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
 
 insert into storage.buckets (id, name, public)
 values ('weekly-attachments', 'weekly-attachments', true)
@@ -138,32 +147,36 @@ on conflict (id) do nothing;
 
 drop policy if exists "weekly attachment read own or master" on storage.objects;
 drop policy if exists "weekly attachment write own or master" on storage.objects;
+drop policy if exists "authenticated attachment read" on storage.objects;
+drop policy if exists "authenticated attachment write" on storage.objects;
+drop policy if exists "weekly attachment read own or admin" on storage.objects;
+drop policy if exists "weekly attachment write own or admin" on storage.objects;
 
-create policy "weekly attachment read own or master"
+create policy "weekly attachment read own or admin"
 on storage.objects
 for select
 using (
   bucket_id = 'weekly-attachments'
   and (
-    public.is_master_admin()
+    public.is_admin_user()
     or auth.uid()::text = split_part(name, '/', 1)
   )
 );
 
-create policy "weekly attachment write own or master"
+create policy "weekly attachment write own or admin"
 on storage.objects
 for all
 using (
   bucket_id = 'weekly-attachments'
   and (
-    public.is_master_admin()
+    public.is_admin_user()
     or auth.uid()::text = split_part(name, '/', 1)
   )
 )
 with check (
   bucket_id = 'weekly-attachments'
   and (
-    public.is_master_admin()
+    public.is_admin_user()
     or auth.uid()::text = split_part(name, '/', 1)
   )
 );
