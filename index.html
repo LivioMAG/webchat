@@ -82,20 +82,26 @@
               <span class="eyebrow">Übersicht</span>
               <h2 id="pageTitle">Wochenrapporte</h2>
             </div>
-            <div class="status-row">
-              <span id="connectionBadge" class="badge badge-soft">Konfiguration wird geladen</span>
+            <div class="status-panel">
+              <div class="status-row">
+                <span id="connectionBadge" class="badge badge-soft">Verbindung wird geprüft</span>
+                <button id="connectionRefreshButton" class="button button-secondary button-icon" type="button" aria-label="Daten aktualisieren">↻</button>
+              </div>
               <span id="dataTimestamp" class="subtle-text">Noch keine Daten geladen</span>
             </div>
           </header>
 
           <section id="reportsPage" class="page active">
             <div class="toolbar panel">
-              <div class="toolbar-group">
-                <label>
-                  <span>Kalenderwoche</span>
-                  <input id="weekPicker" type="week" />
-                </label>
-                <button id="currentWeekButton" class="button button-secondary">Diese Woche</button>
+              <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
+                <button id="previousWeekButton" class="button button-secondary button-icon" type="button" aria-label="Vorherige Woche">←</button>
+                <div class="week-summary">
+                  <input id="weekPicker" type="week" class="visually-hidden" tabindex="-1" aria-hidden="true" />
+                  <span class="subtle-label">Kalenderwoche</span>
+                  <strong id="weekLabel">KW 00</strong>
+                  <span id="weekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
+                </div>
+                <button id="nextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
               </div>
               <div class="toolbar-group toolbar-actions">
                 <button id="exportPdfButton" class="button button-primary">PDF exportieren</button>
@@ -288,17 +294,15 @@
         <div class="login-card panel access-denied-card">
           <div class="brand-block">
             <span class="eyebrow">Kein Zugriff</span>
-            <h1>Diese Web-App ist nur für Admin-Profile sichtbar.</h1>
+            <h1>Hey, du kannst hier leider nichts bearbeiten.</h1>
             <p>
-              Für diese Visualisierung braucht dein Profil in <code>app_profiles</code> den Wert
-              <code>is_admin = true</code>.
+              Du bist zwar erfolgreich angemeldet, aber dein Benutzer ist nicht als Admin freigegeben.
             </p>
           </div>
 
           <div class="alert">
-            Dein Login war erfolgreich, aber dieses Profil hat aktuell kein
-            <code>is_admin = true</code>. Darum bleiben Rapporte, Absenzen und Profile
-            ausgeblendet.
+            Sobald dein Profil in <code>app_profiles</code> den Wert <code>is_admin = true</code> hat,
+            wird die Bearbeitungsansicht automatisch verfügbar.
           </div>
 
           <button id="accessDeniedLogoutButton" type="button" class="button button-ghost">
