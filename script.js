@@ -24,11 +24,32 @@ alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
 
-create policy "master admin full access app_profiles"
+drop policy if exists "master admin full access app_profiles" on public.app_profiles;
+drop policy if exists "master admin read app_profiles" on public.app_profiles;
+drop policy if exists "master admin insert app_profiles" on public.app_profiles;
+drop policy if exists "master admin update app_profiles" on public.app_profiles;
+drop policy if exists "master admin delete app_profiles" on public.app_profiles;
+
+create policy "master admin read app_profiles"
 on public.app_profiles
-for all
+for select
+using (public.is_master_admin() or auth.uid() = id);
+
+create policy "master admin insert app_profiles"
+on public.app_profiles
+for insert
+with check (public.is_master_admin() or auth.uid() = id);
+
+create policy "master admin update app_profiles"
+on public.app_profiles
+for update
 using (public.is_master_admin() or auth.uid() = id)
 with check (public.is_master_admin() or auth.uid() = id);
+
+create policy "master admin delete app_profiles"
+on public.app_profiles
+for delete
+using (public.is_master_admin() or auth.uid() = id);
 
 create policy "master admin full access weekly_reports"
 on public.weekly_reports
