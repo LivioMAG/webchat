@@ -435,6 +435,139 @@ tbody tr:hover {
   padding: 18px;
 }
 
+
+.report-section-heading {
+  align-items: end;
+}
+
+.report-filter-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.report-filter-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.report-filter-toolbar label {
+  flex: 1 1 320px;
+}
+
+.report-filter-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.employee-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.employee-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.employee-filter-chip input {
+  width: auto;
+  margin: 0;
+}
+
+.employee-filter-chip.hidden {
+  display: none !important;
+}
+
+.table-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.button-small {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.button-success {
+  color: #dcfce7;
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.status-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.status-list li.align-start {
+  align-items: start;
+}
+
+.status-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.75);
+}
+
+.modal-card {
+  position: relative;
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 24px;
+}
+
+.report-edit-form {
+  display: grid;
+  gap: 16px;
+}
+
+.report-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.empty-state {
+  color: var(--muted);
+  padding: 10px 0;
+}
+
 .attachment-list {
   display: grid;
   gap: 6px;
@@ -480,16 +613,25 @@ tbody tr:hover {
 
   .toolbar,
   .toolbar-group,
-  .status-row {
+  .status-row,
+  .report-filter-toolbar {
     align-items: stretch;
     justify-items: stretch;
   }
 
-  .toolbar-group {
+  .toolbar-group,
+  .report-filter-actions,
+  .report-edit-grid {
     flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
-  .toolbar-group label {
+  .toolbar-group label,
+  .report-filter-toolbar label {
     min-width: 0;
+  }
+
+  .modal {
+    padding: 12px;
   }
 }
