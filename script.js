@@ -2,13 +2,21 @@ const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const HOLIDAY_TYPE_LABELS = {
-  ferien: 'Ferien',
+  ferien: 'Fehlen',
+  fehlen: 'Fehlen',
   militaer: 'Militär',
   zivildienst: 'Zivildienst',
   unfall: 'Unfall',
   krankheit: 'Krankheit',
+  feiertag: 'Feiertag',
 };
-const ABSENCE_TYPES = new Set(['ferien', 'militaer', 'zivildienst', 'unfall', 'krankheit', 'feiertag']);
+const ABSENCE_CATEGORY_CONFIG = [
+  { key: 'unfall', label: 'Unfall', terms: ['unfall'] },
+  { key: 'militaer', label: 'Militär', terms: ['militaer', 'militär', 'zivildienst'] },
+  { key: 'fehlen', label: 'Fehlen', terms: ['ferien', 'fehlen'] },
+  { key: 'krankheit', label: 'Krankheit', terms: ['krankheit'] },
+  { key: 'feiertag', label: 'Feiertag', terms: ['feiertag'] },
+];
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.app_profiles enable row level security;
@@ -1106,29 +1114,12 @@ async function exportWeekPdf() {
       layout: reportLayout,
     });
 
-    const attachments = reports.flatMap((report) => Array.isArray(report.attachments) ? report.attachments : []);
-    for (const attachment of attachments) {
+    const imageAttachments = reports
+      .flatMap((report) => Array.isArray(report.attachments) ? report.attachments : [])
+      .filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+    for (let index = 0; index < imageAttachments.length; index += 2) {
       pdf.addPage();
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(14);
-      pdf.text(`${profile.full_name} - ${attachment.name || 'Anhang'}`, 14, 18);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(10);
-      pdf.text(attachment.publicUrl || attachment.path || 'Kein Pfad vorhanden', 14, 24, { maxWidth: 180 });
-      if (isImageAttachment(attachment)) {
-        try {
-          const dataUrl = await fileToDataUrl(attachment.publicUrl);
-          const imageProps = pdf.getImageProperties(dataUrl);
-          const pageWidth = 180;
-          const ratio = imageProps.height / imageProps.width;
-          const imageHeight = Math.min(pageWidth * ratio, 240);
-          pdf.addImage(dataUrl, imageProps.fileType || 'JPEG', 15, 32, pageWidth, imageHeight);
-        } catch (error) {
-          pdf.text('Bild konnte nicht geladen werden. Link siehe oben.', 14, 34);
-        }
-      } else {
-        pdf.text('Nicht-Bild-Anhang: Bitte über den gespeicherten Link öffnen.', 14, 34);
-      }
+      await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2));
     }
   }
 
@@ -1138,7 +1129,7 @@ async function exportWeekPdf() {
   pdf.text('Fehlende Wochenrapporte', 14, 18);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
-  pdf.text(`Kalenderwoche ${getWeekLabel(state.selectedWeek)}`, 14, 24);
+  pdf.text(getWeekLabel(state.selectedWeek), 14, 24);
   const missingRows = getMissingProfiles({ selectedOnly: true }).map((profile) => [profile.full_name, profile.email, profile.role_label || 'Profil']);
   pdf.autoTable({
     startY: 30,
@@ -1153,7 +1144,7 @@ async function exportWeekPdf() {
 
 function buildWeeklyReportLayout(reports) {
   const regularRows = buildWeeklyMatrixRows(
-    reports.filter((report) => !ABSENCE_TYPES.has(String(report.commission_number || '').toLowerCase())),
+    reports.filter((report) => !getAbsenceCategory(report.commission_number)),
   );
   const absenceRows = buildAbsenceMatrixRows(reports);
   const notes = buildWeeklyRemarkLines(reports);
@@ -1183,19 +1174,22 @@ function buildWeeklyReportLayout(reports) {
 
 function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout }) {
   const pageWidth = pdf.internal.pageSize.getWidth();
-  const margin = 8;
-  const contentWidth = pageWidth - margin * 2;
+  const marginLeft = 14;
+  const marginRight = 8;
+  const contentWidth = pageWidth - marginLeft - marginRight;
   const nameBoxY = 24;
   const nameBoxHeight = 10;
   const mainTableY = 40;
-  const mainTableHeight = 98;
-  const totalsY = mainTableY + mainTableHeight;
-  const absencesY = totalsY + 10;
-  const absencesHeight = 36;
-  const remarksY = absencesY + absencesHeight;
-  const remarksHeight = 18;
 
-  drawReportHeader(pdf, { profile, weekRange, calendarWeek, margin, contentWidth, nameBoxY, nameBoxHeight });
+  drawReportHeader(pdf, {
+    profile,
+    weekRange,
+    calendarWeek,
+    marginLeft,
+    contentWidth,
+    nameBoxY,
+    nameBoxHeight,
+  });
 
   const regularBody = layout.regularRows.length
     ? layout.regularRows.map((row) => [
@@ -1206,24 +1200,24 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
         row.notes.join(' | '),
       ])
     : [];
-  while (regularBody.length < 12) {
+  while (regularBody.length < 10) {
     regularBody.push(['', '', '', '', '', '', '', '', '', '']);
   }
 
   pdf.autoTable({
     startY: mainTableY,
-    margin: { left: margin, right: margin },
+    margin: { left: marginLeft, right: marginRight },
     tableWidth: contentWidth,
     head: [['Kom. Nr.', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA', 'Total', 'Spesen', 'Bemerkungen']],
     body: regularBody,
     theme: 'grid',
     styles: {
       font: 'helvetica',
-      fontSize: 7.5,
-      cellPadding: 1.2,
+      fontSize: 7.2,
+      cellPadding: 1,
       lineColor: [0, 0, 0],
       lineWidth: 0.2,
-      minCellHeight: 6,
+      minCellHeight: 5.3,
       overflow: 'linebreak',
       valign: 'middle',
       textColor: [0, 0, 0],
@@ -1244,45 +1238,44 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
       6: { cellWidth: 11, halign: 'center' },
       7: { cellWidth: 13, halign: 'center' },
       8: { cellWidth: 16, halign: 'center' },
-      9: { cellWidth: 62 },
-    },
-    didDrawPage: () => {
-      pdf.setDrawColor(0, 0, 0);
-      pdf.setLineWidth(0.2);
-      pdf.rect(margin, mainTableY, contentWidth, mainTableHeight);
+      9: { cellWidth: 69 },
     },
   });
 
-  drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals: layout.totals });
-  drawAbsenceTable(pdf, { margin, y: absencesY, width: contentWidth, height: absencesHeight, rows: layout.absenceRows });
-  drawRemarksBox(pdf, { margin, y: remarksY, width: contentWidth, height: remarksHeight, notes: layout.notes });
+  const totalsY = (pdf.lastAutoTable?.finalY || mainTableY) + 3;
+  const absencesY = totalsY + 10;
+  const remarksY = absencesY + layout.absenceRows.length * 6 + 4;
+
+  drawWeeklyTotalRow(pdf, { margin: marginLeft, totalsY, contentWidth, totals: layout.totals });
+  drawAbsenceTable(pdf, { margin: marginLeft, y: absencesY, width: contentWidth, rows: layout.absenceRows });
+  drawRemarksBox(pdf, { margin: marginLeft, y: remarksY, width: contentWidth, height: 16, notes: layout.notes });
 }
 
-function drawReportHeader(pdf, { profile, weekRange, calendarWeek, margin, contentWidth, nameBoxY, nameBoxHeight }) {
+function drawReportHeader(pdf, { profile, weekRange, calendarWeek, marginLeft, contentWidth, nameBoxY, nameBoxHeight }) {
   pdf.setDrawColor(0, 0, 0);
   pdf.setTextColor(0, 0, 0);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(24);
   pdf.setTextColor(215, 0, 21);
-  pdf.text('MARÉCHAUX', margin, 14);
+  pdf.text('MARÉCHAUX', marginLeft, 14);
   pdf.setFontSize(10);
-  pdf.text('elektrisch gut.', margin + 20, 18);
+  pdf.setTextColor(0, 0, 0);
+  pdf.text('elektrisch gut.', marginLeft + 20, 18);
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(20);
   pdf.setTextColor(0, 0, 0);
-  pdf.text('Wochenrapport', margin + contentWidth / 2, 14, { align: 'center' });
+  pdf.text('Wochenrapport', marginLeft + contentWidth / 2, 14, { align: 'center' });
 
-  pdf.rect(margin, nameBoxY, contentWidth, nameBoxHeight);
+  pdf.rect(marginLeft, nameBoxY, contentWidth, nameBoxHeight);
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'italic');
-  pdf.text(profile.full_name || '–', margin + 1, nameBoxY + 7);
+  pdf.text(profile.full_name || '–', marginLeft + 1, nameBoxY + 7);
 
   pdf.setFont('helvetica', 'normal');
-  pdf.text(`${formatDate(weekRange.start)} - ${formatDate(weekRange.end)}`, margin + contentWidth / 2, nameBoxY + 6.8, { align: 'center' });
-  pdf.text('Kalender-Woche:', margin + contentWidth - 44, nameBoxY + 6.8);
+  pdf.text(`${formatDate(weekRange.start)} - ${formatDate(weekRange.end)}`, marginLeft + contentWidth / 2, nameBoxY + 6.8, { align: 'center' });
   pdf.setFont('helvetica', 'bold');
-  pdf.text(String(calendarWeek), margin + contentWidth - 10, nameBoxY + 6.8, { align: 'right' });
+  pdf.text(String(calendarWeek), marginLeft + contentWidth - 2, nameBoxY + 6.8, { align: 'right' });
 }
 
 function drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals }) {
@@ -1314,13 +1307,14 @@ function drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals }) {
   pdf.line(x, totalsY, x, totalsY + 8);
 }
 
-function drawAbsenceTable(pdf, { margin, y, width, height, rows }) {
+function drawAbsenceTable(pdf, { margin, y, width, rows }) {
   const labelWidth = 24;
   const dayWidth = 11;
   const totalWidth = 13;
   const notesWidth = width - labelWidth - dayWidth * 6 - totalWidth;
   const rowHeight = 6;
   const absenceRows = rows.length ? rows : buildEmptyAbsenceRows();
+  const height = rowHeight * absenceRows.length;
 
   pdf.rect(margin, y, width, height);
   let currentY = y;
@@ -1364,6 +1358,39 @@ function drawRemarksBox(pdf, { margin, y, width, height, notes }) {
   pdf.text(content, margin + 24, y + 5, { maxWidth: width - 26 });
 }
 
+async function drawAttachmentGalleryPage(pdf, attachments) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 15;
+  const slotGap = 8;
+  const titleY = 18;
+  const availableHeight = pageHeight - 34 - margin;
+  const slotHeight = (availableHeight - slotGap) / 2;
+  const slotWidth = pageWidth - margin * 2;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(16);
+  pdf.text('Liebe Männecken', margin, titleY);
+
+  for (const [index, attachment] of attachments.entries()) {
+    const slotY = 24 + index * (slotHeight + slotGap);
+    try {
+      const dataUrl = await fileToDataUrl(attachment.publicUrl || attachment.path);
+      const imageProps = pdf.getImageProperties(dataUrl);
+      const scale = Math.min(slotWidth / imageProps.width, slotHeight / imageProps.height);
+      const renderWidth = imageProps.width * scale;
+      const renderHeight = imageProps.height * scale;
+      const renderX = margin + (slotWidth - renderWidth) / 2;
+      const renderY = slotY + (slotHeight - renderHeight) / 2;
+      pdf.addImage(dataUrl, imageProps.fileType || 'JPEG', renderX, renderY, renderWidth, renderHeight);
+    } catch (error) {
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(10);
+      pdf.text('Bild konnte nicht geladen werden.', margin, slotY + 10);
+    }
+  }
+}
+
 function buildWeeklyMatrixRows(reports) {
   const groups = new Map();
 
@@ -1400,30 +1427,20 @@ function buildWeeklyMatrixRows(reports) {
 }
 
 function buildAbsenceMatrixRows(reports) {
-  const categories = [
-    { key: 'unfall', label: 'Unfall' },
-    { key: 'militaer', label: 'Militär' },
-    { key: 'ferien', label: 'Ferien' },
-    { key: 'krankheit', label: 'Krankheit' },
-    { key: 'feiertag', label: 'Feiertag' },
-  ];
-  const rows = categories.map((category) => ({
+  const rows = ABSENCE_CATEGORY_CONFIG.map((category) => ({
     label: category.label,
     days: Array(6).fill(''),
     totalDays: 0,
     notes: [],
   }));
-  const militaryRow = rows.find((row) => row.label === 'Militär');
 
   reports.forEach((report) => {
-    const absenceKey = String(report.commission_number || '').toLowerCase();
-    if (!ABSENCE_TYPES.has(absenceKey)) {
+    const absenceCategory = getAbsenceCategory(report.commission_number);
+    if (!absenceCategory) {
       return;
     }
 
-    const row = absenceKey === 'zivildienst'
-      ? militaryRow
-      : rows.find((item) => item.label.toLowerCase() === HOLIDAY_TYPE_LABELS[absenceKey]?.toLowerCase());
+    const row = rows.find((item) => item.label === absenceCategory.label);
     const dayIndex = getWeekdayIndex(report.work_date);
     if (!row || dayIndex < 0 || dayIndex > 5) {
       return;
@@ -1431,6 +1448,8 @@ function buildAbsenceMatrixRows(reports) {
 
     row.days[dayIndex] = 'X';
     row.totalDays += 1;
+    const commissionNumber = String(report.commission_number || '').trim();
+    if (commissionNumber) row.notes.push(commissionNumber);
     if (report.notes) row.notes.push(report.notes);
   });
 
@@ -1469,11 +1488,30 @@ function buildEmptyAbsenceRows() {
   return [
     { label: 'Unfall', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Militär', days: Array(6).fill(''), total: '', notes: '' },
-    { label: 'Ferien', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Fehlen', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Krankheit', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Feiertag', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Total Absenzen', days: Array(6).fill(''), total: '', notes: '' },
   ];
+}
+
+function getAbsenceCategory(commissionNumber) {
+  const normalizedCommission = normalizeSearchValue(commissionNumber);
+  if (!normalizedCommission) {
+    return null;
+  }
+
+  return ABSENCE_CATEGORY_CONFIG.find((category) =>
+    category.terms.some((term) => normalizedCommission.includes(normalizeSearchValue(term)))
+  ) ?? null;
+}
+
+function normalizeSearchValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function dedupeStrings(values) {
