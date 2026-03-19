@@ -71,28 +71,28 @@ const demoProfiles = [
     email: 'admin@maraschow.cn',
     full_name: 'Master Admin',
     role_label: 'Administration',
-    underscore_admin: true,
+    is_admin: true,
   },
   {
     id: '22222222-2222-2222-2222-222222222222',
     email: 'michael@example.com',
     full_name: 'Michael Gerber',
     role_label: 'Monteur',
-    underscore_admin: false,
+    is_admin: false,
   },
   {
     id: '33333333-3333-3333-3333-333333333333',
     email: 'sandra@example.com',
     full_name: 'Sandra Bühler',
     role_label: 'Monteurin',
-    underscore_admin: false,
+    is_admin: false,
   },
   {
     id: '44444444-4444-4444-4444-444444444444',
     email: 'pascal@example.com',
     full_name: 'Pascal Frei',
     role_label: 'Monteur',
-    underscore_admin: false,
+    is_admin: false,
   },
 ];
 
@@ -346,7 +346,7 @@ async function handleLogin(event) {
     const demoProfile = demoProfiles.find((profile) => profile.email === email) ?? demoProfiles[0];
     state.user = { id: demoProfile.id, email: demoProfile.email };
     state.currentProfile = demoProfile;
-    state.hasAdminAccess = hasUnderscoreAdminAccess(demoProfile);
+    state.hasAdminAccess = hasIsAdminAccess(demoProfile);
     await loadDemoData();
     showLoginMessage('Demo-Login erfolgreich.', false);
     render();
@@ -414,13 +414,13 @@ async function loadData() {
   try {
     const currentProfile = await fetchCurrentProfile();
     state.currentProfile = currentProfile;
-    state.hasAdminAccess = hasUnderscoreAdminAccess(currentProfile);
+    state.hasAdminAccess = hasIsAdminAccess(currentProfile);
 
     if (!state.hasAdminAccess) {
       state.profiles = [];
       state.weeklyReports = [];
       state.holidayRequests = [];
-      elements.dataTimestamp.textContent = 'Kein Zugriff – underscore_admin ist nicht aktiviert';
+      elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist nicht aktiviert';
       render();
       return;
     }
@@ -483,7 +483,7 @@ async function loadDemoData() {
     state.profiles = [];
     state.weeklyReports = [];
     state.holidayRequests = [];
-    elements.dataTimestamp.textContent = 'Kein Zugriff – underscore_admin ist nicht aktiviert';
+    elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist nicht aktiviert';
     return;
   }
 
@@ -776,7 +776,7 @@ function getMissingProfiles() {
 }
 
 function getReportableProfiles() {
-  return state.profiles.filter((profile) => !hasUnderscoreAdminAccess(profile));
+  return state.profiles.filter((profile) => !hasIsAdminAccess(profile));
 }
 
 function groupReportsByProfile(reports) {
@@ -871,8 +871,8 @@ function formatDate(dateString) {
   return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('de-CH');
 }
 
-function hasUnderscoreAdminAccess(profile) {
-  return Boolean(profile?.underscore_admin);
+function hasIsAdminAccess(profile) {
+  return Boolean(profile?.is_admin);
 }
 
 function escapeHtml(value) {
