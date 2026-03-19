@@ -237,6 +237,7 @@ const state = {
   isDemoMode: false,
   hasAdminAccess: false,
   configReady: false,
+  authListenerBound: false,
 };
 
 const elements = {};
@@ -270,9 +271,13 @@ function cacheElements() {
   elements.dataTimestamp = document.getElementById('dataTimestamp');
   elements.pageTitle = document.getElementById('pageTitle');
   elements.weekPicker = document.getElementById('weekPicker');
-  elements.currentWeekButton = document.getElementById('currentWeekButton');
+  elements.weekLabel = document.getElementById('weekLabel');
+  elements.weekDateRange = document.getElementById('weekDateRange');
+  elements.previousWeekButton = document.getElementById('previousWeekButton');
+  elements.nextWeekButton = document.getElementById('nextWeekButton');
   elements.exportPdfButton = document.getElementById('exportPdfButton');
   elements.reloadButton = document.getElementById('reloadButton');
+  elements.connectionRefreshButton = document.getElementById('connectionRefreshButton');
   elements.logoutButton = document.getElementById('logoutButton');
   elements.reportsTableBody = document.getElementById('reportsTableBody');
   elements.absencesTableBody = document.getElementById('absencesTableBody');
@@ -319,12 +324,18 @@ function bindEvents() {
   elements.logoutButton.addEventListener('click', handleLogout);
   elements.accessDeniedLogoutButton.addEventListener('click', handleLogout);
   elements.reloadButton.addEventListener('click', refreshData);
+  elements.connectionRefreshButton.addEventListener('click', refreshData);
   elements.weekPicker.addEventListener('change', async (event) => {
     state.selectedWeek = event.target.value;
     await loadData();
   });
-  elements.currentWeekButton.addEventListener('click', async () => {
-    state.selectedWeek = getCurrentWeekValue();
+  elements.previousWeekButton.addEventListener('click', async () => {
+    state.selectedWeek = shiftWeekValue(state.selectedWeek, -1);
+    elements.weekPicker.value = state.selectedWeek;
+    await loadData();
+  });
+  elements.nextWeekButton.addEventListener('click', async () => {
+    state.selectedWeek = shiftWeekValue(state.selectedWeek, 1);
     elements.weekPicker.value = state.selectedWeek;
     await loadData();
   });
@@ -375,11 +386,11 @@ async function initializeSupabase() {
       },
     });
     state.configReady = true;
-    setConnectionBadge('Supabase verbunden');
+    setConnectionBadge('Verbunden');
   } catch (error) {
     console.warn(error);
     state.isDemoMode = true;
-    setConnectionBadge('Demo-Modus (ohne Supabase)', true);
+    setConnectionBadge('Demo-Modus', true);
     showLoginMessage(`${error.message} Mit Demo-Daten kann das UI trotzdem geprüft werden.`, false);
   }
 }
@@ -396,25 +407,32 @@ async function bootstrapSession() {
   }
 
   state.session = data.session;
-  if (!state.session?.user) {
-    return;
+  if (state.session?.user) {
+    state.user = state.session.user;
+    state.hasAdminAccess = false;
+    await loadData();
   }
 
-  state.user = state.session.user;
-  state.hasAdminAccess = false;
-  await loadData();
+  if (!state.authListenerBound) {
+    state.authListenerBound = true;
+    state.supabase.auth.onAuthStateChange(async (event, session) => {
+      state.session = session;
 
-  state.supabase.auth.onAuthStateChange(async (_event, session) => {
-    state.session = session;
-    state.user = session?.user ?? null;
-    state.hasAdminAccess = false;
-    if (state.user) {
+      if (event === 'SIGNED_OUT') {
+        resetAppState();
+        render();
+        return;
+      }
+
+      if (!session?.user) {
+        return;
+      }
+
+      state.user = session.user;
+      state.hasAdminAccess = false;
       await loadData();
-    } else {
-      resetAppState();
-      render();
-    }
-  });
+    });
+  }
 }
 
 async function handleLogin(event) {
@@ -484,6 +502,7 @@ function resetAppState() {
   state.isSavingReport = false;
   state.hasAdminAccess = false;
   closeReportEditModal();
+  elements.dataTimestamp.textContent = 'Noch keine Daten geladen';
 }
 
 async function loadData() {
@@ -603,6 +622,7 @@ function render() {
 
   renderSidebar();
   renderPages();
+  renderWeekSummary();
   renderReportStats();
   renderEmployeeFilters();
   renderReportsTable();
@@ -633,6 +653,13 @@ function renderPages() {
   elements.navTabs.forEach((tab) => {
     tab.classList.toggle('active', tab.dataset.page === state.currentPage);
   });
+}
+
+function renderWeekSummary() {
+  const weekRange = getWeekRange(state.selectedWeek);
+  elements.weekPicker.value = state.selectedWeek;
+  elements.weekLabel.textContent = getWeekLabel(state.selectedWeek);
+  elements.weekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
 }
 
 function renderReportStats() {
@@ -1229,6 +1256,7 @@ function renderAttachmentLinks(attachments = []) {
 function setConnectionBadge(text, warning = false) {
   elements.connectionBadge.textContent = text;
   elements.connectionBadge.classList.toggle('badge-soft', !warning);
+  elements.connectionBadge.classList.toggle('badge-warning', warning);
 }
 
 function showLoginMessage(message, isError = true) {
@@ -1270,7 +1298,24 @@ function getWeekRange(weekValue) {
 }
 
 function getWeekLabel(weekValue) {
-  return weekValue.replace('-W', ' / KW ');
+  const [, weekPart] = weekValue.split('-W');
+  return `KW ${weekPart}`;
+}
+
+function shiftWeekValue(weekValue, weekDelta) {
+  const weekRange = getWeekRange(weekValue);
+  const monday = new Date(`${weekRange.start}T00:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() + weekDelta * 7);
+  return getIsoWeekValueFromDate(monday);
+}
+
+function getIsoWeekValueFromDate(date) {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNumber = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNumber + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((target - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+  return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
 function getWeekdayIndex(dateString) {
