@@ -15,6 +15,7 @@ create table if not exists public.app_profiles (
   email text not null unique,
   full_name text not null,
   role_label text not null default 'Monteur',
+  is_admin boolean not null default false,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -50,6 +51,14 @@ create table if not exists public.holiday_requests (
   updated_at timestamptz not null default timezone('utc', now()),
   constraint holiday_requests_range_check check (end_date >= start_date)
 );
+
+alter table public.app_profiles
+add column if not exists is_admin boolean not null default false;
+
+update public.app_profiles
+set is_admin = true
+where lower(role_label) in ('admin', 'administrator', 'administration', 'master admin')
+   or lower(email) = 'admin@maraschow.cn';
 
 create index if not exists weekly_reports_profile_work_date_idx on public.weekly_reports (profile_id, work_date);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);

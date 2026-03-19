@@ -10,6 +10,7 @@ const HOLIDAY_TYPE_LABELS = {
   krankheit: 'Krankheit',
 };
 const ABSENCE_TYPES = new Set(['ferien', 'militaer', 'zivildienst', 'unfall', 'krankheit', 'feiertag']);
+const ADMIN_ROLE_LABELS = new Set(['admin', 'administrator', 'administration', 'master admin']);
 
 const ADMIN_SQL_SNIPPET = `-- Master-Admin für admin@maraschow.cn
 create or replace function public.is_master_admin()
@@ -19,6 +20,14 @@ stable
 as $$
   select lower(coalesce(auth.jwt() ->> 'email', '')) = '${MASTER_ADMIN_EMAIL}';
 $$;
+
+alter table public.app_profiles
+add column if not exists is_admin boolean not null default false;
+
+update public.app_profiles
+set is_admin = true
+where lower(role_label) in ('admin', 'administrator', 'administration', 'master admin')
+   or lower(email) = '${MASTER_ADMIN_EMAIL}';
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
@@ -559,7 +568,7 @@ async function loadDemoData() {
     state.profiles = [];
     state.weeklyReports = [];
     state.holidayRequests = [];
-    elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist nicht aktiviert';
+    elements.dataTimestamp.textContent = 'Kein Zugriff – das Profil ist nicht als Admin erkennbar';
     return;
   }
 
@@ -1295,8 +1304,27 @@ function isMasterAdminUser(...sources) {
   return sources.some((source) => String(source?.email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL);
 }
 
+function getNormalizedRoleLabel(source) {
+  return String(source?.role_label || source?.role || '')
+    .trim()
+    .toLowerCase();
+}
+
+function isAdminProfile(profile) {
+  if (!profile) {
+    return false;
+  }
+
+  const explicitAdminFlags = [profile.is_admin, profile.isAdmin, profile.admin, profile.is_super_admin, profile.isSuperAdmin];
+  if (explicitAdminFlags.some((value) => value === true)) {
+    return true;
+  }
+
+  return ADMIN_ROLE_LABELS.has(getNormalizedRoleLabel(profile));
+}
+
 function hasIsAdminAccess(profile, user = state.user) {
-  return Boolean(profile?.is_admin) || isMasterAdminUser(profile, user);
+  return isAdminProfile(profile) || isMasterAdminUser(profile, user);
 }
 
 function escapeHtml(value) {
