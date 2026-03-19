@@ -138,12 +138,16 @@
                 <div class="report-filter-toolbar">
                   <label>
                     <span>Mitarbeiter filtern</span>
-                    <input id="employeeFilterInput" type="search" placeholder="Nach Name suchen" />
+                    <input id="employeeFilterInput" type="search" placeholder="Nach Name oder E-Mail suchen" />
                   </label>
                   <div class="report-filter-actions">
                     <button id="selectAllEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
                     <button id="clearEmployeeSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
                   </div>
+                </div>
+                <div class="employee-directory-heading">
+                  <strong>Alle Mitarbeitenden</strong>
+                  <span class="subtle-text">Klicke auf eine E-Mail, um die Tabelle auf diesen Mitarbeiter zu filtern.</span>
                 </div>
                 <div id="employeeFilterList" class="employee-filter-list"></div>
               </div>
@@ -166,6 +170,12 @@
                   </thead>
                   <tbody id="reportsTableBody"></tbody>
                 </table>
+              </div>
+
+              <div class="table-pagination">
+                <button id="reportsPrevPageButton" class="button button-secondary" type="button">Zurück</button>
+                <div id="reportsPaginationSummary" class="subtle-text">Seite 1</div>
+                <button id="reportsNextPageButton" class="button button-secondary" type="button">Weiter</button>
               </div>
             </div>
 
