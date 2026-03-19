@@ -83,14 +83,33 @@ alter table public.holiday_requests enable row level security;
 
 -- Alte Policies bei Bedarf entfernen, bevor dieses Script erneut ausgeführt wird.
 drop policy if exists "app_profiles own or master" on public.app_profiles;
+drop policy if exists "app_profiles select own or master" on public.app_profiles;
+drop policy if exists "app_profiles insert own or master" on public.app_profiles;
+drop policy if exists "app_profiles update own or master" on public.app_profiles;
+drop policy if exists "app_profiles delete own or master" on public.app_profiles;
 drop policy if exists "weekly_reports own or master" on public.weekly_reports;
 drop policy if exists "holiday_requests own or master" on public.holiday_requests;
 
-create policy "app_profiles own or master"
+create policy "app_profiles select own or master"
 on public.app_profiles
-for all
+for select
+using (public.is_master_admin() or auth.uid() = id);
+
+create policy "app_profiles insert own or master"
+on public.app_profiles
+for insert
+with check (public.is_master_admin() or auth.uid() = id);
+
+create policy "app_profiles update own or master"
+on public.app_profiles
+for update
 using (public.is_master_admin() or auth.uid() = id)
 with check (public.is_master_admin() or auth.uid() = id);
+
+create policy "app_profiles delete own or master"
+on public.app_profiles
+for delete
+using (public.is_master_admin() or auth.uid() = id);
 
 create policy "weekly_reports own or master"
 on public.weekly_reports
