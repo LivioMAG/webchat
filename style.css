@@ -79,6 +79,11 @@ pre {
   padding: 36px;
 }
 
+.access-denied-card {
+  display: grid;
+  gap: 20px;
+}
+
 .brand-block h1,
 .topbar h2,
 .sidebar h2,

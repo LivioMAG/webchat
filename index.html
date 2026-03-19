@@ -254,6 +254,29 @@
           </section>
         </main>
       </section>
+
+      <section id="accessDeniedView" class="login-view view hidden">
+        <div class="login-card panel access-denied-card">
+          <div class="brand-block">
+            <span class="eyebrow">Kein Zugriff</span>
+            <h1>Diese Web-App ist nur für Underscore Admins sichtbar.</h1>
+            <p>
+              In <code>app_profiles</code> muss bei deinem Profil <code>underscore_admin</code> auf
+              <strong>true</strong> stehen. Solange das nicht gesetzt ist, bleibt die Anwendung im
+              Frontend gesperrt.
+            </p>
+          </div>
+
+          <div class="alert">
+            Dein Login war erfolgreich, aber ohne aktiviertes <code>underscore_admin</code> werden
+            keine Rapporte, Absenzen oder Profile angezeigt.
+          </div>
+
+          <button id="accessDeniedLogoutButton" type="button" class="button button-ghost">
+            Ausloggen
+          </button>
+        </div>
+      </section>
     </div>
   </body>
 </html>

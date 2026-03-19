@@ -71,24 +71,28 @@ const demoProfiles = [
     email: 'admin@maraschow.cn',
     full_name: 'Master Admin',
     role_label: 'Administration',
+    underscore_admin: true,
   },
   {
     id: '22222222-2222-2222-2222-222222222222',
     email: 'michael@example.com',
     full_name: 'Michael Gerber',
     role_label: 'Monteur',
+    underscore_admin: false,
   },
   {
     id: '33333333-3333-3333-3333-333333333333',
     email: 'sandra@example.com',
     full_name: 'Sandra Bühler',
     role_label: 'Monteurin',
+    underscore_admin: false,
   },
   {
     id: '44444444-4444-4444-4444-444444444444',
     email: 'pascal@example.com',
     full_name: 'Pascal Frei',
     role_label: 'Monteur',
+    underscore_admin: false,
   },
 ];
 
@@ -191,7 +195,7 @@ const state = {
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
   isDemoMode: false,
-  isMasterAdmin: false,
+  hasAdminAccess: false,
   configReady: false,
 };
 
@@ -213,6 +217,8 @@ async function init() {
 function cacheElements() {
   elements.loginView = document.getElementById('loginView');
   elements.appView = document.getElementById('appView');
+  elements.accessDeniedView = document.getElementById('accessDeniedView');
+  elements.accessDeniedLogoutButton = document.getElementById('accessDeniedLogoutButton');
   elements.loginForm = document.getElementById('loginForm');
   elements.emailInput = document.getElementById('emailInput');
   elements.passwordInput = document.getElementById('passwordInput');
@@ -248,6 +254,7 @@ function cacheElements() {
 function bindEvents() {
   elements.loginForm.addEventListener('submit', handleLogin);
   elements.logoutButton.addEventListener('click', handleLogout);
+  elements.accessDeniedLogoutButton.addEventListener('click', handleLogout);
   elements.reloadButton.addEventListener('click', refreshData);
   elements.weekPicker.addEventListener('change', async (event) => {
     state.selectedWeek = event.target.value;
@@ -314,13 +321,13 @@ async function bootstrapSession() {
   }
 
   state.user = state.session.user;
-  state.isMasterAdmin = isMasterAdminEmail(state.user.email);
+  state.hasAdminAccess = false;
   await loadData();
 
   state.supabase.auth.onAuthStateChange(async (_event, session) => {
     state.session = session;
     state.user = session?.user ?? null;
-    state.isMasterAdmin = isMasterAdminEmail(state.user?.email);
+    state.hasAdminAccess = false;
     if (state.user) {
       await loadData();
     } else {
@@ -339,7 +346,7 @@ async function handleLogin(event) {
     const demoProfile = demoProfiles.find((profile) => profile.email === email) ?? demoProfiles[0];
     state.user = { id: demoProfile.id, email: demoProfile.email };
     state.currentProfile = demoProfile;
-    state.isMasterAdmin = isMasterAdminEmail(demoProfile.email);
+    state.hasAdminAccess = hasUnderscoreAdminAccess(demoProfile);
     await loadDemoData();
     showLoginMessage('Demo-Login erfolgreich.', false);
     render();
@@ -354,7 +361,7 @@ async function handleLogin(event) {
 
   state.session = data.session;
   state.user = data.user;
-  state.isMasterAdmin = isMasterAdminEmail(state.user?.email);
+  state.hasAdminAccess = false;
   await loadData();
   showLoginMessage('Login erfolgreich.', false);
   render();
@@ -389,7 +396,7 @@ function resetAppState() {
   state.profiles = [];
   state.weeklyReports = [];
   state.holidayRequests = [];
-  state.isMasterAdmin = false;
+  state.hasAdminAccess = false;
 }
 
 async function loadData() {
@@ -407,6 +414,16 @@ async function loadData() {
   try {
     const currentProfile = await fetchCurrentProfile();
     state.currentProfile = currentProfile;
+    state.hasAdminAccess = hasUnderscoreAdminAccess(currentProfile);
+
+    if (!state.hasAdminAccess) {
+      state.profiles = [];
+      state.weeklyReports = [];
+      state.holidayRequests = [];
+      elements.dataTimestamp.textContent = 'Kein Zugriff – underscore_admin ist nicht aktiviert';
+      render();
+      return;
+    }
 
     const weekRange = getWeekRange(state.selectedWeek);
     const reportsQuery = state.supabase
@@ -422,7 +439,7 @@ async function loadData() {
       .from('holiday_requests')
       .select('*')
       .order('start_date', { ascending: false })
-      .limit(state.isMasterAdmin ? 200 : 20);
+      .limit(200);
 
     const [{ data: reports, error: reportsError }, { data: profiles, error: profilesError }, { data: absences, error: absencesError }] = await Promise.all([
       reportsQuery,
@@ -460,25 +477,35 @@ async function fetchCurrentProfile() {
 }
 
 async function loadDemoData() {
-  const isAdmin = state.isMasterAdmin;
-  state.profiles = isAdmin ? demoProfiles : demoProfiles.filter((profile) => profile.id === state.user.id);
+  const isAdmin = state.hasAdminAccess;
   state.currentProfile = demoProfiles.find((profile) => profile.id === state.user.id) ?? demoProfiles[0];
+  if (!isAdmin) {
+    state.profiles = [];
+    state.weeklyReports = [];
+    state.holidayRequests = [];
+    elements.dataTimestamp.textContent = 'Kein Zugriff – underscore_admin ist nicht aktiviert';
+    return;
+  }
+
+  state.profiles = demoProfiles;
 
   const weekRange = getWeekRange(state.selectedWeek);
   const reports = demoWeeklyReports.filter((report) => report.work_date >= weekRange.start && report.work_date <= weekRange.end);
-  state.weeklyReports = isAdmin ? reports : reports.filter((report) => report.profile_id === state.user.id);
-  state.holidayRequests = isAdmin
-    ? [...demoHolidayRequests]
-    : demoHolidayRequests.filter((request) => request.profile_id === state.user.id);
+  state.weeklyReports = reports;
+  state.holidayRequests = [...demoHolidayRequests];
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
 }
 
 function render() {
   const loggedIn = Boolean(state.user);
-  elements.loginView.classList.toggle('hidden', loggedIn);
-  elements.appView.classList.toggle('hidden', !loggedIn);
+  const hasAdminAccess = loggedIn && state.hasAdminAccess;
+  const showAccessDenied = loggedIn && !state.hasAdminAccess;
 
-  if (!loggedIn) {
+  elements.loginView.classList.toggle('hidden', loggedIn);
+  elements.appView.classList.toggle('hidden', !hasAdminAccess);
+  elements.accessDeniedView.classList.toggle('hidden', !showAccessDenied);
+
+  if (!hasAdminAccess) {
     return;
   }
 
@@ -494,7 +521,7 @@ function renderSidebar() {
   const profile = state.currentProfile;
   elements.userName.textContent = profile?.full_name ?? state.user.email;
   elements.userRole.textContent = profile?.role_label ?? 'Benutzer';
-  elements.userBadge.textContent = state.isMasterAdmin ? 'Master' : 'Standard';
+  elements.userBadge.textContent = state.hasAdminAccess ? 'Underscore Admin' : 'Kein Zugriff';
 }
 
 function renderPages() {
@@ -749,7 +776,7 @@ function getMissingProfiles() {
 }
 
 function getReportableProfiles() {
-  return state.profiles.filter((profile) => !isMasterAdminEmail(profile.email));
+  return state.profiles.filter((profile) => !hasUnderscoreAdminAccess(profile));
 }
 
 function groupReportsByProfile(reports) {
@@ -844,8 +871,8 @@ function formatDate(dateString) {
   return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('de-CH');
 }
 
-function isMasterAdminEmail(email) {
-  return String(email || '').trim().toLowerCase() === MASTER_ADMIN_EMAIL;
+function hasUnderscoreAdminAccess(profile) {
+  return Boolean(profile?.underscore_admin);
 }
 
 function escapeHtml(value) {
