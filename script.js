@@ -218,6 +218,8 @@ const state = {
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
+  reportsPage: 1,
+  reportsPerPage: 10,
   editingReportId: null,
   isSavingReport: false,
   isDemoMode: false,
@@ -273,6 +275,9 @@ function cacheElements() {
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
   elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
+  elements.reportsNextPageButton = document.getElementById('reportsNextPageButton');
+  elements.reportsPaginationSummary = document.getElementById('reportsPaginationSummary');
   elements.reportEditModal = document.getElementById('reportEditModal');
   elements.reportEditForm = document.getElementById('reportEditForm');
   elements.closeReportEditModalButton = document.getElementById('closeReportEditModalButton');
@@ -316,7 +321,10 @@ function bindEvents() {
   elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
+  elements.employeeFilterList.addEventListener('click', handleEmployeeFilterListClick);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
+  elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
+  elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
   elements.cancelReportEditButton.addEventListener('click', closeReportEditModal);
   elements.reportEditForm.addEventListener('submit', handleReportEditSubmit);
@@ -459,6 +467,7 @@ function resetAppState() {
   state.employeeFilterQuery = '';
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = false;
+  state.reportsPage = 1;
   state.editingReportId = null;
   state.isSavingReport = false;
   state.hasAdminAccess = false;
@@ -630,7 +639,9 @@ function renderEmployeeFilters() {
   elements.employeeFilterInput.value = state.employeeFilterQuery;
   const profiles = getReportableProfiles();
   const query = state.employeeFilterQuery.trim().toLowerCase();
-  const visibleProfiles = profiles.filter((profile) => profile.full_name.toLowerCase().includes(query));
+  const visibleProfiles = profiles.filter((profile) =>
+    `${profile.full_name} ${profile.email}`.toLowerCase().includes(query),
+  );
 
   elements.selectedEmployeesSummary.textContent = `${state.selectedEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
 
@@ -642,38 +653,41 @@ function renderEmployeeFilters() {
   elements.employeeFilterList.innerHTML = visibleProfiles.length
     ? visibleProfiles
         .map((profile) => `
-          <label class="employee-filter-chip">
-            <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
-            <span>${escapeHtml(profile.full_name)}</span>
-          </label>
+          <div class="employee-filter-card ${state.selectedEmployeeIds.includes(profile.id) ? 'selected' : ''}">
+            <label class="employee-filter-chip">
+              <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
+              <span>${escapeHtml(profile.full_name)}</span>
+            </label>
+            <button class="employee-email-button" type="button" data-action="filter-single-employee" data-profile-id="${escapeAttribute(profile.id)}">
+              ${escapeHtml(profile.email || 'Keine E-Mail')}
+            </button>
+          </div>
         `)
         .join('')
     : '<div class="empty-state">Keine Mitarbeitenden für diesen Suchbegriff gefunden.</div>';
 }
 
 function renderReportsTable() {
+  const allReports = getSortedFilteredReports();
+  const pagination = getReportsPaginationMeta(allReports);
+
   if (!state.weeklyReports.length) {
     elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
+    renderReportsPagination(pagination);
     return;
   }
 
-  const filteredReports = getFilteredReports();
-  if (!filteredReports.length) {
+  if (!allReports.length) {
     elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
+    renderReportsPagination(pagination);
     return;
   }
 
-  const sorted = [...filteredReports].sort((a, b) => {
-    const profileCompare = (getProfileById(a.profile_id)?.full_name ?? '').localeCompare(getProfileById(b.profile_id)?.full_name ?? '');
-    if (profileCompare !== 0) return profileCompare;
-    return `${a.work_date}${a.start_time}`.localeCompare(`${b.work_date}${b.start_time}`);
-  });
-
-  elements.reportsTableBody.innerHTML = sorted
+  elements.reportsTableBody.innerHTML = pagination.pageItems
     .map((report) => {
       const profile = getProfileById(report.profile_id);
       return `
-        <tr>
+        <tr class="report-row" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">
           <td>${escapeHtml(profile?.full_name ?? 'Unbekannt')}</td>
           <td>${formatDate(report.work_date)}</td>
           <td>${escapeHtml(report.commission_number || '–')}</td>
@@ -692,6 +706,7 @@ function renderReportsTable() {
       `;
     })
     .join('');
+  renderReportsPagination(pagination);
 }
 
 function renderAbsenceTable() {
@@ -720,15 +735,17 @@ function renderAbsenceTable() {
 
 function renderSubmissionLists() {
   const summaries = getProfileSubmissionSummary();
-  const submittedItems = summaries.map((summary) => `
+  const submittedItems = summaries
+    .filter((summary) => summary.hasSubmission)
+    .map((summary) => `
       <li class="align-start">
         <div class="status-stack">
           <strong>${escapeHtml(summary.profile.full_name)}</strong>
-          <div class="subtle-text">${escapeHtml(summary.profile.role_label || 'Profil')}</div>
-          <div class="subtle-text">${summary.hasSubmission ? `${summary.entryCount} Einträge in dieser Woche` : 'Noch kein Rapport erfasst'}</div>
+          <div class="subtle-text">${escapeHtml(summary.profile.email || 'Keine E-Mail')}</div>
+          <div class="subtle-text">${summary.entryCount} Einträge in dieser Woche</div>
         </div>
         <div class="status-meta">
-          <span class="pill ${summary.hasSubmission ? 'success' : 'warning'}">${summary.hasSubmission ? 'Rapport erfasst' : 'Fehlt'}</span>
+          <span class="pill success">Rapport erfasst</span>
           <strong>${formatMinutes(summary.totalMinutes)}</strong>
         </div>
       </li>
@@ -752,12 +769,13 @@ function renderSubmissionLists() {
     `,
     );
 
-  elements.submissionList.innerHTML = submittedItems.join('') || '<li>Keine Profile vorhanden.</li>';
+  elements.submissionList.innerHTML = submittedItems.join('') || '<li>In dieser Woche wurde noch kein Rapport erfasst.</li>';
   elements.missingList.innerHTML = missingItems.join('') || '<li>Alle Profile haben abgegeben.</li>';
 }
 
 function handleEmployeeFilterInput(event) {
   state.employeeFilterQuery = event.target.value;
+  state.reportsPage = 1;
   renderEmployeeFilters();
 }
 
@@ -776,18 +794,38 @@ function handleEmployeeSelectionChange(event) {
   }
 
   state.employeeSelectionInitialized = true;
+  state.reportsPage = 1;
   render();
 }
 
 function selectAllEmployees() {
   state.selectedEmployeeIds = getReportableProfiles().map((profile) => profile.id);
   state.employeeSelectionInitialized = true;
+  state.reportsPage = 1;
   render();
 }
 
 function clearEmployeeSelection() {
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = true;
+  state.reportsPage = 1;
+  render();
+}
+
+function handleEmployeeFilterListClick(event) {
+  const button = event.target.closest('[data-action="filter-single-employee"]');
+  if (!button) {
+    return;
+  }
+
+  const profileId = button.dataset.profileId;
+  if (!profileId) {
+    return;
+  }
+
+  state.selectedEmployeeIds = [profileId];
+  state.employeeSelectionInitialized = true;
+  state.reportsPage = 1;
   render();
 }
 
@@ -799,15 +837,76 @@ function syncEmployeeSelection() {
   if (!state.employeeSelectionInitialized) {
     state.selectedEmployeeIds = [...validIds];
     state.employeeSelectionInitialized = true;
+    state.reportsPage = 1;
     return;
   }
 
   state.selectedEmployeeIds = selected;
+  const pageCount = Math.max(1, Math.ceil(getSortedFilteredReports().length / state.reportsPerPage));
+  state.reportsPage = Math.min(state.reportsPage, pageCount);
 }
 
 function getFilteredReports() {
   const selectedIds = new Set(state.selectedEmployeeIds);
   return state.weeklyReports.filter((report) => selectedIds.has(report.profile_id));
+}
+
+function getSortedFilteredReports() {
+  return [...getFilteredReports()].sort((a, b) => {
+    const profileCompare = (getProfileById(a.profile_id)?.full_name ?? '').localeCompare(getProfileById(b.profile_id)?.full_name ?? '');
+    if (profileCompare !== 0) return profileCompare;
+    return `${a.work_date}${a.start_time}`.localeCompare(`${b.work_date}${b.start_time}`);
+  });
+}
+
+function getReportsPaginationMeta(reports = getSortedFilteredReports()) {
+  const totalItems = reports.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.reportsPerPage));
+  const currentPage = Math.min(Math.max(1, state.reportsPage), totalPages);
+  const startIndex = (currentPage - 1) * state.reportsPerPage;
+  const endIndex = Math.min(startIndex + state.reportsPerPage, totalItems);
+
+  state.reportsPage = currentPage;
+
+  return {
+    totalItems,
+    totalPages,
+    currentPage,
+    startIndex,
+    endIndex,
+    pageItems: reports.slice(startIndex, endIndex),
+  };
+}
+
+function renderReportsPagination({ totalItems, totalPages, currentPage, startIndex, endIndex }) {
+  if (!elements.reportsPaginationSummary) {
+    return;
+  }
+
+  elements.reportsPaginationSummary.textContent = totalItems
+    ? `Seite ${currentPage} von ${totalPages} · ${startIndex + 1}-${endIndex} von ${totalItems} Rapporten`
+    : 'Seite 1 von 1 · 0 Rapporte';
+  elements.reportsPrevPageButton.disabled = currentPage <= 1;
+  elements.reportsNextPageButton.disabled = currentPage >= totalPages || totalItems === 0;
+}
+
+function goToPreviousReportsPage() {
+  if (state.reportsPage <= 1) {
+    return;
+  }
+
+  state.reportsPage -= 1;
+  renderReportsTable();
+}
+
+function goToNextReportsPage() {
+  const totalPages = Math.max(1, Math.ceil(getSortedFilteredReports().length / state.reportsPerPage));
+  if (state.reportsPage >= totalPages) {
+    return;
+  }
+
+  state.reportsPage += 1;
+  renderReportsTable();
 }
 
 function getProfileSubmissionSummary() {
@@ -826,6 +925,10 @@ function getProfileSubmissionSummary() {
 }
 
 function handleReportsTableClick(event) {
+  if (event.target.closest('a')) {
+    return;
+  }
+
   const trigger = event.target.closest('[data-action]');
   if (!trigger) {
     return;
@@ -937,14 +1040,15 @@ function setCurrentPage(page) {
 }
 
 async function exportWeekPdf() {
-  if (!state.weeklyReports.length) {
+  const filteredReports = getSortedFilteredReports();
+  if (!filteredReports.length) {
     alert('Für die gewählte Woche sind keine Rapporte vorhanden.');
     return;
   }
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
-  const grouped = groupReportsByProfile(state.weeklyReports);
+  const grouped = groupReportsByProfile(filteredReports);
   const weekRange = getWeekRange(state.selectedWeek);
   let firstSection = true;
 
@@ -1019,7 +1123,7 @@ async function exportWeekPdf() {
   pdf.text('Fehlende Wochenrapporte', 14, 18);
   pdf.setFontSize(10);
   pdf.text(`Kalenderwoche ${getWeekLabel(state.selectedWeek)}`, 14, 24);
-  const missingRows = getMissingProfiles().map((profile) => [profile.full_name, profile.email, profile.role_label || 'Profil']);
+  const missingRows = getMissingProfiles({ selectedOnly: true }).map((profile) => [profile.full_name, profile.email, profile.role_label || 'Profil']);
   pdf.autoTable({
     startY: 30,
     head: [['Mitarbeiter', 'E-Mail', 'Rolle']],
@@ -1064,9 +1168,16 @@ function buildWeeklyMatrixRows(reports) {
   ]);
 }
 
-function getMissingProfiles() {
+function getMissingProfiles({ selectedOnly = false } = {}) {
   const groups = groupReportsByProfile(state.weeklyReports);
-  return getReportableProfiles().filter((profile) => !groups.has(profile.id));
+  const selectedIds = new Set(state.selectedEmployeeIds);
+  return getReportableProfiles().filter((profile) => {
+    if (selectedOnly && !selectedIds.has(profile.id)) {
+      return false;
+    }
+
+    return !groups.has(profile.id);
+  });
 }
 
 function getReportableProfiles() {
