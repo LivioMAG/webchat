@@ -686,9 +686,15 @@ function render() {
 
 function renderSidebar() {
   const profile = state.currentProfile;
-  elements.userName.textContent = profile?.full_name ?? state.user.email;
-  elements.userRole.textContent = profile?.role_label ?? 'Benutzer';
-  elements.userBadge.textContent = state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
+  if (elements.userName) {
+    elements.userName.textContent = profile?.full_name ?? state.user.email;
+  }
+  if (elements.userRole) {
+    elements.userRole.textContent = profile?.role_label ?? 'Benutzer';
+  }
+  if (elements.userBadge) {
+    elements.userBadge.textContent = state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
+  }
 }
 
 function renderPages() {
@@ -723,11 +729,10 @@ function renderReportStats() {
   const missingProfiles = getMissingProfiles();
   const hasMissingReports = missingProfiles.length > 0;
 
-  elements.missingReports.textContent = String(missingProfiles.length);
   elements.reportStatusButton.classList.toggle('is-missing', hasMissingReports);
   elements.reportStatusButton.classList.toggle('is-complete', !hasMissingReports);
-  elements.reportStatusIcon.textContent = hasMissingReports ? '⚠️' : '✔️';
-  elements.reportStatusText.textContent = hasMissingReports ? 'Wochenrapporte fehlen' : 'Alle Wochenrapporte vorhanden';
+  elements.reportStatusIcon.textContent = hasMissingReports ? String(missingProfiles.length) : '✔';
+  elements.reportStatusText.textContent = hasMissingReports ? 'fehlende Wochenrapporte' : 'Alle Wochenrapporte vorhanden';
 }
 
 function renderEmployeeFilters() {
@@ -746,12 +751,10 @@ function renderEmployeeFilters() {
   elements.employeeFilterList.innerHTML = visibleProfiles.length
     ? visibleProfiles
         .map((profile) => `
-          <div class="employee-filter-card ${state.selectedEmployeeIds.includes(profile.id) ? 'selected' : ''}">
-            <label class="employee-filter-chip">
-              <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
-              <span>${escapeHtml(profile.full_name)}</span>
-            </label>
-          </div>
+          <label class="employee-filter-option">
+            <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
+            <span>${escapeHtml(profile.full_name)}</span>
+          </label>
         `)
         .join('')
     : '<div class="empty-state">Keine Mitarbeitenden für diesen Suchbegriff gefunden.</div>';
@@ -783,7 +786,7 @@ function renderReportsTable() {
     .map((report) => {
       const profile = getProfileById(report.profile_id);
       return `
-        <tr class="report-row" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">
+        <tr class="report-row">
           <td>${escapeHtml(profile?.full_name ?? 'Unbekannt')}</td>
           <td>${formatDate(report.work_date)}</td>
           <td>${escapeHtml(report.commission_number || '–')}</td>
@@ -1027,7 +1030,7 @@ function handleReportsTableClick(event) {
 }
 
 function openReportEditModal(reportId) {
-  const report = state.weeklyReports.find((item) => item.id === reportId);
+  const report = state.weeklyReports.find((item) => String(item.id) === String(reportId));
   if (!report) {
     return;
   }
@@ -1147,7 +1150,10 @@ async function exportWeekPdf() {
       .filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
     for (let index = 0; index < imageAttachments.length; index += 2) {
       pdf.addPage();
-      await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2));
+      await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
+        profileName: profile.full_name || 'Unbekannt',
+        calendarWeek: getWeekLabel(state.selectedWeek),
+      });
     }
   }
 
@@ -1386,7 +1392,7 @@ function drawRemarksBox(pdf, { margin, y, width, height, notes }) {
   pdf.text(content, margin + 24, y + 5, { maxWidth: width - 26 });
 }
 
-async function drawAttachmentGalleryPage(pdf, attachments) {
+async function drawAttachmentGalleryPage(pdf, attachments, { profileName, calendarWeek }) {
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 15;
@@ -1398,7 +1404,7 @@ async function drawAttachmentGalleryPage(pdf, attachments) {
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(16);
-  pdf.text('Liebe Männecken', margin, titleY);
+  pdf.text(`Anhänge · ${profileName} · ${calendarWeek}`, margin, titleY);
 
   for (const [index, attachment] of attachments.entries()) {
     const slotY = 24 + index * (slotHeight + slotGap);
