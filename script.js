@@ -2,8 +2,8 @@ const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const HOLIDAY_TYPE_LABELS = {
-  ferien: 'Fehlen',
-  fehlen: 'Fehlen',
+  ferien: 'Ferien',
+  fehlen: 'Ferien',
   militaer: 'Militär',
   zivildienst: 'Zivildienst',
   unfall: 'Unfall',
@@ -13,7 +13,7 @@ const HOLIDAY_TYPE_LABELS = {
 const ABSENCE_CATEGORY_CONFIG = [
   { key: 'unfall', label: 'Unfall', terms: ['unfall'] },
   { key: 'militaer', label: 'Militär', terms: ['militaer', 'militär', 'zivildienst'] },
-  { key: 'fehlen', label: 'Fehlen', terms: ['ferien', 'fehlen'] },
+  { key: 'ferien', label: 'Ferien', terms: ['ferien', 'fehlen'] },
   { key: 'krankheit', label: 'Krankheit', terms: ['krankheit'] },
   { key: 'feiertag', label: 'Feiertag', terms: ['feiertag'] },
 ];
@@ -436,9 +436,16 @@ async function bootstrapSession() {
         return;
       }
 
+      const nextUserId = session.user.id;
+      const currentUserId = state.user?.id ?? null;
+      const shouldRefreshUserData = ['SIGNED_IN', 'USER_UPDATED'].includes(event);
+      const isSessionRecoveryEvent = ['INITIAL_SESSION', 'TOKEN_REFRESHED'].includes(event);
+
       state.user = session.user;
-      state.hasAdminAccess = false;
-      await loadData();
+
+      if (shouldRefreshUserData || (isSessionRecoveryEvent && currentUserId !== nextUserId)) {
+        await loadData();
+      }
     });
   }
 }
@@ -1429,8 +1436,8 @@ function buildWeeklyMatrixRows(reports) {
 function buildAbsenceMatrixRows(reports) {
   const rows = ABSENCE_CATEGORY_CONFIG.map((category) => ({
     label: category.label,
-    days: Array(6).fill(''),
-    totalDays: 0,
+    days: Array(6).fill(0),
+    totalMinutes: 0,
     notes: [],
   }));
 
@@ -1446,8 +1453,9 @@ function buildAbsenceMatrixRows(reports) {
       return;
     }
 
-    row.days[dayIndex] = 'X';
-    row.totalDays += 1;
+    const absenceMinutes = getAbsenceMinutes(report);
+    row.days[dayIndex] += absenceMinutes;
+    row.totalMinutes += absenceMinutes;
     const commissionNumber = String(report.commission_number || '').trim();
     if (commissionNumber) row.notes.push(commissionNumber);
     if (report.notes) row.notes.push(report.notes);
@@ -1455,20 +1463,29 @@ function buildAbsenceMatrixRows(reports) {
 
   const normalizedRows = rows.map((row) => ({
     label: row.label,
-    days: row.days,
-    total: row.totalDays ? String(row.totalDays) : '',
+    days: row.days.map((minutes) => (minutes ? formatHours(minutes) : '')),
+    total: row.totalMinutes ? formatHours(row.totalMinutes) : '',
     notes: dedupeStrings(row.notes).join(' | '),
   }));
 
-  const totalAbsences = rows.reduce((sum, row) => sum + row.totalDays, 0);
+  const totalAbsenceMinutes = rows.reduce((sum, row) => sum + row.totalMinutes, 0);
   normalizedRows.push({
     label: 'Total Absenzen',
     days: Array(6).fill(''),
-    total: totalAbsences ? String(totalAbsences) : '',
+    total: totalAbsenceMinutes ? formatHours(totalAbsenceMinutes) : '',
     notes: '',
   });
 
   return normalizedRows;
+}
+
+function getAbsenceMinutes(report) {
+  const recordedMinutes = Number(report.total_work_minutes || 0);
+  if (recordedMinutes > 0) {
+    return recordedMinutes;
+  }
+
+  return 8 * 60;
 }
 
 function buildWeeklyRemarkLines(reports) {
@@ -1488,7 +1505,7 @@ function buildEmptyAbsenceRows() {
   return [
     { label: 'Unfall', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Militär', days: Array(6).fill(''), total: '', notes: '' },
-    { label: 'Fehlen', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Ferien', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Krankheit', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Feiertag', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Total Absenzen', days: Array(6).fill(''), total: '', notes: '' },
