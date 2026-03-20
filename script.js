@@ -252,10 +252,12 @@ const state = {
   loadRequestId: 0,
   loadStartedAt: 0,
   tabHiddenAt: 0,
+  loadRecoveryTimer: null,
 };
 
 const elements = {};
 const STALE_LOADING_TIMEOUT_MS = 4000;
+const LOAD_WATCHDOG_TIMEOUT_MS = 10000;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -515,10 +517,18 @@ async function refreshData() {
   await loadData();
 }
 
+function clearLoadRecoveryTimer() {
+  if (state.loadRecoveryTimer) {
+    window.clearTimeout(state.loadRecoveryTimer);
+    state.loadRecoveryTimer = null;
+  }
+}
+
 function clearLoadingState() {
   state.loadRequestId += 1;
   state.isLoadingData = false;
   state.loadStartedAt = 0;
+  clearLoadRecoveryTimer();
 }
 
 function recoverInteractionState({ forceReload = false } = {}) {
@@ -559,9 +569,17 @@ function handleVisibilityChange() {
 }
 
 function beginDataLoad() {
+  clearLoadRecoveryTimer();
   state.isLoadingData = true;
   state.loadStartedAt = Date.now();
   const requestId = ++state.loadRequestId;
+  state.loadRecoveryTimer = window.setTimeout(() => {
+    if (!isActiveDataLoad(requestId) || !state.isLoadingData) {
+      return;
+    }
+
+    recoverInteractionState({ forceReload: true });
+  }, LOAD_WATCHDOG_TIMEOUT_MS);
   render();
   return requestId;
 }
@@ -577,6 +595,7 @@ function finishDataLoad(requestId) {
 
   state.isLoadingData = false;
   state.loadStartedAt = 0;
+  clearLoadRecoveryTimer();
   return true;
 }
 
@@ -600,6 +619,7 @@ function resetAppState() {
   state.loadRequestId = 0;
   state.loadStartedAt = 0;
   state.tabHiddenAt = 0;
+  clearLoadRecoveryTimer();
   closeReportEditModal();
   elements.dataTimestamp.textContent = 'Noch keine Daten geladen';
 }
@@ -1212,7 +1232,7 @@ function handleGlobalKeydown(event) {
 
 function setCurrentPage(page) {
   state.currentPage = page;
-  renderPages();
+  render();
 }
 
 async function exportWeekPdf() {
