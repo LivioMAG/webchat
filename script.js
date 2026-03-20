@@ -316,7 +316,6 @@ function cacheElements() {
   elements.reportStatusButton = document.getElementById('reportStatusButton');
   elements.reportStatusIcon = document.getElementById('reportStatusIcon');
   elements.reportStatusText = document.getElementById('reportStatusText');
-  elements.reloadButton = document.getElementById('reloadButton');
   elements.connectionRefreshButton = document.getElementById('connectionRefreshButton');
   elements.logoutButton = document.getElementById('logoutButton');
   elements.reportsTableBody = document.getElementById('reportsTableBody');
@@ -365,7 +364,6 @@ function bindEvents() {
   elements.loginForm.addEventListener('submit', handleLogin);
   elements.logoutButton.addEventListener('click', handleLogout);
   elements.accessDeniedLogoutButton.addEventListener('click', handleLogout);
-  elements.reloadButton.addEventListener('click', refreshData);
   elements.connectionRefreshButton.addEventListener('click', refreshData);
   elements.weekPicker.addEventListener('change', async (event) => {
     state.selectedWeek = event.target.value;
@@ -2178,7 +2176,7 @@ function buildNightWorkRemark(report) {
     return '';
   }
 
-  return `${getWeekdayShortLabel(report.work_date)} von ${formatTimeLabel(overlap.start)} bis ${formatTimeLabel(overlap.end)}`;
+  return `Nachtarbeit ${getWeekdayLabel(report.work_date)}: ${formatTimeLabel(overlap.start)}–${formatTimeLabel(overlap.end)}`;
 }
 
 function getNightShiftOverlap(startTime, endTime) {
@@ -2267,9 +2265,8 @@ function formatTimeLabel(totalMinutes) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
-function getWeekdayShortLabel(dateString) {
-  const labels = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA'];
-  return labels[new Date(`${dateString}T00:00:00Z`).getUTCDay()] || '';
+function getWeekdayLabel(dateString) {
+  return WEEKDAY_LABELS[getWeekdayIndex(dateString)] || '';
 }
 
 function formatHours(totalMinutes) {
