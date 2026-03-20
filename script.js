@@ -20,6 +20,12 @@ const ABSENCE_CATEGORY_CONFIG = [
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
+alter table public.holiday_requests
+add column if not exists controll_pl text;
+
+alter table public.holiday_requests
+add column if not exists controll_gl text;
+
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
@@ -217,6 +223,8 @@ const demoHolidayRequests = [
     end_date: getDateForWeekOffset(0, 4),
     request_type: 'ferien',
     notes: 'Bereits mit Team abgestimmt.',
+    controll_pl: '',
+    controll_gl: '',
     attachments: [],
   },
   {
@@ -226,6 +234,8 @@ const demoHolidayRequests = [
     end_date: getDateForWeekOffset(1, 2),
     request_type: 'militaer',
     notes: 'WK laut Aufgebot.',
+    controll_pl: '',
+    controll_gl: '',
     attachments: [],
   },
 ];
@@ -258,6 +268,7 @@ const state = {
   configReady: false,
   authListenerBound: false,
   isLoadingData: false,
+  isSavingAbsence: false,
   loadRequestId: 0,
   loadStartedAt: 0,
   tabHiddenAt: 0,
@@ -380,6 +391,7 @@ function bindEvents() {
   elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
   elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
+  elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
@@ -954,13 +966,13 @@ function renderReportsTable() {
 
 function renderAbsenceTable() {
   if (!state.holidayRequests.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="6">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
   const sorted = getFilteredHolidayRequests();
   if (!sorted.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="6">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
@@ -975,6 +987,9 @@ function renderAbsenceTable() {
           <td>${formatDate(request.end_date)}</td>
           <td>${escapeHtml(request.notes || '–')}</td>
           <td>${renderAttachmentLinks(request.attachments)}</td>
+          <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL')}</td>
+          <td>${renderHolidayApprovalCell(request, 'controll_gl', 'GL')}</td>
+          <td>${renderHolidayConfirmationCell(request)}</td>
         </tr>
       `;
     })
@@ -1254,6 +1269,36 @@ function handleReportsTableClick(event) {
   }
 }
 
+function handleAbsencesTableClick(event) {
+  if (event.target.closest('a')) {
+    return;
+  }
+
+  const trigger = event.target.closest('[data-action]');
+  if (!trigger) {
+    return;
+  }
+
+  const requestId = trigger.dataset.requestId;
+  if (!requestId) {
+    return;
+  }
+
+  if (trigger.dataset.action === 'confirm-absence-pl') {
+    handleConfirmHolidayRequest(requestId, 'controll_pl', 'PL');
+    return;
+  }
+
+  if (trigger.dataset.action === 'confirm-absence-gl') {
+    handleConfirmHolidayRequest(requestId, 'controll_gl', 'GL');
+    return;
+  }
+
+  if (trigger.dataset.action === 'download-absence-confirmation') {
+    exportHolidayConfirmationPdf(requestId);
+  }
+}
+
 async function handleConfirmReport(reportId) {
   if (!reportId || state.isSavingReport) {
     return;
@@ -1283,6 +1328,37 @@ async function handleConfirmReport(reportId) {
     alert(`Kontrolle konnte nicht gespeichert werden: ${error.message}`);
   } finally {
     state.isSavingReport = false;
+    render();
+  }
+}
+
+async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
+  if (!requestId || state.isSavingAbsence) {
+    return;
+  }
+
+  const approvalName = getApprovalDisplayName();
+  if (!approvalName) {
+    alert(`Der Name für die Bestätigung ${roleLabel} konnte nicht ermittelt werden.`);
+    return;
+  }
+
+  state.isSavingAbsence = true;
+  try {
+    const updates = { [fieldName]: approvalName };
+    if (state.isDemoMode) {
+      updateDemoHolidayRequest(requestId, updates);
+    } else {
+      const { error } = await state.supabase.from('holiday_requests').update(updates).eq('id', requestId);
+      if (error) throw error;
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Bestätigung ${roleLabel} konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingAbsence = false;
     render();
   }
 }
@@ -1367,6 +1443,15 @@ function updateDemoReport(reportId, updates) {
   Object.assign(report, updates);
 }
 
+function updateDemoHolidayRequest(requestId, updates) {
+  const request = demoHolidayRequests.find((item) => item.id === requestId);
+  if (!request) {
+    throw new Error('Demo-Absenz nicht gefunden');
+  }
+
+  Object.assign(request, updates);
+}
+
 function extractFirstName(value) {
   const normalizedValue = String(value || '').trim();
   if (!normalizedValue) {
@@ -1392,6 +1477,20 @@ function getControllDisplayName() {
   return extractFirstName(emailName);
 }
 
+function getApprovalDisplayName() {
+  const fullName = String(state.currentProfile?.full_name || '').trim();
+  if (fullName) {
+    return fullName;
+  }
+
+  const userMetadataName = String(state.user?.user_metadata?.full_name || state.user?.user_metadata?.name || '').trim();
+  if (userMetadataName) {
+    return userMetadataName;
+  }
+
+  return String(state.user?.email || '').trim().split('@')[0];
+}
+
 function renderControllCell(report) {
   const controllValue = String(report.controll || '').trim();
   if (controllValue) {
@@ -1399,6 +1498,23 @@ function renderControllCell(report) {
   }
 
   return `<button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Bestätigen</button>`;
+}
+
+function renderHolidayApprovalCell(request, fieldName, roleLabel) {
+  const approvalValue = String(request?.[fieldName] || '').trim();
+  if (approvalValue) {
+    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong></div>`;
+  }
+
+  return `<button class="button button-small button-success" type="button" data-action="confirm-absence-${escapeAttribute(roleLabel.toLowerCase())}" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Bestätigung ${escapeHtml(roleLabel)}</button>`;
+}
+
+function renderHolidayConfirmationCell(request) {
+  if (!isHolidayRequestFullyApproved(request)) {
+    return '<span class="subtle-text">Verfügbar nach PL- und GL-Bestätigung</span>';
+  }
+
+  return `<button class="button button-small button-secondary" type="button" data-action="download-absence-confirmation" data-request-id="${escapeAttribute(request.id)}">PDF herunterladen</button>`;
 }
 
 function handleGlobalKeydown(event) {
@@ -1467,6 +1583,144 @@ async function exportWeekPdf() {
   });
 
   pdf.save(`wochenrapport-${state.selectedWeek}.pdf`);
+}
+
+async function exportHolidayConfirmationPdf(requestId) {
+  const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
+  if (!request) {
+    alert('Die ausgewählte Absenz wurde nicht gefunden.');
+    return;
+  }
+
+  if (!isHolidayRequestFullyApproved(request)) {
+    alert('Das Bestätigungsdokument kann erst heruntergeladen werden, wenn PL und GL bestätigt haben.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+  const profile = getProfileById(request.profile_id);
+
+  drawHolidayConfirmationPage(pdf, { request, profile });
+
+  const attachments = Array.isArray(request.attachments) ? request.attachments : [];
+  const imageAttachments = attachments.filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+  const otherAttachments = attachments.filter((attachment) => !isImageAttachment(attachment));
+
+  if (otherAttachments.length) {
+    pdf.addPage();
+    drawHolidayAttachmentListPage(pdf, { attachments: otherAttachments, request, profile });
+  }
+
+  for (let index = 0; index < imageAttachments.length; index += 2) {
+    pdf.addPage();
+    await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
+      profileName: profile?.full_name || 'Unbekannt',
+      calendarWeek: 'Absenz-Bestätigung',
+    });
+  }
+
+  pdf.save(buildHolidayConfirmationFileName(request, profile));
+}
+
+function drawHolidayConfirmationPage(pdf, { request, profile }) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const margin = 18;
+  const contentWidth = pageWidth - margin * 2;
+  const approvalDate = new Date().toLocaleDateString('de-CH');
+  const typeLabel = HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type;
+  const detailRows = [
+    ['Mitarbeiter', profile?.full_name || 'Unbekannt'],
+    ['Typ', typeLabel],
+    ['Von', formatDate(request.start_date)],
+    ['Bis', formatDate(request.end_date)],
+    ['Dauer', getHolidayRequestDurationLabel(request)],
+    ['Bestätigung PL', String(request.controll_pl || '').trim() || '–'],
+    ['Bestätigung GL', String(request.controll_gl || '').trim() || '–'],
+    ['Erstellt am', approvalDate],
+  ];
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(22);
+  pdf.text('Bestätigung Absenz', margin, 22);
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10.5);
+  const introText = `Hiermit wird bestätigt, dass die Absenz "${typeLabel}" für ${profile?.full_name || 'den Mitarbeiter'} im Zeitraum vom ${formatDate(request.start_date)} bis ${formatDate(request.end_date)} durch PL und GL freigegeben wurde.`;
+  pdf.text(introText, margin, 32, { maxWidth: contentWidth, lineHeightFactor: 1.4 });
+
+  pdf.autoTable({
+    startY: 46,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    head: [['Feld', 'Wert']],
+    body: detailRows,
+    theme: 'grid',
+    styles: { font: 'helvetica', fontSize: 10, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.2 },
+    headStyles: { fillColor: [215, 0, 21], textColor: [255, 255, 255] },
+    columnStyles: { 0: { cellWidth: 42, fontStyle: 'bold' }, 1: { cellWidth: contentWidth - 42 } },
+  });
+
+  const notesY = (pdf.lastAutoTable?.finalY || 92) + 10;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('Bemerkung', margin, notesY);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.rect(margin, notesY + 3, contentWidth, 38);
+  pdf.text(request.notes || 'Keine zusätzliche Bemerkung vorhanden.', margin + 3, notesY + 10, {
+    maxWidth: contentWidth - 6,
+    lineHeightFactor: 1.4,
+  });
+
+  const signatureTop = notesY + 52;
+  pdf.line(margin, signatureTop, margin + 68, signatureTop);
+  pdf.line(pageWidth - margin - 68, signatureTop, pageWidth - margin, signatureTop);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Projektleitung (PL)', margin, signatureTop + 6);
+  pdf.text('Geschäftsleitung (GL)', pageWidth - margin - 68, signatureTop + 6);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(String(request.controll_pl || '').trim() || '–', margin, signatureTop + 12);
+  pdf.text(String(request.controll_gl || '').trim() || '–', pageWidth - margin - 68, signatureTop + 12);
+}
+
+function drawHolidayAttachmentListPage(pdf, { attachments, request, profile }) {
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(16);
+  pdf.text('Anhangsverzeichnis', 15, 18);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.text(`${profile?.full_name || 'Unbekannt'} · ${HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type}`, 15, 25);
+
+  const body = attachments.map((attachment) => [
+    attachment.name || 'Anhang',
+    attachment.mimeType || 'Datei',
+    attachment.publicUrl || attachment.path || 'Kein Link verfügbar',
+  ]);
+
+  pdf.autoTable({
+    startY: 32,
+    margin: { left: 15, right: 15 },
+    head: [['Datei', 'Typ', 'Quelle']],
+    body,
+    theme: 'grid',
+    styles: { fontSize: 8.5, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.2, overflow: 'linebreak' },
+    headStyles: { fillColor: [22, 163, 74], textColor: [255, 255, 255] },
+    columnStyles: {
+      0: { cellWidth: 48 },
+      1: { cellWidth: 34 },
+      2: { cellWidth: 98 },
+    },
+  });
+}
+
+function buildHolidayConfirmationFileName(request, profile) {
+  const safeName = String(profile?.full_name || 'mitarbeiter')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `bestaetigung-${safeName || 'mitarbeiter'}-${request.start_date}-${request.end_date}.pdf`;
 }
 
 function buildWeeklyReportLayout(reports) {
@@ -1806,6 +2060,20 @@ function getAbsenceMinutes(report) {
   }
 
   return 8 * 60;
+}
+
+function isHolidayRequestFullyApproved(request) {
+  return Boolean(String(request?.controll_pl || '').trim() && String(request?.controll_gl || '').trim());
+}
+
+function getHolidayRequestDurationLabel(request) {
+  const start = new Date(`${request.start_date}T00:00:00Z`);
+  const end = new Date(`${request.end_date}T00:00:00Z`);
+  const diffDays = Math.round((end - start) / 86400000) + 1;
+  if (diffDays <= 1) {
+    return '1 Tag';
+  }
+  return `${diffDays} Tage`;
 }
 
 function buildWeeklyRemarkLines(reports) {
