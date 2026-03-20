@@ -250,9 +250,12 @@ const state = {
   authListenerBound: false,
   isLoadingData: false,
   loadRequestId: 0,
+  loadStartedAt: 0,
+  tabHiddenAt: 0,
 };
 
 const elements = {};
+const STALE_LOADING_TIMEOUT_MS = 4000;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -515,10 +518,16 @@ async function refreshData() {
 function clearLoadingState() {
   state.loadRequestId += 1;
   state.isLoadingData = false;
+  state.loadStartedAt = 0;
 }
 
-function recoverInteractionState() {
+function recoverInteractionState({ forceReload = false } = {}) {
   if (!state.isLoadingData) {
+    return;
+  }
+
+  const loadingDuration = state.loadStartedAt ? Date.now() - state.loadStartedAt : 0;
+  if (!forceReload && loadingDuration < STALE_LOADING_TIMEOUT_MS) {
     return;
   }
 
@@ -533,17 +542,25 @@ function recoverInteractionState() {
 }
 
 function handleWindowFocus() {
-  recoverInteractionState();
+  const tabWasHidden = state.tabHiddenAt > 0;
+  state.tabHiddenAt = 0;
+  recoverInteractionState({ forceReload: tabWasHidden });
 }
 
 function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    state.tabHiddenAt = Date.now();
+    return;
+  }
+
   if (document.visibilityState === 'visible') {
-    recoverInteractionState();
+    recoverInteractionState({ forceReload: true });
   }
 }
 
 function beginDataLoad() {
   state.isLoadingData = true;
+  state.loadStartedAt = Date.now();
   const requestId = ++state.loadRequestId;
   render();
   return requestId;
@@ -559,6 +576,7 @@ function finishDataLoad(requestId) {
   }
 
   state.isLoadingData = false;
+  state.loadStartedAt = 0;
   return true;
 }
 
@@ -580,6 +598,8 @@ function resetAppState() {
   state.isAdminStatusResolved = false;
   state.isLoadingData = false;
   state.loadRequestId = 0;
+  state.loadStartedAt = 0;
+  state.tabHiddenAt = 0;
   closeReportEditModal();
   elements.dataTimestamp.textContent = 'Noch keine Daten geladen';
 }
