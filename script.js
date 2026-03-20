@@ -2163,11 +2163,52 @@ function buildWeeklyRemarkLines(reports) {
     if (report.notes) {
       notes.push(`${formatDate(report.work_date)}: ${report.notes}`);
     }
-    if (hasOutOfHoursWork(report.start_time, report.end_time)) {
-      notes.push(`${formatDate(report.work_date)}: Arbeitszeit von ${report.start_time} bis ${report.end_time}.`);
+
+    const nightWorkRemark = buildNightWorkRemark(report);
+    if (nightWorkRemark) {
+      notes.push(nightWorkRemark);
     }
   });
   return dedupeStrings(notes);
+}
+
+function buildNightWorkRemark(report) {
+  const overlap = getNightShiftOverlap(report.start_time, report.end_time);
+  if (!overlap) {
+    return '';
+  }
+
+  return `${getWeekdayShortLabel(report.work_date)} von ${formatTimeLabel(overlap.start)} bis ${formatTimeLabel(overlap.end)}`;
+}
+
+function getNightShiftOverlap(startTime, endTime) {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  if (startMinutes === null || endMinutes === null) {
+    return null;
+  }
+
+  const normalizedEndMinutes = endMinutes <= startMinutes ? endMinutes + 24 * 60 : endMinutes;
+  const nightWindows = [
+    { start: 0, end: 6 * 60 },
+    { start: 22 * 60, end: 30 * 60 },
+  ];
+
+  const overlapSegments = nightWindows
+    .map((window) => ({
+      start: Math.max(startMinutes, window.start),
+      end: Math.min(normalizedEndMinutes, window.end),
+    }))
+    .filter((segment) => segment.end > segment.start);
+
+  if (!overlapSegments.length) {
+    return null;
+  }
+
+  return {
+    start: overlapSegments[0].start,
+    end: overlapSegments[overlapSegments.length - 1].end,
+  };
 }
 
 function buildEmptyAbsenceRows() {
@@ -2204,11 +2245,31 @@ function dedupeStrings(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
-function hasOutOfHoursWork(startTime, endTime) {
-  if (!startTime || !endTime) {
-    return false;
+function parseTimeToMinutes(timeString) {
+  const match = String(timeString || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return null;
   }
-  return startTime < '07:00' || endTime > '22:00';
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function formatTimeLabel(totalMinutes) {
+  const normalizedMinutes = ((Number(totalMinutes) % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function getWeekdayShortLabel(dateString) {
+  const labels = ['SO', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA'];
+  return labels[new Date(`${dateString}T00:00:00Z`).getUTCDay()] || '';
 }
 
 function formatHours(totalMinutes) {
