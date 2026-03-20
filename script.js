@@ -888,7 +888,7 @@ function renderAbsenceFilters() {
   elements.selectedAbsenceEmployeesSummary.textContent = `${state.selectedAbsenceEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
 
   if (!profiles.length) {
-    elements.absenceFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden mit Ferien oder Absenzen vorhanden.</div>';
+    elements.absenceFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden vorhanden.</div>';
     return;
   }
 
@@ -1901,12 +1901,11 @@ function getAvailableAbsenceProfileIds() {
 }
 
 function getReportableProfiles() {
-  return state.profiles.filter((profile) => !isAdminProfile(profile));
+  return [...state.profiles];
 }
 
 function getAbsenceFilterProfiles() {
-  const profileIds = new Set(state.holidayRequests.map((request) => request.profile_id).filter(Boolean));
-  return getReportableProfiles().filter((profile) => profileIds.has(profile.id));
+  return getReportableProfiles();
 }
 
 function getMatchingProfiles(profiles, query) {
