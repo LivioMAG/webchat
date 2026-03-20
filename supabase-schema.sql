@@ -47,6 +47,8 @@ create table if not exists public.holiday_requests (
   end_date date not null,
   request_type text not null check (request_type in ('ferien', 'militaer', 'zivildienst', 'unfall', 'krankheit', 'feiertag')),
   notes text,
+  controll_pl text,
+  controll_gl text,
   attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
@@ -58,6 +60,12 @@ add column if not exists is_admin boolean not null default false;
 
 alter table public.weekly_reports
 add column if not exists controll text;
+
+alter table public.holiday_requests
+add column if not exists controll_pl text;
+
+alter table public.holiday_requests
+add column if not exists controll_gl text;
 
 create or replace function public.is_admin_user()
 returns boolean

@@ -630,6 +630,14 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.status-stack.compact {
+  gap: 4px;
+}
+
+.status-stack .subtle-text {
+  font-size: 12px;
+}
+
 .status-list li.align-start {
   align-items: start;
 }
