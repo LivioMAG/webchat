@@ -152,6 +152,7 @@ const demoWeeklyReports = [
     other_costs_amount: 0,
     expense_note: 'Mittag auf Baustelle',
     notes: 'Leitungen montiert',
+    controll: '',
     attachments: [],
   },
   {
@@ -168,6 +169,7 @@ const demoWeeklyReports = [
     other_costs_amount: 0,
     expense_note: 'Spesen',
     notes: 'Abschluss Elektroinstallationen',
+    controll: 'Master Admin',
     attachments: [],
   },
   {
@@ -184,6 +186,7 @@ const demoWeeklyReports = [
     other_costs_amount: 8,
     expense_note: 'Parkhaus',
     notes: 'Serviceeinsatz und Messung',
+    controll: '',
     attachments: [],
   },
   {
@@ -200,6 +203,7 @@ const demoWeeklyReports = [
     other_costs_amount: 0,
     expense_note: '',
     notes: 'Ferientag',
+    controll: '',
     attachments: [],
   },
 ];
@@ -895,7 +899,7 @@ function renderReportsTable() {
           <td>${formatCurrency(Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0))}</td>
           <td>${escapeHtml(report.notes || report.expense_note || '–')}</td>
           <td>${renderAttachmentLinks(report.attachments)}</td>
-          <td><button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}">Bestätigen</button></td>
+          <td>${renderControllCell(report)}</td>
           <td>
             <div class="table-row-actions">
               <button class="button button-small button-secondary" type="button" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">Bearbeiten</button>
@@ -936,18 +940,24 @@ function renderSubmissionLists() {
   const summaries = getProfileSubmissionSummary();
   const submittedItems = summaries
     .filter((summary) => summary.hasSubmission)
-    .map((summary) => `
+    .map((summary) => {
+      const statusLabel = summary.hasPendingControll
+        ? 'Rapporte erfasst – Kontrolle ausstehend'
+        : 'Rapporte erfasst';
+      const statusClass = summary.hasPendingControll ? 'warning' : 'success';
+      return `
       <li class="align-start">
         <div class="status-stack">
           <strong>${escapeHtml(summary.profile.full_name)}</strong>
           <div class="subtle-text">${summary.entryCount} Rapporteinträge in dieser Woche</div>
         </div>
         <div class="status-meta">
-          <span class="pill success">Rapport erfasst</span>
+          <span class="pill ${statusClass}">${escapeHtml(statusLabel)}</span>
           <strong>${formatMinutes(summary.totalMinutes)}</strong>
         </div>
       </li>
-    `);
+    `;
+    });
 
   const missingItems = summaries
     .filter((summary) => !summary.hasSubmission)
@@ -1109,12 +1119,14 @@ function getProfileSubmissionSummary() {
   return getReportableProfiles().map((profile) => {
     const reports = groups.get(profile.id) ?? [];
     const totalMinutes = reports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
+    const hasPendingControll = reports.some((report) => !String(report.controll || '').trim());
     return {
       profile,
       reports,
       entryCount: reports.length,
       totalMinutes,
       hasSubmission: reports.length > 0,
+      hasPendingControll,
     };
   });
 }
@@ -1140,7 +1152,40 @@ function handleReportsTableClick(event) {
   }
 
   if (trigger.dataset.action === 'confirm-report') {
-    alert('Der Bestätigen-Button ist vorbereitet. Die eigentliche Kontroll-Logik folgt im nächsten Schritt.');
+    handleConfirmReport(reportId);
+  }
+}
+
+async function handleConfirmReport(reportId) {
+  if (!reportId || state.isSavingReport) {
+    return;
+  }
+
+  const controllName = getControllDisplayName();
+  if (!controllName) {
+    alert('Der Name für die Kontrolle konnte nicht ermittelt werden.');
+    return;
+  }
+
+  state.isSavingReport = true;
+  try {
+    if (state.isDemoMode) {
+      updateDemoReport(reportId, { controll: controllName });
+    } else {
+      const { error } = await state.supabase
+        .from('weekly_reports')
+        .update({ controll: controllName })
+        .eq('id', reportId);
+      if (error) throw error;
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Kontrolle konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingReport = false;
+    render();
   }
 }
 
@@ -1222,6 +1267,29 @@ function updateDemoReport(reportId, updates) {
   }
 
   Object.assign(report, updates);
+}
+
+function getControllDisplayName() {
+  const fullName = String(state.currentProfile?.full_name || '').trim();
+  if (fullName) {
+    return fullName;
+  }
+
+  const userMetadataName = String(state.user?.user_metadata?.full_name || state.user?.user_metadata?.name || '').trim();
+  if (userMetadataName) {
+    return userMetadataName;
+  }
+
+  return String(state.user?.email || '').trim();
+}
+
+function renderControllCell(report) {
+  const controllValue = String(report.controll || '').trim();
+  if (controllValue) {
+    return `<div class="status-stack"><span class="pill success">Kontrolliert</span><strong>${escapeHtml(controllValue)}</strong></div>`;
+  }
+
+  return `<button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Bestätigen</button>`;
 }
 
 function handleGlobalKeydown(event) {
