@@ -34,6 +34,7 @@ create table if not exists public.weekly_reports (
   other_costs_amount numeric(10,2) not null default 0,
   expense_note text,
   notes text,
+  controll text,
   attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
@@ -54,6 +55,9 @@ create table if not exists public.holiday_requests (
 
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
+
+alter table public.weekly_reports
+add column if not exists controll text;
 
 create or replace function public.is_admin_user()
 returns boolean
