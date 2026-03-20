@@ -169,7 +169,7 @@ const demoWeeklyReports = [
     other_costs_amount: 0,
     expense_note: 'Spesen',
     notes: 'Abschluss Elektroinstallationen',
-    controll: 'Master Admin',
+    controll: 'Master',
     attachments: [],
   },
   {
@@ -941,9 +941,7 @@ function renderSubmissionLists() {
   const submittedItems = summaries
     .filter((summary) => summary.hasSubmission)
     .map((summary) => {
-      const statusLabel = summary.hasPendingControll
-        ? 'Rapporte erfasst – Kontrolle ausstehend'
-        : 'Rapporte erfasst';
+      const statusLabel = summary.hasPendingControll ? 'Kontrolle ausstehend' : 'Rapporte erfasst';
       const statusClass = summary.hasPendingControll ? 'warning' : 'success';
       return `
       <li class="align-start">
@@ -1269,18 +1267,29 @@ function updateDemoReport(reportId, updates) {
   Object.assign(report, updates);
 }
 
+function extractFirstName(value) {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) {
+    return '';
+  }
+
+  const [firstName] = normalizedValue.split(/\s+/);
+  return firstName || '';
+}
+
 function getControllDisplayName() {
-  const fullName = String(state.currentProfile?.full_name || '').trim();
+  const fullName = extractFirstName(state.currentProfile?.full_name);
   if (fullName) {
     return fullName;
   }
 
-  const userMetadataName = String(state.user?.user_metadata?.full_name || state.user?.user_metadata?.name || '').trim();
+  const userMetadataName = extractFirstName(state.user?.user_metadata?.full_name || state.user?.user_metadata?.name);
   if (userMetadataName) {
     return userMetadataName;
   }
 
-  return String(state.user?.email || '').trim();
+  const emailName = String(state.user?.email || '').trim().split('@')[0];
+  return extractFirstName(emailName);
 }
 
 function renderControllCell(report) {
