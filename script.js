@@ -1296,6 +1296,11 @@ function handleAbsencesTableClick(event) {
 
   if (trigger.dataset.action === 'download-absence-confirmation') {
     exportHolidayConfirmationPdf(requestId);
+    return;
+  }
+
+  if (trigger.dataset.action === 'reject-absence-request') {
+    handleRejectHolidayRequest(requestId);
   }
 }
 
@@ -1357,6 +1362,47 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
   } catch (error) {
     console.error(error);
     alert(`Bestätigung ${roleLabel} konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingAbsence = false;
+    render();
+  }
+}
+
+async function handleRejectHolidayRequest(requestId) {
+  if (!requestId || state.isSavingAbsence) {
+    return;
+  }
+
+  const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
+  if (!request) {
+    alert('Das ausgewählte Absenzgesuch wurde nicht gefunden.');
+    return;
+  }
+
+  if (String(request.controll_pl || '').trim() || String(request.controll_gl || '').trim()) {
+    alert('Ein Gesuch kann nur abgelehnt werden, solange noch keine Bestätigung erfolgt ist.');
+    return;
+  }
+
+  const shouldDelete = window.confirm('Soll dieses Absenzgesuch wirklich abgelehnt und gelöscht werden?');
+  if (!shouldDelete) {
+    return;
+  }
+
+  state.isSavingAbsence = true;
+  try {
+    if (state.isDemoMode) {
+      deleteDemoHolidayRequest(requestId);
+    } else {
+      await deleteHolidayRequestAttachments(request.attachments);
+      const { error } = await state.supabase.from('holiday_requests').delete().eq('id', requestId);
+      if (error) throw error;
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Absenzgesuch konnte nicht abgelehnt werden: ${error.message}`);
   } finally {
     state.isSavingAbsence = false;
     render();
@@ -1452,6 +1498,15 @@ function updateDemoHolidayRequest(requestId, updates) {
   Object.assign(request, updates);
 }
 
+function deleteDemoHolidayRequest(requestId) {
+  const requestIndex = demoHolidayRequests.findIndex((item) => item.id === requestId);
+  if (requestIndex === -1) {
+    throw new Error('Demo-Absenz nicht gefunden');
+  }
+
+  demoHolidayRequests.splice(requestIndex, 1);
+}
+
 function extractFirstName(value) {
   const normalizedValue = String(value || '').trim();
   if (!normalizedValue) {
@@ -1511,7 +1566,12 @@ function renderHolidayApprovalCell(request, fieldName, roleLabel) {
 
 function renderHolidayConfirmationCell(request) {
   if (!isHolidayRequestFullyApproved(request)) {
-    return '<span class="subtle-text">Verfügbar nach PL- und GL-Bestätigung</span>';
+    const hasAnyApproval = Boolean(String(request?.controll_pl || '').trim() || String(request?.controll_gl || '').trim());
+    if (hasAnyApproval) {
+      return '<span class="subtle-text">PDF verfügbar nach PL- und GL-Bestätigung</span>';
+    }
+
+    return `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Gesuch ablehnen</button>`;
   }
 
   return `<button class="button button-small button-secondary" type="button" data-action="download-absence-confirmation" data-request-id="${escapeAttribute(request.id)}">PDF herunterladen</button>`;
@@ -1674,14 +1734,30 @@ function drawHolidayConfirmationPage(pdf, { request, profile }) {
   });
 
   const signatureTop = notesY + 52;
-  pdf.line(margin, signatureTop, margin + 68, signatureTop);
-  pdf.line(pageWidth - margin - 68, signatureTop, pageWidth - margin, signatureTop);
+  const signatureLineWidth = Math.min(92, contentWidth);
+  const signatureLeft = margin + (contentWidth - signatureLineWidth) / 2;
+  pdf.line(signatureLeft, signatureTop, signatureLeft + signatureLineWidth, signatureTop);
   pdf.setFont('helvetica', 'bold');
-  pdf.text('Projektleitung (PL)', margin, signatureTop + 6);
-  pdf.text('Geschäftsleitung (GL)', pageWidth - margin - 68, signatureTop + 6);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text(String(request.controll_pl || '').trim() || '–', margin, signatureTop + 12);
-  pdf.text(String(request.controll_gl || '').trim() || '–', pageWidth - margin - 68, signatureTop + 12);
+  pdf.text('Unterschrift', signatureLeft, signatureTop + 6);
+}
+
+async function deleteHolidayRequestAttachments(attachments = []) {
+  if (!Array.isArray(attachments) || !attachments.length || state.isDemoMode || !state.supabase) {
+    return;
+  }
+
+  const paths = attachments
+    .map((attachment) => String(attachment?.path || '').trim())
+    .filter(Boolean);
+
+  if (!paths.length) {
+    return;
+  }
+
+  const { error } = await state.supabase.storage.from(STORAGE_BUCKET).remove(paths);
+  if (error) {
+    throw error;
+  }
 }
 
 function drawHolidayAttachmentListPage(pdf, { attachments, request, profile }) {

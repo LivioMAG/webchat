@@ -625,6 +625,11 @@ tbody tr:hover {
   background: rgba(19, 115, 51, 0.12);
 }
 
+.button-danger {
+  color: var(--accent);
+  background: rgba(215, 0, 21, 0.12);
+}
+
 .status-stack {
   display: grid;
   gap: 6px;
