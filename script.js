@@ -244,6 +244,7 @@ const state = {
   isSavingReport: false,
   isDemoMode: false,
   hasAdminAccess: false,
+  isAdminStatusResolved: false,
   configReady: false,
   authListenerBound: false,
   isLoadingData: false,
@@ -366,6 +367,9 @@ function bindEvents() {
     }
   });
   document.addEventListener('keydown', handleGlobalKeydown);
+  window.addEventListener('focus', handleWindowFocus);
+  window.addEventListener('pageshow', handleWindowFocus);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   elements.navTabs.forEach((tab) => {
     tab.addEventListener('click', () => setCurrentPage(tab.dataset.page));
   });
@@ -419,6 +423,7 @@ async function bootstrapSession() {
   if (state.session?.user) {
     state.user = state.session.user;
     state.hasAdminAccess = false;
+    state.isAdminStatusResolved = false;
     await loadData();
   }
 
@@ -443,6 +448,7 @@ async function bootstrapSession() {
       const isSessionRecoveryEvent = ['INITIAL_SESSION', 'TOKEN_REFRESHED'].includes(event);
 
       state.user = session.user;
+      state.isAdminStatusResolved = false;
 
       if (shouldRefreshUserData || (isSessionRecoveryEvent && currentUserId !== nextUserId)) {
         await loadData();
@@ -461,6 +467,7 @@ async function handleLogin(event) {
     state.user = { id: demoProfile.id, email: demoProfile.email };
     state.currentProfile = demoProfile;
     state.hasAdminAccess = isAdminProfile(demoProfile);
+    state.isAdminStatusResolved = true;
     await loadDemoData();
     showLoginMessage('Demo-Login erfolgreich.', false);
     render();
@@ -476,6 +483,7 @@ async function handleLogin(event) {
   state.session = data.session;
   state.user = data.user;
   state.hasAdminAccess = false;
+  state.isAdminStatusResolved = false;
   await loadData();
   showLoginMessage('Login erfolgreich.', false);
   render();
@@ -501,6 +509,36 @@ async function handleLogout() {
 
 async function refreshData() {
   await loadData();
+}
+
+function clearLoadingState() {
+  state.loadRequestId += 1;
+  state.isLoadingData = false;
+}
+
+function recoverInteractionState() {
+  if (!state.isLoadingData) {
+    return;
+  }
+
+  clearLoadingState();
+  render();
+
+  if (state.user) {
+    loadData().catch((error) => {
+      console.error(error);
+    });
+  }
+}
+
+function handleWindowFocus() {
+  recoverInteractionState();
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    recoverInteractionState();
+  }
 }
 
 function beginDataLoad() {
@@ -537,6 +575,7 @@ function resetAppState() {
   state.editingReportId = null;
   state.isSavingReport = false;
   state.hasAdminAccess = false;
+  state.isAdminStatusResolved = false;
   state.isLoadingData = false;
   state.loadRequestId = 0;
   closeReportEditModal();
@@ -547,6 +586,11 @@ async function loadData() {
   if (!state.user) {
     render();
     return;
+  }
+
+  const shouldResolveAdminStatus = !state.currentProfile || state.currentProfile.id !== state.user.id;
+  if (shouldResolveAdminStatus) {
+    state.isAdminStatusResolved = false;
   }
 
   const requestId = beginDataLoad();
@@ -567,6 +611,7 @@ async function loadData() {
     }
     state.currentProfile = currentProfile ?? buildFallbackProfileFromUser(state.user);
     state.hasAdminAccess = isAdminProfile(state.currentProfile);
+    state.isAdminStatusResolved = true;
 
     if (!state.hasAdminAccess) {
       state.profiles = [];
@@ -641,6 +686,7 @@ async function fetchCurrentProfile() {
 
 async function loadDemoData() {
   state.currentProfile = demoProfiles.find((profile) => profile.id === state.user.id) ?? demoProfiles[0];
+  state.isAdminStatusResolved = true;
 
   if (!state.hasAdminAccess) {
     state.profiles = [];
@@ -663,11 +709,22 @@ async function loadDemoData() {
 function render() {
   const loggedIn = Boolean(state.user);
   const hasAdminAccess = loggedIn && state.hasAdminAccess;
-  const showAccessDenied = loggedIn && !state.hasAdminAccess;
+  const isCheckingAdminAccess = loggedIn && !state.isAdminStatusResolved && !state.currentProfile;
+  const showAccessDenied = loggedIn && state.isAdminStatusResolved && !state.hasAdminAccess;
 
-  elements.loginView.classList.toggle('hidden', loggedIn);
+  elements.loginView.classList.toggle('hidden', loggedIn || isCheckingAdminAccess);
   elements.appView.classList.toggle('hidden', !hasAdminAccess);
   elements.accessDeniedView.classList.toggle('hidden', !showAccessDenied);
+
+  if (isCheckingAdminAccess) {
+    closeReportEditModal();
+    elements.accessDeniedView.classList.add('hidden');
+    elements.loginView.classList.remove('hidden');
+    if (elements.loginAlert) {
+      showLoginMessage('Admin-Zugriff wird geprüft …', false);
+    }
+    return;
+  }
 
   if (!hasAdminAccess) {
     closeReportEditModal();
@@ -1096,6 +1153,7 @@ async function handleReportEditSubmit(event) {
     alert(`Rapport konnte nicht aktualisiert werden: ${error.message}`);
   } finally {
     state.isSavingReport = false;
+    render();
   }
 }
 

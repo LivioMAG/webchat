@@ -717,6 +717,12 @@ tbody tr:hover {
   text-decoration: none;
 }
 
+.page {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+}
+
 .page.hidden {
   display: none;
 }
