@@ -17,6 +17,7 @@ const ABSENCE_CATEGORY_CONFIG = [
   { key: 'krankheit', label: 'Krankheit', terms: ['krankheit'] },
   { key: 'feiertag', label: 'Feiertag', terms: ['feiertag'] },
 ];
+const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.app_profiles enable row level security;
@@ -243,6 +244,10 @@ const state = {
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
   employeeSelectionTouched: false,
+  absenceFilterQuery: '',
+  selectedAbsenceEmployeeIds: [],
+  absenceSelectionInitialized: false,
+  absenceSelectionTouched: false,
   reportsPage: 1,
   reportsPerPage: 10,
   editingReportId: null,
@@ -313,6 +318,11 @@ function cacheElements() {
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
   elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.selectedAbsenceEmployeesSummary = document.getElementById('selectedAbsenceEmployeesSummary');
+  elements.absenceFilterInput = document.getElementById('absenceFilterInput');
+  elements.absenceFilterList = document.getElementById('absenceFilterList');
+  elements.selectAllAbsenceEmployeesButton = document.getElementById('selectAllAbsenceEmployeesButton');
+  elements.clearAbsenceSelectionButton = document.getElementById('clearAbsenceSelectionButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
   elements.reportsNextPageButton = document.getElementById('reportsNextPageButton');
   elements.reportsPaginationSummary = document.getElementById('reportsPaginationSummary');
@@ -365,6 +375,10 @@ function bindEvents() {
   elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
+  elements.absenceFilterInput.addEventListener('input', handleAbsenceFilterInput);
+  elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
+  elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
+  elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
@@ -702,6 +716,7 @@ async function loadData() {
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
     syncEmployeeSelection();
+    syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
     finishDataLoad(requestId);
     render();
@@ -750,6 +765,7 @@ async function loadDemoData() {
   state.weeklyReports = reports;
   state.holidayRequests = [...demoHolidayRequests];
   syncEmployeeSelection();
+  syncAbsenceSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
 }
 
@@ -783,6 +799,7 @@ function render() {
   renderWeekSummary();
   renderReportStats();
   renderEmployeeFilters();
+  renderAbsenceFilters();
   renderReportsTable();
   renderSubmissionLists();
   renderAbsenceTable();
@@ -842,8 +859,7 @@ function renderReportStats() {
 function renderEmployeeFilters() {
   elements.employeeFilterInput.value = state.employeeFilterQuery;
   const profiles = getReportableProfiles();
-  const query = state.employeeFilterQuery.trim().toLowerCase();
-  const visibleProfiles = profiles.filter((profile) => `${profile.full_name}`.toLowerCase().includes(query));
+  const visibleProfiles = getMatchingProfiles(profiles, state.employeeFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
 
   elements.selectedEmployeesSummary.textContent = `${state.selectedEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
 
@@ -857,6 +873,30 @@ function renderEmployeeFilters() {
         .map((profile) => `
           <label class="employee-filter-option">
             <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
+            <span>${escapeHtml(profile.full_name)}</span>
+          </label>
+        `)
+        .join('')
+    : '<div class="empty-state">Keine Mitarbeitenden für diesen Suchbegriff gefunden.</div>';
+}
+
+function renderAbsenceFilters() {
+  elements.absenceFilterInput.value = state.absenceFilterQuery;
+  const profiles = getAbsenceFilterProfiles();
+  const visibleProfiles = getMatchingProfiles(profiles, state.absenceFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
+
+  elements.selectedAbsenceEmployeesSummary.textContent = `${state.selectedAbsenceEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
+
+  if (!profiles.length) {
+    elements.absenceFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden mit Ferien oder Absenzen vorhanden.</div>';
+    return;
+  }
+
+  elements.absenceFilterList.innerHTML = visibleProfiles.length
+    ? visibleProfiles
+        .map((profile) => `
+          <label class="employee-filter-option">
+            <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedAbsenceEmployeeIds.includes(profile.id) ? 'checked' : ''} />
             <span>${escapeHtml(profile.full_name)}</span>
           </label>
         `)
@@ -918,7 +958,12 @@ function renderAbsenceTable() {
     return;
   }
 
-  const sorted = [...state.holidayRequests].sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
+  const sorted = getFilteredHolidayRequests();
+  if (!sorted.length) {
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="6">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    return;
+  }
+
   elements.absencesTableBody.innerHTML = sorted
     .map((request) => {
       const profile = getProfileById(request.profile_id);
@@ -984,6 +1029,11 @@ function handleEmployeeFilterInput(event) {
   renderEmployeeFilters();
 }
 
+function handleAbsenceFilterInput(event) {
+  state.absenceFilterQuery = event.target.value;
+  renderAbsenceFilters();
+}
+
 function handleEmployeeSelectionChange(event) {
   if (event.target?.type !== 'checkbox') {
     return;
@@ -1004,6 +1054,25 @@ function handleEmployeeSelectionChange(event) {
   render();
 }
 
+function handleAbsenceSelectionChange(event) {
+  if (event.target?.type !== 'checkbox') {
+    return;
+  }
+
+  const profileId = event.target.value;
+  if (event.target.checked) {
+    if (!state.selectedAbsenceEmployeeIds.includes(profileId)) {
+      state.selectedAbsenceEmployeeIds = [...state.selectedAbsenceEmployeeIds, profileId];
+    }
+  } else {
+    state.selectedAbsenceEmployeeIds = state.selectedAbsenceEmployeeIds.filter((id) => id !== profileId);
+  }
+
+  state.absenceSelectionInitialized = true;
+  state.absenceSelectionTouched = true;
+  render();
+}
+
 function selectAllEmployees() {
   state.selectedEmployeeIds = getAvailableReportProfileIds();
   state.employeeSelectionInitialized = true;
@@ -1017,6 +1086,20 @@ function clearEmployeeSelection() {
   state.employeeSelectionInitialized = true;
   state.employeeSelectionTouched = true;
   state.reportsPage = 1;
+  render();
+}
+
+function selectAllAbsenceEmployees() {
+  state.selectedAbsenceEmployeeIds = getAvailableAbsenceProfileIds();
+  state.absenceSelectionInitialized = true;
+  state.absenceSelectionTouched = true;
+  render();
+}
+
+function clearAbsenceSelection() {
+  state.selectedAbsenceEmployeeIds = [];
+  state.absenceSelectionInitialized = true;
+  state.absenceSelectionTouched = true;
   render();
 }
 
@@ -1038,11 +1121,28 @@ function syncEmployeeSelection() {
     return;
   }
 
-  if (validIds.length) {
-    state.selectedEmployeeIds = selected;
-  }
+  state.selectedEmployeeIds = validIds.length ? selected : [];
   const pageCount = Math.max(1, Math.ceil(getSortedFilteredReports().length / state.reportsPerPage));
   state.reportsPage = Math.min(state.reportsPage, pageCount);
+}
+
+function syncAbsenceSelection() {
+  const validIds = getAvailableAbsenceProfileIds();
+  const validIdSet = new Set(validIds);
+  const selected = state.selectedAbsenceEmployeeIds.filter((id) => validIdSet.has(id));
+
+  if (!state.absenceSelectionInitialized) {
+    state.selectedAbsenceEmployeeIds = [...validIds];
+    state.absenceSelectionInitialized = true;
+    return;
+  }
+
+  if (!state.absenceSelectionTouched) {
+    state.selectedAbsenceEmployeeIds = [...validIds];
+    return;
+  }
+
+  state.selectedAbsenceEmployeeIds = validIds.length ? selected : [];
 }
 
 function getFilteredReports() {
@@ -1791,8 +1891,34 @@ function getAvailableReportProfileIds() {
   return [...new Set(state.weeklyReports.map((report) => report.profile_id).filter(Boolean))];
 }
 
+function getAvailableAbsenceProfileIds() {
+  const profileIds = getAbsenceFilterProfiles().map((profile) => profile.id);
+  if (profileIds.length) {
+    return profileIds;
+  }
+
+  return [...new Set(state.holidayRequests.map((request) => request.profile_id).filter(Boolean))];
+}
+
 function getReportableProfiles() {
   return state.profiles.filter((profile) => !isAdminProfile(profile));
+}
+
+function getAbsenceFilterProfiles() {
+  const profileIds = new Set(state.holidayRequests.map((request) => request.profile_id).filter(Boolean));
+  return getReportableProfiles().filter((profile) => profileIds.has(profile.id));
+}
+
+function getMatchingProfiles(profiles, query) {
+  const normalizedQuery = `${query || ''}`.trim().toLowerCase();
+  return profiles.filter((profile) => `${profile.full_name}`.toLowerCase().includes(normalizedQuery));
+}
+
+function getFilteredHolidayRequests() {
+  const selectedIds = new Set(state.selectedAbsenceEmployeeIds);
+  return [...state.holidayRequests]
+    .filter((request) => selectedIds.has(request.profile_id))
+    .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
 }
 
 function groupReportsByProfile(reports) {

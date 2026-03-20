@@ -135,6 +135,7 @@
                 </div>
                 <div class="employee-directory-heading">
                   <strong>Alle Mitarbeitenden</strong>
+                  <span class="subtle-text">Maximal 5 Treffer werden angezeigt.</span>
                 </div>
                 <div id="employeeFilterList" class="employee-filter-list"></div>
               </div>
@@ -199,6 +200,24 @@
                     Absenzarten.
                   </p>
                 </div>
+              </div>
+              <div class="report-filter-panel">
+                <div class="report-filter-toolbar">
+                  <label>
+                    <span>Mitarbeiter filtern</span>
+                    <input id="absenceFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
+                  </label>
+                  <div class="report-filter-actions">
+                    <button id="selectAllAbsenceEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
+                    <button id="clearAbsenceSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
+                  </div>
+                </div>
+                <div class="employee-directory-heading">
+                  <strong>Mitarbeitende mit Ferien/Absenzen</strong>
+                  <span id="selectedAbsenceEmployeesSummary" class="subtle-text"></span>
+                  <span class="subtle-text">Maximal 5 Treffer werden angezeigt.</span>
+                </div>
+                <div id="absenceFilterList" class="employee-filter-list"></div>
               </div>
               <div class="table-wrapper">
                 <table>
