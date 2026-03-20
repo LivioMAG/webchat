@@ -1342,6 +1342,11 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
     return;
   }
 
+  const shouldConfirm = window.confirm('Bist du sicher, dass du die Ferien bestätigen möchtest?');
+  if (!shouldConfirm) {
+    return;
+  }
+
   const approvalName = getApprovalDisplayName();
   if (!approvalName) {
     alert(`Der Name für die Bestätigung ${roleLabel} konnte nicht ermittelt werden.`);
@@ -1376,11 +1381,6 @@ async function handleRejectHolidayRequest(requestId) {
   const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
   if (!request) {
     alert('Das ausgewählte Absenzgesuch wurde nicht gefunden.');
-    return;
-  }
-
-  if (String(request.controll_pl || '').trim() || String(request.controll_gl || '').trim()) {
-    alert('Ein Gesuch kann nur abgelehnt werden, solange noch keine Bestätigung erfolgt ist.');
     return;
   }
 
@@ -1568,10 +1568,15 @@ function renderHolidayConfirmationCell(request) {
   if (!isHolidayRequestFullyApproved(request)) {
     const hasAnyApproval = Boolean(String(request?.controll_pl || '').trim() || String(request?.controll_gl || '').trim());
     if (hasAnyApproval) {
-      return '<span class="subtle-text">PDF verfügbar nach PL- und GL-Bestätigung</span>';
+      return `
+        <div class="status-stack compact">
+          <span class="subtle-text">PDF verfügbar nach PL- und GL-Bestätigung</span>
+          <button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Gesuch ablehnen/löschen</button>
+        </div>
+      `;
     }
 
-    return `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Gesuch ablehnen</button>`;
+    return `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Gesuch ablehnen/löschen</button>`;
   }
 
   return `<button class="button button-small button-secondary" type="button" data-action="download-absence-confirmation" data-request-id="${escapeAttribute(request.id)}">PDF herunterladen</button>`;
