@@ -238,6 +238,7 @@ const state = {
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
+  employeeSelectionTouched: false,
   reportsPage: 1,
   reportsPerPage: 10,
   editingReportId: null,
@@ -571,6 +572,7 @@ function resetAppState() {
   state.employeeFilterQuery = '';
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = false;
+  state.employeeSelectionTouched = false;
   state.reportsPage = 1;
   state.editingReportId = null;
   state.isSavingReport = false;
@@ -666,6 +668,7 @@ async function loadData() {
     console.error(error);
     const hint = getAccessConfigurationHint(error);
     elements.dataTimestamp.textContent = hint || 'Daten konnten nicht geladen werden';
+    render();
     alert(`Daten konnten nicht geladen werden: ${error.message}${hint ? `\n\nHinweis: ${hint}` : ''}`);
   }
 }
@@ -948,13 +951,15 @@ function handleEmployeeSelectionChange(event) {
   }
 
   state.employeeSelectionInitialized = true;
+  state.employeeSelectionTouched = true;
   state.reportsPage = 1;
   render();
 }
 
 function selectAllEmployees() {
-  state.selectedEmployeeIds = getReportableProfiles().map((profile) => profile.id);
+  state.selectedEmployeeIds = getAvailableReportProfileIds();
   state.employeeSelectionInitialized = true;
+  state.employeeSelectionTouched = true;
   state.reportsPage = 1;
   render();
 }
@@ -962,12 +967,13 @@ function selectAllEmployees() {
 function clearEmployeeSelection() {
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = true;
+  state.employeeSelectionTouched = true;
   state.reportsPage = 1;
   render();
 }
 
 function syncEmployeeSelection() {
-  const validIds = getReportableProfiles().map((profile) => profile.id);
+  const validIds = getAvailableReportProfileIds();
   const validIdSet = new Set(validIds);
   const selected = state.selectedEmployeeIds.filter((id) => validIdSet.has(id));
 
@@ -978,12 +984,24 @@ function syncEmployeeSelection() {
     return;
   }
 
-  state.selectedEmployeeIds = selected;
+  if (!state.employeeSelectionTouched) {
+    state.selectedEmployeeIds = [...validIds];
+    state.reportsPage = 1;
+    return;
+  }
+
+  if (validIds.length) {
+    state.selectedEmployeeIds = selected;
+  }
   const pageCount = Math.max(1, Math.ceil(getSortedFilteredReports().length / state.reportsPerPage));
   state.reportsPage = Math.min(state.reportsPage, pageCount);
 }
 
 function getFilteredReports() {
+  if (!state.selectedEmployeeIds.length && !state.employeeSelectionTouched) {
+    return [...state.weeklyReports];
+  }
+
   const selectedIds = new Set(state.selectedEmployeeIds);
   return state.weeklyReports.filter((report) => selectedIds.has(report.profile_id));
 }
@@ -1645,6 +1663,15 @@ function getMissingProfiles({ selectedOnly = false } = {}) {
 
     return !groups.has(profile.id);
   });
+}
+
+function getAvailableReportProfileIds() {
+  const profileIds = getReportableProfiles().map((profile) => profile.id);
+  if (profileIds.length) {
+    return profileIds;
+  }
+
+  return [...new Set(state.weeklyReports.map((report) => report.profile_id).filter(Boolean))];
 }
 
 function getReportableProfiles() {
