@@ -43,6 +43,130 @@ as $$
   );
 $$;
 
+create or replace function public.build_holiday_request_history_text(request_row public.holiday_requests)
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select trim(
+    both ' | ' from concat_ws(
+      ' | ',
+      case
+        when request_row.request_type is not null and request_row.request_type <> '' then
+          initcap(replace(request_row.request_type, '_', ' '))
+        else null
+      end,
+      case
+        when request_row.start_date is not null and request_row.end_date is not null then
+          request_row.start_date::text || ' bis ' || request_row.end_date::text
+        else null
+      end,
+      nullif(trim(coalesce(request_row.notes, '')), '')
+    )
+  );
+$$;
+
+create or replace function public.approve_holiday_request(
+  p_request_id uuid,
+  p_field_name text,
+  p_approval_name text
+)
+returns public.holiday_requests
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_request public.holiday_requests%rowtype;
+  updated_request public.holiday_requests%rowtype;
+  archive_context text;
+begin
+  if p_field_name not in ('controll_pl', 'controll_gl') then
+    raise exception 'Ungültiges Freigabefeld: %', p_field_name;
+  end if;
+
+  select *
+  into current_request
+  from public.holiday_requests
+  where id = p_request_id
+  for update;
+
+  if not found then
+    raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
+  end if;
+
+  if p_field_name = 'controll_pl' then
+    update public.holiday_requests
+    set controll_pl = p_approval_name
+    where id = p_request_id
+    returning * into updated_request;
+  else
+    update public.holiday_requests
+    set controll_gl = p_approval_name
+    where id = p_request_id
+    returning * into updated_request;
+  end if;
+
+  if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
+    and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
+    archive_context := format(
+      'Bestätigt durch PL: %s | GL: %s',
+      updated_request.controll_pl,
+      updated_request.controll_gl
+    );
+
+    insert into public.request_history (profile_id, request, context)
+    values (
+      updated_request.profile_id,
+      public.build_holiday_request_history_text(updated_request),
+      archive_context
+    );
+
+    delete from public.holiday_requests
+    where id = updated_request.id;
+  end if;
+
+  return updated_request;
+end;
+$$;
+
+create or replace function public.reject_holiday_request(
+  p_request_id uuid,
+  p_context text default 'Abgelehnt'
+)
+returns public.holiday_requests
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_request public.holiday_requests%rowtype;
+begin
+  with removed_request as (
+    delete from public.holiday_requests
+    where id = p_request_id
+    returning *
+  )
+  select *
+  into deleted_request
+  from removed_request;
+
+  if not found then
+    raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
+  end if;
+
+  insert into public.request_history (profile_id, request, context)
+  values (
+    deleted_request.profile_id,
+    public.build_holiday_request_history_text(deleted_request),
+    coalesce(nullif(trim(p_context), ''), 'Abgelehnt')
+  );
+
+  return deleted_request;
+end;
+$$;
+
 drop policy if exists "authenticated full access app_profiles" on public.app_profiles;
 drop policy if exists "authenticated full access weekly_reports" on public.weekly_reports;
 drop policy if exists "authenticated full access holiday_requests" on public.holiday_requests;
@@ -1366,18 +1490,23 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
         deleteDemoHolidayRequest(requestId);
       }
     } else {
+      let updatedRequest = request ? { ...request, ...updates } : null;
       const { error } = await state.supabase.rpc('approve_holiday_request', {
         p_request_id: requestId,
         p_field_name: fieldName,
         p_approval_name: approvalName,
       });
-      if (error) throw error;
 
-      if (request) {
-        const updatedRequest = { ...request, ...updates };
-        if (isHolidayRequestFullyApproved(updatedRequest)) {
-          await deleteHolidayRequestAttachmentsSafely(request.attachments);
+      if (error) {
+        if (!request || !isMissingRpcFunctionError(error, 'approve_holiday_request')) {
+          throw error;
         }
+
+        updatedRequest = await approveHolidayRequestWithoutRpc(request, fieldName, approvalName);
+      }
+
+      if (request && isHolidayRequestFullyApproved(updatedRequest)) {
+        await deleteHolidayRequestAttachmentsSafely(request.attachments);
       }
     }
 
@@ -1413,11 +1542,20 @@ async function handleRejectHolidayRequest(requestId) {
       archiveDemoHolidayRequestDecision(request, buildRejectedHolidayRequestContext(request));
       deleteDemoHolidayRequest(requestId);
     } else {
+      const rejectionContext = buildRejectedHolidayRequestContext(request);
       const { error } = await state.supabase.rpc('reject_holiday_request', {
         p_request_id: requestId,
-        p_context: buildRejectedHolidayRequestContext(request),
+        p_context: rejectionContext,
       });
-      if (error) throw error;
+
+      if (error) {
+        if (!isMissingRpcFunctionError(error, 'reject_holiday_request')) {
+          throw error;
+        }
+
+        await rejectHolidayRequestWithoutRpc(request, rejectionContext);
+      }
+
       await deleteHolidayRequestAttachmentsSafely(request.attachments);
     }
 
@@ -1604,6 +1742,64 @@ function buildApprovedHolidayRequestContext(request) {
 
 function buildRejectedHolidayRequestContext() {
   return 'Abgelehnt und aus der aktuellen Liste entfernt';
+}
+
+function isMissingRpcFunctionError(error, functionName) {
+  const message = String(error?.message || '');
+  return error?.code === 'PGRST202' || message.includes(`Could not find the function public.${functionName}`);
+}
+
+async function insertHolidayRequestHistoryEntry(request, context) {
+  const { error } = await state.supabase.from('request_history').insert({
+    profile_id: request.profile_id,
+    request: buildHolidayRequestArchiveSummary(request),
+    context,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function approveHolidayRequestWithoutRpc(request, fieldName, approvalName) {
+  const { data: updatedRequest, error: updateError } = await state.supabase
+    .from('holiday_requests')
+    .update({ [fieldName]: approvalName })
+    .eq('id', request.id)
+    .select()
+    .single();
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  if (isHolidayRequestFullyApproved(updatedRequest)) {
+    await insertHolidayRequestHistoryEntry(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
+
+    const { error: deleteError } = await state.supabase
+      .from('holiday_requests')
+      .delete()
+      .eq('id', updatedRequest.id);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+  }
+
+  return updatedRequest;
+}
+
+async function rejectHolidayRequestWithoutRpc(request, context) {
+  await insertHolidayRequestHistoryEntry(request, context);
+
+  const { error } = await state.supabase
+    .from('holiday_requests')
+    .delete()
+    .eq('id', request.id);
+
+  if (error) {
+    throw error;
+  }
 }
 
 function renderControllCell(report) {
