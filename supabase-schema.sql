@@ -55,6 +55,14 @@ create table if not exists public.holiday_requests (
   constraint holiday_requests_range_check check (end_date >= start_date)
 );
 
+create table if not exists public.request_history (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default timezone('utc', now()),
+  profile_id uuid not null references public.app_profiles(id) on delete cascade,
+  request text not null,
+  context text not null
+);
+
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
 
@@ -80,8 +88,128 @@ as $$
   );
 $$;
 
+create or replace function public.build_holiday_request_history_text(request_row public.holiday_requests)
+returns text
+language sql
+stable
+as $$
+  select trim(
+    both ' | ' from concat_ws(
+      ' | ',
+      coalesce(request_row.request_type, 'Absenzantrag'),
+      case
+        when request_row.start_date is not null and request_row.end_date is not null
+          then request_row.start_date::text || ' bis ' || request_row.end_date::text
+        else null
+      end,
+      nullif(trim(coalesce(request_row.notes, '')), '')
+    )
+  );
+$$;
+
+create or replace function public.approve_holiday_request(
+  p_request_id uuid,
+  p_field_name text,
+  p_approval_name text
+)
+returns public.holiday_requests
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_request public.holiday_requests%rowtype;
+  updated_request public.holiday_requests%rowtype;
+  archive_context text;
+begin
+  if p_field_name not in ('controll_pl', 'controll_gl') then
+    raise exception 'Ungültiges Freigabefeld: %', p_field_name;
+  end if;
+
+  select *
+  into current_request
+  from public.holiday_requests
+  where id = p_request_id
+  for update;
+
+  if not found then
+    raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
+  end if;
+
+  if p_field_name = 'controll_pl' then
+    update public.holiday_requests
+    set controll_pl = p_approval_name
+    where id = p_request_id
+    returning * into updated_request;
+  else
+    update public.holiday_requests
+    set controll_gl = p_approval_name
+    where id = p_request_id
+    returning * into updated_request;
+  end if;
+
+  if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
+    and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
+    archive_context := format(
+      'Bestätigt durch PL: %s | GL: %s',
+      updated_request.controll_pl,
+      updated_request.controll_gl
+    );
+
+    insert into public.request_history (profile_id, request, context)
+    values (
+      updated_request.profile_id,
+      public.build_holiday_request_history_text(updated_request),
+      archive_context
+    );
+
+    delete from public.holiday_requests
+    where id = updated_request.id;
+  end if;
+
+  return updated_request;
+end;
+$$;
+
+create or replace function public.reject_holiday_request(
+  p_request_id uuid,
+  p_context text default 'Abgelehnt'
+)
+returns public.holiday_requests
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_request public.holiday_requests%rowtype;
+begin
+  with removed_request as (
+    delete from public.holiday_requests
+    where id = p_request_id
+    returning *
+  )
+  select *
+  into deleted_request
+  from removed_request;
+
+  if not found then
+    raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
+  end if;
+
+  insert into public.request_history (profile_id, request, context)
+  values (
+    deleted_request.profile_id,
+    public.build_holiday_request_history_text(deleted_request),
+    coalesce(nullif(trim(p_context), ''), 'Abgelehnt')
+  );
+
+  return deleted_request;
+end;
+$$;
+
 create index if not exists weekly_reports_profile_work_date_idx on public.weekly_reports (profile_id, work_date);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
+create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
 
 create trigger set_updated_at_app_profiles
 before update on public.app_profiles
