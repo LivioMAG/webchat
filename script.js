@@ -240,6 +240,8 @@ const demoHolidayRequests = [
   },
 ];
 
+const demoRequestHistory = [];
+
 const state = {
   supabase: null,
   session: null,
@@ -1354,11 +1356,29 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
   state.isSavingAbsence = true;
   try {
     const updates = { [fieldName]: approvalName };
+    const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
+
     if (state.isDemoMode) {
       updateDemoHolidayRequest(requestId, updates);
+      const updatedRequest = demoHolidayRequests.find((item) => String(item.id) === String(requestId));
+      if (isHolidayRequestFullyApproved(updatedRequest)) {
+        archiveDemoHolidayRequestDecision(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
+        deleteDemoHolidayRequest(requestId);
+      }
     } else {
-      const { error } = await state.supabase.from('holiday_requests').update(updates).eq('id', requestId);
+      const { error } = await state.supabase.rpc('approve_holiday_request', {
+        p_request_id: requestId,
+        p_field_name: fieldName,
+        p_approval_name: approvalName,
+      });
       if (error) throw error;
+
+      if (request) {
+        const updatedRequest = { ...request, ...updates };
+        if (isHolidayRequestFullyApproved(updatedRequest)) {
+          await deleteHolidayRequestAttachmentsSafely(request.attachments);
+        }
+      }
     }
 
     await loadData();
@@ -1390,11 +1410,15 @@ async function handleRejectHolidayRequest(requestId) {
   state.isSavingAbsence = true;
   try {
     if (state.isDemoMode) {
+      archiveDemoHolidayRequestDecision(request, buildRejectedHolidayRequestContext(request));
       deleteDemoHolidayRequest(requestId);
     } else {
-      await deleteHolidayRequestAttachments(request.attachments);
-      const { error } = await state.supabase.from('holiday_requests').delete().eq('id', requestId);
+      const { error } = await state.supabase.rpc('reject_holiday_request', {
+        p_request_id: requestId,
+        p_context: buildRejectedHolidayRequestContext(request),
+      });
       if (error) throw error;
+      await deleteHolidayRequestAttachmentsSafely(request.attachments);
     }
 
     await loadData();
@@ -1505,6 +1529,20 @@ function deleteDemoHolidayRequest(requestId) {
   demoHolidayRequests.splice(requestIndex, 1);
 }
 
+function archiveDemoHolidayRequestDecision(request, context) {
+  if (!request) {
+    throw new Error('Demo-Absenz nicht gefunden');
+  }
+
+  demoRequestHistory.unshift({
+    id: crypto.randomUUID(),
+    created_at: new Date().toISOString(),
+    profile_id: request.profile_id,
+    request: buildHolidayRequestArchiveSummary(request),
+    context,
+  });
+}
+
 function extractFirstName(value) {
   const normalizedValue = String(value || '').trim();
   if (!normalizedValue) {
@@ -1542,6 +1580,30 @@ function getApprovalDisplayName() {
   }
 
   return String(state.user?.email || '').trim().split('@')[0];
+}
+
+function buildHolidayRequestArchiveSummary(request) {
+  if (!request) {
+    return 'Absenzantrag';
+  }
+
+  const parts = [
+    HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type ?? 'Absenzantrag',
+    request.start_date && request.end_date ? `${formatDate(request.start_date)} bis ${formatDate(request.end_date)}` : '',
+    String(request.notes || '').trim(),
+  ].filter(Boolean);
+
+  return parts.join(' | ');
+}
+
+function buildApprovedHolidayRequestContext(request) {
+  const plLabel = String(request?.controll_pl || '').trim() || '–';
+  const glLabel = String(request?.controll_gl || '').trim() || '–';
+  return `Bestätigt durch PL: ${plLabel} | GL: ${glLabel}`;
+}
+
+function buildRejectedHolidayRequestContext() {
+  return 'Abgelehnt und aus der aktuellen Liste entfernt';
 }
 
 function renderControllCell(report) {
@@ -1760,6 +1822,14 @@ async function deleteHolidayRequestAttachments(attachments = []) {
   const { error } = await state.supabase.storage.from(STORAGE_BUCKET).remove(paths);
   if (error) {
     throw error;
+  }
+}
+
+async function deleteHolidayRequestAttachmentsSafely(attachments = []) {
+  try {
+    await deleteHolidayRequestAttachments(attachments);
+  } catch (error) {
+    console.warn('Absenz-Anhänge konnten nach der Archivierung nicht gelöscht werden.', error);
   }
 }
 
