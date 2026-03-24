@@ -1171,20 +1171,29 @@ function renderConfirmationsTable() {
   const filteredHistory = getFilteredRequestHistory();
 
   if (!state.requestHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="4">Keine Bestätigungen in request_history gefunden.</td></tr>';
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="5">Keine Bestätigungen in request_history gefunden.</td></tr>';
     return;
   }
 
   if (!filteredHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="4">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="5">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
     return;
   }
 
   elements.confirmationsTableBody.innerHTML = filteredHistory
     .map((entry) => {
       const details = parseRequestHistoryEntry(entry);
+      const profile = getProfileById(entry.profile_id);
+      const personLabel = profile?.full_name || profile?.email || 'Unbekannt';
+      const personSubLabel = profile?.email && profile?.email !== personLabel ? `<div class="subtle-text">${escapeHtml(profile.email)}</div>` : '';
       return `
         <tr>
+          <td>
+            <div class="status-stack compact">
+              <strong>${escapeHtml(personLabel)}</strong>
+              ${personSubLabel}
+            </div>
+          </td>
           <td>${escapeHtml(details.typeLabel)}</td>
           <td>${escapeHtml(details.periodLabel)}</td>
           <td>${escapeHtml(details.approvedByLabel)}</td>
