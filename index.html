@@ -59,6 +59,7 @@
           <nav class="nav-tabs">
             <button class="nav-tab active" data-page="reports">Wochenrapporte</button>
             <button class="nav-tab" data-page="absences">Ferien &amp; Absenzen</button>
+            <button class="nav-tab" data-page="confirmations">Bestätigungen</button>
             <button class="nav-tab" data-page="security">Admin-Zugriff</button>
           </nav>
 
@@ -234,6 +235,51 @@
                     </tr>
                   </thead>
                   <tbody id="absencesTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+
+          <section id="confirmationsPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Bestätigungen</h3>
+                  <p>
+                    Historie aller bestätigten oder abgeschlossenen Gesuche aus
+                    <code>request_history</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div class="report-filter-panel confirmation-filter-panel">
+                <div class="report-filter-toolbar">
+                  <label>
+                    <span>Ausgelöst von</span>
+                    <input id="confirmationDateFromInput" type="date" />
+                  </label>
+                  <label>
+                    <span>Ausgelöst bis</span>
+                    <input id="confirmationDateToInput" type="date" />
+                  </label>
+                  <div class="report-filter-actions">
+                    <button id="clearConfirmationDateFilterButton" class="button button-secondary" type="button">Filter zurücksetzen</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Typ</th>
+                      <th>Von - Bis</th>
+                      <th>Bestätigt durch</th>
+                      <th>Ausgelöst am</th>
+                    </tr>
+                  </thead>
+                  <tbody id="confirmationsTableBody"></tbody>
                 </table>
               </div>
             </div>
