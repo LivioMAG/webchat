@@ -374,6 +374,7 @@ const state = {
   profiles: [],
   weeklyReports: [],
   holidayRequests: [],
+  requestHistory: [],
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
   employeeFilterQuery: '',
@@ -384,6 +385,8 @@ const state = {
   selectedAbsenceEmployeeIds: [],
   absenceSelectionInitialized: false,
   absenceSelectionTouched: false,
+  confirmationDateFrom: '',
+  confirmationDateTo: '',
   reportsPage: 1,
   reportsPerPage: 10,
   editingReportId: null,
@@ -446,6 +449,7 @@ function cacheElements() {
   elements.logoutButton = document.getElementById('logoutButton');
   elements.reportsTableBody = document.getElementById('reportsTableBody');
   elements.absencesTableBody = document.getElementById('absencesTableBody');
+  elements.confirmationsTableBody = document.getElementById('confirmationsTableBody');
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
   elements.missingList = document.getElementById('missingList');
@@ -459,6 +463,9 @@ function cacheElements() {
   elements.absenceFilterList = document.getElementById('absenceFilterList');
   elements.selectAllAbsenceEmployeesButton = document.getElementById('selectAllAbsenceEmployeesButton');
   elements.clearAbsenceSelectionButton = document.getElementById('clearAbsenceSelectionButton');
+  elements.confirmationDateFromInput = document.getElementById('confirmationDateFromInput');
+  elements.confirmationDateToInput = document.getElementById('confirmationDateToInput');
+  elements.clearConfirmationDateFilterButton = document.getElementById('clearConfirmationDateFilterButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
   elements.reportsNextPageButton = document.getElementById('reportsNextPageButton');
   elements.reportsPaginationSummary = document.getElementById('reportsPaginationSummary');
@@ -480,6 +487,7 @@ function cacheElements() {
   elements.pages = {
     reports: document.getElementById('reportsPage'),
     absences: document.getElementById('absencesPage'),
+    confirmations: document.getElementById('confirmationsPage'),
     security: document.getElementById('securityPage'),
   };
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
@@ -514,6 +522,9 @@ function bindEvents() {
   elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
   elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
   elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
+  elements.confirmationDateFromInput.addEventListener('change', handleConfirmationDateFilterChange);
+  elements.confirmationDateToInput.addEventListener('change', handleConfirmationDateFilterChange);
+  elements.clearConfirmationDateFilterButton.addEventListener('click', clearConfirmationDateFilter);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
@@ -760,11 +771,14 @@ function resetAppState() {
   state.profiles = [];
   state.weeklyReports = [];
   state.holidayRequests = [];
+  state.requestHistory = [];
   state.employeeFilterQuery = '';
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = false;
   state.employeeSelectionTouched = false;
   state.reportsPage = 1;
+  state.confirmationDateFrom = '';
+  state.confirmationDateTo = '';
   state.editingReportId = null;
   state.isSavingReport = false;
   state.hasAdminAccess = false;
@@ -813,6 +827,7 @@ async function loadData() {
       state.profiles = [];
       state.weeklyReports = [];
       state.holidayRequests = [];
+      state.requestHistory = [];
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
       finishDataLoad(requestId);
       render();
@@ -834,16 +849,28 @@ async function loadData() {
       .select('*')
       .order('start_date', { ascending: false })
       .limit(200);
+    const requestHistoryQuery = state.supabase
+      .from('request_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
 
-    const [{ data: reports, error: reportsError }, { data: profiles, error: profilesError }, { data: absences, error: absencesError }] = await Promise.all([
+    const [
+      { data: reports, error: reportsError },
+      { data: profiles, error: profilesError },
+      { data: absences, error: absencesError },
+      { data: requestHistory, error: requestHistoryError },
+    ] = await Promise.all([
       reportsQuery,
       profilesQuery,
       absencesQuery,
+      requestHistoryQuery,
     ]);
 
     if (reportsError) throw reportsError;
     if (profilesError) throw profilesError;
     if (absencesError) throw absencesError;
+    if (requestHistoryError) throw requestHistoryError;
     if (!isActiveDataLoad(requestId)) {
       return;
     }
@@ -851,6 +878,7 @@ async function loadData() {
     state.weeklyReports = reports ?? [];
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
+    state.requestHistory = requestHistory ?? [];
     syncEmployeeSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
@@ -890,6 +918,7 @@ async function loadDemoData() {
     state.profiles = [];
     state.weeklyReports = [];
     state.holidayRequests = [];
+    state.requestHistory = [];
     elements.dataTimestamp.textContent = 'Kein Zugriff – Demo-Profil hat is_admin = false';
     return;
   }
@@ -900,6 +929,7 @@ async function loadDemoData() {
   const reports = demoWeeklyReports.filter((report) => report.work_date >= weekRange.start && report.work_date <= weekRange.end);
   state.weeklyReports = reports;
   state.holidayRequests = [...demoHolidayRequests];
+  state.requestHistory = [...demoRequestHistory];
   syncEmployeeSelection();
   syncAbsenceSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
@@ -939,6 +969,8 @@ function render() {
   renderReportsTable();
   renderSubmissionLists();
   renderAbsenceTable();
+  renderConfirmationFilters();
+  renderConfirmationsTable();
 }
 
 function renderSidebar() {
@@ -958,6 +990,7 @@ function renderPages() {
   const pageTitles = {
     reports: 'Wochenrapporte',
     absences: 'Ferien & Absenzen',
+    confirmations: 'Bestätigungen',
     security: 'Admin-Zugriff',
   };
 
@@ -1120,6 +1153,48 @@ function renderAbsenceTable() {
     .join('');
 }
 
+
+function renderConfirmationFilters() {
+  if (!elements.confirmationDateFromInput || !elements.confirmationDateToInput) {
+    return;
+  }
+
+  elements.confirmationDateFromInput.value = state.confirmationDateFrom;
+  elements.confirmationDateToInput.value = state.confirmationDateTo;
+}
+
+function renderConfirmationsTable() {
+  if (!elements.confirmationsTableBody) {
+    return;
+  }
+
+  const filteredHistory = getFilteredRequestHistory();
+
+  if (!state.requestHistory.length) {
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="4">Keine Bestätigungen in request_history gefunden.</td></tr>';
+    return;
+  }
+
+  if (!filteredHistory.length) {
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="4">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
+    return;
+  }
+
+  elements.confirmationsTableBody.innerHTML = filteredHistory
+    .map((entry) => {
+      const details = parseRequestHistoryEntry(entry);
+      return `
+        <tr>
+          <td>${escapeHtml(details.typeLabel)}</td>
+          <td>${escapeHtml(details.periodLabel)}</td>
+          <td>${escapeHtml(details.approvedByLabel)}</td>
+          <td>${escapeHtml(formatDateTime(entry.created_at))}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
 function renderSubmissionLists() {
   const summaries = getProfileSubmissionSummary();
   const submittedItems = summaries
@@ -1171,6 +1246,19 @@ function handleEmployeeFilterInput(event) {
 function handleAbsenceFilterInput(event) {
   state.absenceFilterQuery = event.target.value;
   renderAbsenceFilters();
+}
+
+function handleConfirmationDateFilterChange() {
+  state.confirmationDateFrom = elements.confirmationDateFromInput.value || '';
+  state.confirmationDateTo = elements.confirmationDateToInput.value || '';
+  renderConfirmationsTable();
+}
+
+function clearConfirmationDateFilter() {
+  state.confirmationDateFrom = '';
+  state.confirmationDateTo = '';
+  renderConfirmationFilters();
+  renderConfirmationsTable();
 }
 
 function handleEmployeeSelectionChange(event) {
@@ -1299,6 +1387,81 @@ function getSortedFilteredReports() {
     if (profileCompare !== 0) return profileCompare;
     return `${a.work_date}${a.start_time}`.localeCompare(`${b.work_date}${b.start_time}`);
   });
+}
+
+
+function getFilteredRequestHistory() {
+  const fromDate = state.confirmationDateFrom || null;
+  const toDate = state.confirmationDateTo || null;
+
+  return [...state.requestHistory]
+    .filter((entry) => {
+      const createdAt = String(entry?.created_at || '');
+      if (!createdAt) {
+        return false;
+      }
+
+      const createdDate = createdAt.slice(0, 10);
+      if (fromDate && createdDate < fromDate) {
+        return false;
+      }
+      if (toDate && createdDate > toDate) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
+function parseRequestHistoryEntry(entry) {
+  const requestValue = String(entry?.request || '').trim();
+  const requestParts = requestValue ? requestValue.split(' | ').map((part) => part.trim()).filter(Boolean) : [];
+  const typeLabel = requestParts[0] || 'Unbekannt';
+  const periodMatch = requestParts.find((part) => part.includes(' bis '));
+
+  return {
+    typeLabel,
+    periodLabel: periodMatch || '–',
+    approvedByLabel: buildHistoryApprovedByLabel(entry),
+  };
+}
+
+function buildHistoryApprovedByLabel(entry) {
+  const contextValue = String(entry?.context || '').trim();
+  if (!contextValue) {
+    return '–';
+  }
+
+  const plMatch = contextValue.match(/PL:\s*([^|]+)/i);
+  const glMatch = contextValue.match(/GL:\s*([^|]+)/i);
+  const names = [plMatch?.[1], glMatch?.[1]]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && value !== '–');
+
+  if (names.length) {
+    return names.join(' / ');
+  }
+
+  return contextValue;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return '–';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('de-CH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 function getReportsPaginationMeta(reports = getSortedFilteredReports()) {
