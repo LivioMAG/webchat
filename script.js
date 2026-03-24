@@ -26,6 +26,24 @@ add column if not exists controll_pl text;
 alter table public.holiday_requests
 add column if not exists controll_gl text;
 
+alter table public.app_profiles
+add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists booked_vacation_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists reported_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists credited_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists weekly_hours numeric(10,2) not null default 40;
+
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
@@ -244,6 +262,12 @@ const demoProfiles = [
     full_name: 'Master Admin',
     role_label: 'Administration',
     is_admin: true,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
+    credited_hours: 0,
+    weekly_hours: 40,
   },
   {
     id: '22222222-2222-2222-2222-222222222222',
@@ -251,6 +275,12 @@ const demoProfiles = [
     full_name: 'Michael Gerber',
     role_label: 'Monteur',
     is_admin: false,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
+    credited_hours: 0,
+    weekly_hours: 40,
   },
   {
     id: '33333333-3333-3333-3333-333333333333',
@@ -258,6 +288,12 @@ const demoProfiles = [
     full_name: 'Sandra Bühler',
     role_label: 'Monteurin',
     is_admin: false,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
+    credited_hours: 0,
+    weekly_hours: 40,
   },
   {
     id: '44444444-4444-4444-4444-444444444444',
@@ -399,6 +435,7 @@ const state = {
   isLoadingData: false,
   isSavingAbsence: false,
   isSavingConfirmation: false,
+  isSavingSaldo: false,
   loadRequestId: 0,
   loadStartedAt: 0,
   tabHiddenAt: 0,
@@ -451,6 +488,7 @@ function cacheElements() {
   elements.reportsTableBody = document.getElementById('reportsTableBody');
   elements.absencesTableBody = document.getElementById('absencesTableBody');
   elements.confirmationsTableBody = document.getElementById('confirmationsTableBody');
+  elements.saldoTableBody = document.getElementById('saldoTableBody');
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
   elements.missingList = document.getElementById('missingList');
@@ -489,6 +527,7 @@ function cacheElements() {
     reports: document.getElementById('reportsPage'),
     absences: document.getElementById('absencesPage'),
     confirmations: document.getElementById('confirmationsPage'),
+    saldo: document.getElementById('saldoPage'),
     security: document.getElementById('securityPage'),
   };
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
@@ -529,6 +568,7 @@ function bindEvents() {
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
   elements.confirmationsTableBody.addEventListener('click', handleConfirmationsTableClick);
+  elements.saldoTableBody.addEventListener('click', handleSaldoTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
@@ -973,6 +1013,7 @@ function render() {
   renderAbsenceTable();
   renderConfirmationFilters();
   renderConfirmationsTable();
+  renderSaldoTable();
 }
 
 function renderSidebar() {
@@ -993,6 +1034,7 @@ function renderPages() {
     reports: 'Wochenrapporte',
     absences: 'Ferien & Absenzen',
     confirmations: 'Bestätigungen',
+    saldo: 'Saldo',
     security: 'Admin-Zugriff',
   };
 
@@ -1114,6 +1156,7 @@ function renderReportsTable() {
           <td>
             <div class="table-row-actions">
               <button class="button button-small button-secondary" type="button" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">Bearbeiten</button>
+              <button class="button button-small button-danger" type="button" data-action="delete-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Löschen</button>
             </div>
           </td>
         </tr>
@@ -1200,6 +1243,43 @@ function renderConfirmationsTable() {
           <td>${escapeHtml(details.approvedByLabel)}</td>
           <td>${escapeHtml(formatDateTime(entry.created_at))}</td>
           <td>${renderHistoryActionsCell(entry)}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function renderSaldoTable() {
+  if (!elements.saldoTableBody) {
+    return;
+  }
+
+  if (!state.profiles.length) {
+    elements.saldoTableBody.innerHTML = '<tr><td colspan="11">Keine Profile gefunden.</td></tr>';
+    return;
+  }
+
+  const currentIsoWeek = getCurrentIsoWeekNumber();
+  elements.saldoTableBody.innerHTML = state.profiles
+    .map((profile) => {
+      const metrics = getProfileSaldoMetrics(profile, currentIsoWeek);
+      return `
+        <tr>
+          <td>${escapeHtml(profile.full_name || '–')}</td>
+          <td>${escapeHtml(profile.email || '–')}</td>
+          <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
+          <td>${metrics.bookedVacationHours.toFixed(2)}</td>
+          <td>${renderSaldoInput(profile.id, 'carryover_overtime_hours', metrics.carryoverOvertimeHours)}</td>
+          <td>${metrics.reportedHours.toFixed(2)}</td>
+          <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
+          <td>${renderSaldoInput(profile.id, 'weekly_hours', metrics.weeklyHours, 0.25)}</td>
+          <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
+          <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
+          <td>
+            <button class="button button-small button-primary" type="button" data-action="save-saldo-profile" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSaldo ? 'disabled' : ''}>
+              Speichern
+            </button>
+          </td>
         </tr>
       `;
     })
@@ -1564,6 +1644,11 @@ function handleReportsTableClick(event) {
 
   if (trigger.dataset.action === 'confirm-report') {
     handleConfirmReport(reportId);
+    return;
+  }
+
+  if (trigger.dataset.action === 'delete-report') {
+    handleDeleteReport(reportId);
   }
 }
 
@@ -1614,6 +1699,20 @@ function handleConfirmationsTableClick(event) {
   }
 }
 
+function handleSaldoTableClick(event) {
+  const trigger = event.target.closest('[data-action="save-saldo-profile"]');
+  if (!trigger) {
+    return;
+  }
+
+  const profileId = trigger.dataset.profileId;
+  if (!profileId) {
+    return;
+  }
+
+  handleSaveSaldoProfile(profileId);
+}
+
 async function handleConfirmReport(reportId) {
   if (!reportId || state.isSavingReport) {
     return;
@@ -1627,14 +1726,23 @@ async function handleConfirmReport(reportId) {
 
   state.isSavingReport = true;
   try {
+    const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+    const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
+
     if (state.isDemoMode) {
       updateDemoReport(reportId, { controll: controllName });
+      if (existingReport && !wasAlreadyConfirmed) {
+        applyDemoReportBookingDelta(existingReport, 1);
+      }
     } else {
       const { error } = await state.supabase
         .from('weekly_reports')
         .update({ controll: controllName })
         .eq('id', reportId);
       if (error) throw error;
+      if (existingReport && !wasAlreadyConfirmed) {
+        await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
+      }
     }
 
     await loadData();
@@ -1822,6 +1930,93 @@ async function handleReportEditSubmit(event) {
     alert(`Rapport konnte nicht aktualisiert werden: ${error.message}`);
   } finally {
     state.isSavingReport = false;
+    render();
+  }
+}
+
+async function handleDeleteReport(reportId) {
+  if (!reportId || state.isSavingReport) {
+    return;
+  }
+
+  const report = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+  if (!report) {
+    alert('Der ausgewählte Rapport wurde nicht gefunden.');
+    return;
+  }
+
+  const shouldDelete = window.confirm('Soll dieser Wochenrapport wirklich gelöscht werden?');
+  if (!shouldDelete) {
+    return;
+  }
+
+  const wasConfirmed = Boolean(String(report.controll || '').trim());
+  state.isSavingReport = true;
+  try {
+    if (state.isDemoMode) {
+      const index = demoWeeklyReports.findIndex((item) => String(item.id) === String(reportId));
+      if (index === -1) {
+        throw new Error('Demo-Rapport nicht gefunden');
+      }
+      const [deletedDemoReport] = demoWeeklyReports.splice(index, 1);
+      if (wasConfirmed) {
+        applyDemoReportBookingDelta(deletedDemoReport, -1);
+      }
+    } else {
+      await deleteWeeklyReportAttachmentsSafely(report.attachments);
+      const { error } = await state.supabase.from('weekly_reports').delete().eq('id', reportId);
+      if (error) throw error;
+      if (wasConfirmed) {
+        await applyProfileBookingDelta(report.profile_id, getReportBookingDelta(report, -1));
+      }
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Rapport konnte nicht gelöscht werden: ${error.message}`);
+  } finally {
+    state.isSavingReport = false;
+    render();
+  }
+}
+
+async function handleSaveSaldoProfile(profileId) {
+  if (!profileId || state.isSavingSaldo) {
+    return;
+  }
+
+  const vacationAllowanceValue = getSaldoInputValue(profileId, 'vacation_allowance_hours');
+  const carryoverOvertimeValue = getSaldoInputValue(profileId, 'carryover_overtime_hours');
+  const creditedHoursValue = getSaldoInputValue(profileId, 'credited_hours');
+  const weeklyHoursValue = getSaldoInputValue(profileId, 'weekly_hours');
+
+  const updates = {
+    vacation_allowance_hours: vacationAllowanceValue,
+    carryover_overtime_hours: carryoverOvertimeValue,
+    credited_hours: creditedHoursValue,
+    weekly_hours: weeklyHoursValue > 0 ? weeklyHoursValue : 40,
+  };
+
+  state.isSavingSaldo = true;
+  try {
+    if (state.isDemoMode) {
+      const profile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (!profile) {
+        throw new Error('Demo-Profil nicht gefunden');
+      }
+      Object.assign(profile, updates);
+    } else {
+      const { error } = await state.supabase.from('app_profiles').update(updates).eq('id', profileId);
+      if (error) throw error;
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Saldo konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingSaldo = false;
     render();
   }
 }
@@ -2344,6 +2539,33 @@ async function deleteHolidayRequestAttachmentsSafely(attachments = []) {
     await deleteHolidayRequestAttachments(attachments);
   } catch (error) {
     console.warn('Absenz-Anhänge konnten nach der Archivierung nicht gelöscht werden.', error);
+  }
+}
+
+async function deleteWeeklyReportAttachments(attachments = []) {
+  if (!Array.isArray(attachments) || !attachments.length || state.isDemoMode || !state.supabase) {
+    return;
+  }
+
+  const paths = attachments
+    .map((attachment) => String(attachment?.path || '').trim())
+    .filter(Boolean);
+
+  if (!paths.length) {
+    return;
+  }
+
+  const { error } = await state.supabase.storage.from(STORAGE_BUCKET).remove(paths);
+  if (error) {
+    throw error;
+  }
+}
+
+async function deleteWeeklyReportAttachmentsSafely(attachments = []) {
+  try {
+    await deleteWeeklyReportAttachments(attachments);
+  } catch (error) {
+    console.warn('Rapport-Anhänge konnten nach dem Löschen nicht entfernt werden.', error);
   }
 }
 
@@ -3019,6 +3241,98 @@ function formatMinutes(minutes) {
 
 function formatDate(dateString) {
   return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('de-CH');
+}
+
+function renderSaldoInput(profileId, fieldName, value, step = 0.5) {
+  return `<input class="saldo-input" type="number" step="${escapeAttribute(step)}" data-saldo-input="${escapeAttribute(fieldName)}" data-profile-id="${escapeAttribute(profileId)}" value="${escapeAttribute(Number(value || 0).toFixed(2))}" />`;
+}
+
+function getSaldoInputValue(profileId, fieldName) {
+  const input = document.querySelector(`[data-saldo-input="${fieldName}"][data-profile-id="${profileId}"]`);
+  if (!input) {
+    return 0;
+  }
+  return Number(input.value || 0);
+}
+
+function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumber()) {
+  const vacationAllowanceHours = Number(profile.vacation_allowance_hours || 0);
+  const bookedVacationHours = Number(profile.booked_vacation_hours || 0);
+  const carryoverOvertimeHours = Number(profile.carryover_overtime_hours || 0);
+  const reportedHours = Number(profile.reported_hours || 0);
+  const creditedHours = Number(profile.credited_hours || 0);
+  const weeklyHours = Number(profile.weekly_hours || 40);
+  const expectedHours = currentIsoWeek * weeklyHours;
+  const overtimeBalanceHours = carryoverOvertimeHours + creditedHours + (reportedHours - expectedHours);
+  const vacationBalanceHours = vacationAllowanceHours - bookedVacationHours;
+
+  return {
+    vacationAllowanceHours,
+    bookedVacationHours,
+    carryoverOvertimeHours,
+    reportedHours,
+    creditedHours,
+    weeklyHours,
+    overtimeBalanceHours,
+    vacationBalanceHours,
+  };
+}
+
+function getCurrentIsoWeekNumber() {
+  const weekValue = getCurrentWeekValue();
+  const [, weekPart] = weekValue.split('-W');
+  return Number(weekPart || 1);
+}
+
+function getReportBookingDelta(report, multiplier = 1) {
+  const hours = Number(report?.total_work_minutes || 0) / 60;
+  const isVacation = isVacationReport(report);
+  return {
+    reportedHoursDelta: hours * multiplier,
+    bookedVacationHoursDelta: isVacation ? hours * multiplier : 0,
+  };
+}
+
+function isVacationReport(report) {
+  const text = [report?.commission_number, report?.notes, report?.expense_note]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+  return text.includes('ferien') || text.includes('fehlen');
+}
+
+function applyDemoReportBookingDelta(report, multiplier = 1) {
+  if (!report) {
+    return;
+  }
+  const profile = demoProfiles.find((item) => String(item.id) === String(report.profile_id));
+  if (!profile) {
+    return;
+  }
+
+  const delta = getReportBookingDelta(report, multiplier);
+  profile.reported_hours = Number(profile.reported_hours || 0) + delta.reportedHoursDelta;
+  profile.booked_vacation_hours = Number(profile.booked_vacation_hours || 0) + delta.bookedVacationHoursDelta;
+}
+
+async function applyProfileBookingDelta(profileId, delta) {
+  if (!profileId || state.isDemoMode || !state.supabase || !delta) {
+    return;
+  }
+
+  const profile = state.profiles.find((item) => String(item.id) === String(profileId));
+  if (!profile) {
+    return;
+  }
+
+  const updates = {
+    reported_hours: Number(profile.reported_hours || 0) + Number(delta.reportedHoursDelta || 0),
+    booked_vacation_hours: Number(profile.booked_vacation_hours || 0) + Number(delta.bookedVacationHoursDelta || 0),
+  };
+
+  const { error } = await state.supabase.from('app_profiles').update(updates).eq('id', profileId);
+  if (error) {
+    throw error;
+  }
 }
 
 function buildFallbackProfileFromUser(user) {

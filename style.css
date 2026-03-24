@@ -730,6 +730,10 @@ tbody tr:hover {
   text-decoration: none;
 }
 
+.saldo-input {
+  min-width: 110px;
+}
+
 .page {
   display: grid;
   gap: 24px;
