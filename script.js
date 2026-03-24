@@ -398,6 +398,7 @@ const state = {
   authListenerBound: false,
   isLoadingData: false,
   isSavingAbsence: false,
+  isSavingConfirmation: false,
   loadRequestId: 0,
   loadStartedAt: 0,
   tabHiddenAt: 0,
@@ -527,6 +528,7 @@ function bindEvents() {
   elements.clearConfirmationDateFilterButton.addEventListener('click', clearConfirmationDateFilter);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
+  elements.confirmationsTableBody.addEventListener('click', handleConfirmationsTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
@@ -1123,13 +1125,13 @@ function renderReportsTable() {
 
 function renderAbsenceTable() {
   if (!state.holidayRequests.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="8">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
   const sorted = getFilteredHolidayRequests();
   if (!sorted.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="8">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
@@ -1146,7 +1148,6 @@ function renderAbsenceTable() {
           <td>${renderAttachmentLinks(request.attachments)}</td>
           <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL')}</td>
           <td>${renderHolidayApprovalCell(request, 'controll_gl', 'GL')}</td>
-          <td>${renderHolidayConfirmationCell(request)}</td>
         </tr>
       `;
     })
@@ -1171,12 +1172,12 @@ function renderConfirmationsTable() {
   const filteredHistory = getFilteredRequestHistory();
 
   if (!state.requestHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="5">Keine Bestätigungen in request_history gefunden.</td></tr>';
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="6">Keine Bestätigungen in request_history gefunden.</td></tr>';
     return;
   }
 
   if (!filteredHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="5">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="6">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
     return;
   }
 
@@ -1198,6 +1199,7 @@ function renderConfirmationsTable() {
           <td>${escapeHtml(details.periodLabel)}</td>
           <td>${escapeHtml(details.approvedByLabel)}</td>
           <td>${escapeHtml(formatDateTime(entry.created_at))}</td>
+          <td>${renderHistoryActionsCell(entry)}</td>
         </tr>
       `;
     })
@@ -1589,14 +1591,26 @@ function handleAbsencesTableClick(event) {
     handleConfirmHolidayRequest(requestId, 'controll_gl', 'GL');
     return;
   }
+}
 
-  if (trigger.dataset.action === 'download-absence-confirmation') {
-    exportHolidayConfirmationPdf(requestId);
+function handleConfirmationsTableClick(event) {
+  const trigger = event.target.closest('[data-action]');
+  if (!trigger) {
     return;
   }
 
-  if (trigger.dataset.action === 'reject-absence-request') {
-    handleRejectHolidayRequest(requestId);
+  const historyEntryId = trigger.dataset.historyEntryId;
+  if (!historyEntryId) {
+    return;
+  }
+
+  if (trigger.dataset.action === 'download-history-confirmation') {
+    exportRequestHistoryPdf(historyEntryId);
+    return;
+  }
+
+  if (trigger.dataset.action === 'delete-history-entry') {
+    handleDeleteHistoryEntry(historyEntryId);
   }
 }
 
@@ -2010,6 +2024,15 @@ function renderHolidayConfirmationCell(request) {
   return `<button class="button button-small button-secondary" type="button" data-action="download-absence-confirmation" data-request-id="${escapeAttribute(request.id)}">PDF herunterladen</button>`;
 }
 
+function renderHistoryActionsCell(entry) {
+  return `
+    <div class="table-row-actions">
+      <button class="button button-small button-secondary" type="button" data-action="download-history-confirmation" data-history-entry-id="${escapeAttribute(entry.id)}">PDF export</button>
+      <button class="button button-small button-danger" type="button" data-action="delete-history-entry" data-history-entry-id="${escapeAttribute(entry.id)}" ${state.isSavingConfirmation ? 'disabled' : ''}>Löschen</button>
+    </div>
+  `;
+}
+
 function handleGlobalKeydown(event) {
   if (event.key === 'Escape' && !elements.reportEditModal.classList.contains('hidden')) {
     closeReportEditModal();
@@ -2114,6 +2137,129 @@ async function exportHolidayConfirmationPdf(requestId) {
   }
 
   pdf.save(buildHolidayConfirmationFileName(request, profile));
+}
+
+function buildRequestHistoryConfirmationFileName(entry, profile) {
+  const createdDate = String(entry?.created_at || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const safeName = String(profile?.full_name || profile?.email || 'mitarbeiter')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return `bestaetigung-${safeName || 'mitarbeiter'}-${createdDate}.pdf`;
+}
+
+function buildHistoryPdfDetailRows(entry, details, profile) {
+  return [
+    ['Mitarbeiter', profile?.full_name || profile?.email || 'Unbekannt'],
+    ['Typ', details.typeLabel],
+    ['Von / Bis', details.periodLabel],
+    ['Bestätigt durch', details.approvedByLabel],
+    ['Ausgelöst am', formatDateTime(entry.created_at)],
+    ['Kontext', String(entry?.context || '').trim() || '–'],
+  ];
+}
+
+function drawRequestHistoryConfirmationPage(pdf, { entry, details, profile }) {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const margin = 18;
+  const contentWidth = pageWidth - margin * 2;
+  const detailRows = buildHistoryPdfDetailRows(entry, details, profile);
+  const requestText = String(entry?.request || '').trim() || '–';
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(22);
+  pdf.text('Bestätigung Absenz', margin, 22);
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10.5);
+  pdf.text('Export aus request_history (Bestätigungen).', margin, 32, {
+    maxWidth: contentWidth,
+    lineHeightFactor: 1.4,
+  });
+
+  pdf.autoTable({
+    startY: 42,
+    margin: { left: margin, right: margin },
+    tableWidth: contentWidth,
+    head: [['Feld', 'Wert']],
+    body: detailRows,
+    theme: 'grid',
+    styles: { font: 'helvetica', fontSize: 10, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.2 },
+    headStyles: { fillColor: [215, 0, 21], textColor: [255, 255, 255] },
+    columnStyles: { 0: { cellWidth: 42, fontStyle: 'bold' }, 1: { cellWidth: contentWidth - 42 } },
+  });
+
+  const notesY = (pdf.lastAutoTable?.finalY || 92) + 10;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(12);
+  pdf.text('Gesuch', margin, notesY);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(10);
+  pdf.rect(margin, notesY + 3, contentWidth, 40);
+  pdf.text(requestText, margin + 3, notesY + 10, {
+    maxWidth: contentWidth - 6,
+    lineHeightFactor: 1.4,
+  });
+}
+
+function exportRequestHistoryPdf(historyEntryId) {
+  const entry = state.requestHistory.find((item) => String(item.id) === String(historyEntryId));
+  if (!entry) {
+    alert('Der ausgewählte Bestätigungseintrag wurde nicht gefunden.');
+    return;
+  }
+
+  const details = parseRequestHistoryEntry(entry);
+  const profile = getProfileById(entry.profile_id);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+
+  drawRequestHistoryConfirmationPage(pdf, { entry, details, profile });
+  pdf.save(buildRequestHistoryConfirmationFileName(entry, profile));
+}
+
+async function handleDeleteHistoryEntry(historyEntryId) {
+  if (!historyEntryId || state.isSavingConfirmation) {
+    return;
+  }
+
+  const entry = state.requestHistory.find((item) => String(item.id) === String(historyEntryId));
+  if (!entry) {
+    alert('Der ausgewählte Bestätigungseintrag wurde nicht gefunden.');
+    return;
+  }
+
+  const shouldDelete = window.confirm('Soll dieser Bestätigungseintrag wirklich gelöscht werden?');
+  if (!shouldDelete) {
+    return;
+  }
+
+  state.isSavingConfirmation = true;
+  try {
+    if (state.isDemoMode) {
+      const index = demoRequestHistory.findIndex((item) => String(item.id) === String(historyEntryId));
+      if (index === -1) {
+        throw new Error('Demo-Bestätigung nicht gefunden');
+      }
+      demoRequestHistory.splice(index, 1);
+    } else {
+      const { error } = await state.supabase.from('request_history').delete().eq('id', historyEntryId);
+      if (error) {
+        throw error;
+      }
+    }
+
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Bestätigungseintrag konnte nicht gelöscht werden: ${error.message}`);
+  } finally {
+    state.isSavingConfirmation = false;
+    render();
+  }
 }
 
 function drawHolidayConfirmationPage(pdf, { request, profile }) {
