@@ -60,6 +60,7 @@
             <button class="nav-tab active" data-page="reports">Wochenrapporte</button>
             <button class="nav-tab" data-page="absences">Ferien &amp; Absenzen</button>
             <button class="nav-tab" data-page="confirmations">Bestätigungen</button>
+            <button class="nav-tab" data-page="saldo">Saldo</button>
             <button class="nav-tab" data-page="security">Admin-Zugriff</button>
           </nav>
 
@@ -281,6 +282,41 @@
                     </tr>
                   </thead>
                   <tbody id="confirmationsTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section id="saldoPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Saldo</h3>
+                  <p>
+                    Übersicht pro Profil mit manuell gepflegten Startwerten und automatisch
+                    verbuchten Stunden bei bestätigten Wochenrapporten.
+                  </p>
+                </div>
+              </div>
+
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>E-Mail</th>
+                      <th>Vacation Allowance (h)</th>
+                      <th>Booked Vacation (h)</th>
+                      <th>Carryover Overtime (h)</th>
+                      <th>Reported Hours (h)</th>
+                      <th>Credited Hours (h)</th>
+                      <th>Weekly Hours</th>
+                      <th>Overtime Balance (h)</th>
+                      <th>Vacation Balance (h)</th>
+                      <th>Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="saldoTableBody"></tbody>
                 </table>
               </div>
             </div>

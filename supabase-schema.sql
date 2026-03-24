@@ -16,6 +16,12 @@ create table if not exists public.app_profiles (
   full_name text not null,
   role_label text not null default 'Monteur',
   is_admin boolean not null default false,
+  vacation_allowance_hours numeric(10,2) not null default 0,
+  booked_vacation_hours numeric(10,2) not null default 0,
+  carryover_overtime_hours numeric(10,2) not null default 0,
+  reported_hours numeric(10,2) not null default 0,
+  credited_hours numeric(10,2) not null default 0,
+  weekly_hours numeric(10,2) not null default 40,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -65,6 +71,24 @@ create table if not exists public.request_history (
 
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
+
+alter table public.app_profiles
+add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists booked_vacation_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists reported_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists credited_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.weekly_reports
 add column if not exists controll text;
