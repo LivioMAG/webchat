@@ -54,6 +54,12 @@ add column if not exists project_name text;
 alter table public.weekly_reports
 add column if not exists adjusted_work_minutes integer not null default 0;
 
+alter table public.weekly_reports
+add column if not exists year integer;
+
+alter table public.weekly_reports
+add column if not exists kw integer;
+
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
@@ -141,6 +147,8 @@ begin
     insert into public.weekly_reports (
       profile_id,
       work_date,
+      year,
+      kw,
       project_name,
       commission_number,
       start_time,
@@ -159,6 +167,8 @@ begin
     select
       updated_request.profile_id,
       work_day::date,
+      extract(isoyear from work_day)::integer,
+      extract(week from work_day)::integer,
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       '07:00'::time,
@@ -961,12 +971,12 @@ async function loadData() {
       return;
     }
 
-    const weekRange = getWeekRange(state.selectedWeek);
+    const { year: selectedYear, kw: selectedKw } = getYearAndWeekFromWeekValue(state.selectedWeek);
     const reportsQuery = state.supabase
       .from('weekly_reports')
       .select('*')
-      .gte('work_date', weekRange.start)
-      .lte('work_date', weekRange.end)
+      .eq('year', selectedYear)
+      .eq('kw', selectedKw)
       .order('work_date', { ascending: true })
       .order('start_time', { ascending: true });
 
@@ -1052,8 +1062,16 @@ async function loadDemoData() {
 
   state.profiles = demoProfiles;
 
-  const weekRange = getWeekRange(state.selectedWeek);
-  const reports = demoWeeklyReports.filter((report) => report.work_date >= weekRange.start && report.work_date <= weekRange.end);
+  const { year: selectedYear, kw: selectedKw } = getYearAndWeekFromWeekValue(state.selectedWeek);
+  const reports = demoWeeklyReports.filter((report) => {
+    const reportYear = Number(report.year);
+    const reportKw = Number(report.kw);
+    if (Number.isInteger(reportYear) && Number.isInteger(reportKw)) {
+      return reportYear === selectedYear && reportKw === selectedKw;
+    }
+    const isoWeek = getIsoYearAndWeekFromDateString(report.work_date);
+    return isoWeek.year === selectedYear && isoWeek.kw === selectedKw;
+  });
   state.weeklyReports = reports;
   state.holidayRequests = [...demoHolidayRequests];
   state.requestHistory = [...demoRequestHistory];
@@ -2125,6 +2143,7 @@ async function handleReportEditSubmit(event) {
   const previousDelta = getReportBookingDelta(existingReport, 1);
   const updates = {
     work_date: elements.editWorkDate.value,
+    ...getIsoYearAndWeekFromDateString(elements.editWorkDate.value),
     commission_number: elements.editCommissionNumber.value.trim(),
     start_time: elements.editStartTime.value,
     end_time: elements.editEndTime.value,
@@ -3275,10 +3294,13 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
 
 function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
   const adjustedMinutesField = getAdjustedMinutesFieldName();
+  const isoWeek = getIsoYearAndWeekFromDateString(workDate);
   return {
     id: crypto.randomUUID(),
     profile_id: request.profile_id,
     work_date: workDate,
+    year: isoWeek.year,
+    kw: isoWeek.kw,
     project_name: requestTypeLabel,
     commission_number: requestTypeLabel,
     start_time: '07:00',
@@ -3574,6 +3596,23 @@ function getWeekRange(weekValue) {
     start: monday.toISOString().slice(0, 10),
     end: sunday.toISOString().slice(0, 10),
   };
+}
+
+function getYearAndWeekFromWeekValue(weekValue) {
+  const [yearPart, weekPart] = String(weekValue || '').split('-W');
+  return {
+    year: Number(yearPart),
+    kw: Number(weekPart),
+  };
+}
+
+function getIsoYearAndWeekFromDateString(dateString) {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return { year: null, kw: null };
+  }
+  const isoWeekValue = getIsoWeekValueFromDate(date);
+  return getYearAndWeekFromWeekValue(isoWeekValue);
 }
 
 function getWeekLabel(weekValue) {

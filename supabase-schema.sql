@@ -30,6 +30,8 @@ create table if not exists public.weekly_reports (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.app_profiles(id) on delete cascade,
   work_date date not null,
+  year integer,
+  kw integer,
   project_name text,
   commission_number text not null,
   start_time time not null default '07:00',
@@ -100,6 +102,12 @@ add column if not exists project_name text;
 
 alter table public.weekly_reports
 add column if not exists adjusted_work_minutes integer not null default 0;
+
+alter table public.weekly_reports
+add column if not exists year integer;
+
+alter table public.weekly_reports
+add column if not exists kw integer;
 
 alter table public.holiday_requests
 add column if not exists controll_pl text;
@@ -185,6 +193,8 @@ begin
     insert into public.weekly_reports (
       profile_id,
       work_date,
+      year,
+      kw,
       project_name,
       commission_number,
       start_time,
@@ -203,6 +213,8 @@ begin
     select
       updated_request.profile_id,
       work_day::date,
+      extract(isoyear from work_day)::integer,
+      extract(week from work_day)::integer,
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       '07:00'::time,
@@ -284,6 +296,7 @@ end;
 $$;
 
 create index if not exists weekly_reports_profile_work_date_idx on public.weekly_reports (profile_id, work_date);
+create index if not exists weekly_reports_year_kw_idx on public.weekly_reports (year, kw);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
 create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
 

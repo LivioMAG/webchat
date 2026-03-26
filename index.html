@@ -51,21 +51,31 @@
 
       <section id="appView" class="dashboard view hidden">
         <aside class="sidebar panel">
-          <div>
-            <span class="eyebrow">Administration</span>
-            <h2>Rapportcenter</h2>
-          </div>
-
           <nav class="nav-tabs">
-            <button class="nav-tab active" data-page="reports">Wochenrapporte</button>
-            <button class="nav-tab" data-page="absences">Ferien &amp; Absenzen</button>
-            <button class="nav-tab" data-page="confirmations">Bestätigungen</button>
-            <button class="nav-tab" data-page="saldo">Saldo</button>
-            <button class="nav-tab" data-page="security">Admin-Zugriff</button>
+            <button class="nav-tab active" data-page="reports" type="button" title="Wochenrapporte" aria-label="Wochenrapporte">
+              <span class="nav-tab-icon" aria-hidden="true">📅</span>
+              <span class="visually-hidden">Wochenrapporte</span>
+            </button>
+            <button class="nav-tab" data-page="absences" type="button" title="Ferien &amp; Absenzen" aria-label="Ferien und Absenzen">
+              <span class="nav-tab-icon" aria-hidden="true">🏖️</span>
+              <span class="visually-hidden">Ferien und Absenzen</span>
+            </button>
+            <button class="nav-tab" data-page="confirmations" type="button" title="Bestätigungen" aria-label="Bestätigungen">
+              <span class="nav-tab-icon" aria-hidden="true">✅</span>
+              <span class="visually-hidden">Bestätigungen</span>
+            </button>
+            <button class="nav-tab" data-page="saldo" type="button" title="Saldo" aria-label="Saldo">
+              <span class="nav-tab-icon" aria-hidden="true">⚖️</span>
+              <span class="visually-hidden">Saldo</span>
+            </button>
+            <button class="nav-tab" data-page="security" type="button" title="Admin-Zugriff" aria-label="Admin-Zugriff">
+              <span class="nav-tab-icon" aria-hidden="true">🔒</span>
+              <span class="visually-hidden">Admin-Zugriff</span>
+            </button>
           </nav>
 
           <div class="sidebar-footer">
-            <button id="logoutButton" class="button button-ghost">Ausloggen</button>
+            <button id="logoutButton" class="button button-ghost sidebar-logout" type="button" title="Ausloggen" aria-label="Ausloggen">↩</button>
           </div>
         </aside>
 
