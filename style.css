@@ -73,7 +73,7 @@ pre {
 }
 
 .app-shell {
-  width: min(1520px, calc(100vw - 32px));
+  width: calc(100vw - 32px);
   margin: 0 auto;
   padding: 16px 0 24px;
 }
@@ -281,6 +281,7 @@ textarea:focus {
   display: grid;
   gap: 20px;
   align-content: start;
+  min-width: 0;
 }
 
 .topbar,
@@ -440,14 +441,15 @@ textarea:focus {
 
 .table-wrapper {
   overflow: auto;
+  max-height: min(68vh, 960px);
   border-radius: 20px;
   border: 1px solid rgba(17, 17, 17, 0.06);
 }
 
 .table-wrapper table {
-  width: 100%;
+  width: max-content;
+  min-width: max(100%, 960px);
   border-collapse: collapse;
-  min-width: 960px;
   background: #fff;
 }
 
@@ -836,7 +838,7 @@ tbody tr:hover {
 
 @media (max-width: 720px) {
   .app-shell {
-    width: min(100vw, calc(100vw - 20px));
+    width: calc(100vw - 20px);
     padding: 10px 0 20px;
   }
 
