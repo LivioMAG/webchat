@@ -1748,7 +1748,7 @@ function getProfileSubmissionSummary() {
   const groups = groupReportsByProfile(state.weeklyReports);
   return getReportableProfiles().map((profile) => {
     const reports = groups.get(profile.id) ?? [];
-    const totalMinutes = reports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
+    const totalMinutes = reports.reduce((sum, report) => sum + getAdjustedWorkMinutes(report), 0);
     const hasPendingControll = reports.some((report) => !String(report.controll || '').trim());
     return {
       profile,
