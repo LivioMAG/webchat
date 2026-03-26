@@ -149,7 +149,8 @@
                       <th>Datum</th>
                       <th>Kommission</th>
                       <th>Zeit</th>
-                      <th>Stunden</th>
+                      <th>Total Work Time</th>
+                      <th>Total Adjusted Work Time</th>
                       <th>Spesen</th>
                       <th>Bemerkungen</th>
                       <th>Anhänge</th>
@@ -457,6 +458,39 @@
               <button class="button button-primary" type="submit">Änderungen speichern</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div id="adjustedMinutesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="adjustedMinutesTitle">
+        <div class="modal-backdrop" data-close-adjusted-modal="true"></div>
+        <div class="modal-card panel modal-card-compact">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="adjustedMinutesTitle">Adjusted Work Time bearbeiten</h3>
+              <p>Diese Zeit wird beim Bestätigen/Verbuchen verwendet.</p>
+            </div>
+            <button id="closeAdjustedMinutesModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <form id="adjustedMinutesForm" class="report-edit-form">
+            <input id="adjustedReportId" type="hidden" />
+            <label>
+              <span>Total Adjusted Work Time (Minuten)</span>
+              <input id="adjustedMinutesInput" type="number" min="0" step="15" required />
+            </label>
+            <div class="modal-actions">
+              <button id="cancelAdjustedMinutesButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button class="button button-primary" type="submit">Speichern</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="loadingOverlay" class="loading-overlay hidden" aria-live="polite" aria-busy="true">
+        <div class="loading-card panel">
+          <div class="spinner" aria-hidden="true"></div>
+          <strong>Bitte warten…</strong>
+          <p id="loadingOverlayText">Aktion wird ausgeführt.</p>
         </div>
       </div>
 

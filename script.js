@@ -48,6 +48,12 @@ add column if not exists credited_hours numeric(10,2) not null default 0;
 alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
 
+alter table public.weekly_reports
+add column if not exists project_name text;
+
+alter table public.weekly_reports
+add column if not exists adjusted_work_minutes integer not null default 0;
+
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
@@ -132,6 +138,50 @@ begin
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
+    insert into public.weekly_reports (
+      profile_id,
+      work_date,
+      project_name,
+      commission_number,
+      start_time,
+      end_time,
+      lunch_break_minutes,
+      additional_break_minutes,
+      total_work_minutes,
+      adjusted_work_minutes,
+      expenses_amount,
+      other_costs_amount,
+      expense_note,
+      notes,
+      controll,
+      attachments
+    )
+    select
+      updated_request.profile_id,
+      work_day::date,
+      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      '07:00'::time,
+      '16:30'::time,
+      60,
+      30,
+      480,
+      480,
+      0,
+      0,
+      '',
+      format('Automatisch aus bestätigter Absenz (%s).', initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' '))),
+      '',
+      '[]'::jsonb
+    from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
+    where extract(isodow from work_day) between 1 and 5
+      and not exists (
+        select 1
+        from public.weekly_reports existing
+        where existing.profile_id = updated_request.profile_id
+          and existing.work_date = work_day::date
+      );
+
     archive_context := format(
       'Bestätigt durch PL: %s | GL: %s',
       updated_request.controll_pl,
@@ -320,6 +370,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 60,
     additional_break_minutes: 15,
     total_work_minutes: 525,
+    adjusted_work_minutes: 525,
     expenses_amount: 24.5,
     other_costs_amount: 0,
     expense_note: 'Mittag auf Baustelle',
@@ -338,6 +389,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 60,
     additional_break_minutes: 15,
     total_work_minutes: 495,
+    adjusted_work_minutes: 495,
     expenses_amount: 18,
     other_costs_amount: 0,
     expense_note: 'Spesen',
@@ -356,6 +408,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 45,
     additional_break_minutes: 15,
     total_work_minutes: 450,
+    adjusted_work_minutes: 450,
     expenses_amount: 12,
     other_costs_amount: 8,
     expense_note: 'Parkhaus',
@@ -374,6 +427,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 0,
     additional_break_minutes: 0,
     total_work_minutes: 0,
+    adjusted_work_minutes: 0,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -444,6 +498,11 @@ const state = {
   isSavingAbsence: false,
   isSavingConfirmation: false,
   isSavingSaldo: false,
+  isLoadingOverlayVisible: false,
+  loadingOverlayReason: '',
+  loadingOverlayTimer: null,
+  loadingTaskDepth: 0,
+  editingAdjustedReportId: null,
   loadRequestId: 0,
   loadStartedAt: 0,
   tabHiddenAt: 0,
@@ -453,6 +512,7 @@ const state = {
 const elements = {};
 const STALE_LOADING_TIMEOUT_MS = 4000;
 const LOAD_WATCHDOG_TIMEOUT_MS = 10000;
+const LONG_TASK_OVERLAY_DELAY_MS = 550;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -531,6 +591,14 @@ function cacheElements() {
   elements.editOtherCostsAmount = document.getElementById('editOtherCostsAmount');
   elements.editNotes = document.getElementById('editNotes');
   elements.editExpenseNote = document.getElementById('editExpenseNote');
+  elements.adjustedMinutesModal = document.getElementById('adjustedMinutesModal');
+  elements.adjustedMinutesForm = document.getElementById('adjustedMinutesForm');
+  elements.adjustedReportId = document.getElementById('adjustedReportId');
+  elements.adjustedMinutesInput = document.getElementById('adjustedMinutesInput');
+  elements.closeAdjustedMinutesModalButton = document.getElementById('closeAdjustedMinutesModalButton');
+  elements.cancelAdjustedMinutesButton = document.getElementById('cancelAdjustedMinutesButton');
+  elements.loadingOverlay = document.getElementById('loadingOverlay');
+  elements.loadingOverlayText = document.getElementById('loadingOverlayText');
   elements.pages = {
     reports: document.getElementById('reportsPage'),
     absences: document.getElementById('absencesPage'),
@@ -582,9 +650,17 @@ function bindEvents() {
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
   elements.cancelReportEditButton.addEventListener('click', closeReportEditModal);
   elements.reportEditForm.addEventListener('submit', handleReportEditSubmit);
+  elements.adjustedMinutesForm.addEventListener('submit', handleAdjustedMinutesSubmit);
   elements.reportEditModal.addEventListener('click', (event) => {
     if (event.target?.dataset?.closeModal === 'true') {
       closeReportEditModal();
+    }
+  });
+  elements.closeAdjustedMinutesModalButton.addEventListener('click', closeAdjustedMinutesModal);
+  elements.cancelAdjustedMinutesButton.addEventListener('click', closeAdjustedMinutesModal);
+  elements.adjustedMinutesModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.closeAdjustedModal === 'true') {
+      closeAdjustedMinutesModal();
     }
   });
   document.addEventListener('keydown', handleGlobalKeydown);
@@ -839,6 +915,7 @@ function resetAppState() {
   state.tabHiddenAt = 0;
   clearLoadRecoveryTimer();
   closeReportEditModal();
+  closeAdjustedMinutesModal();
   elements.dataTimestamp.textContent = 'Noch keine Daten geladen';
 }
 
@@ -997,16 +1074,20 @@ function render() {
 
   if (isCheckingAdminAccess) {
     closeReportEditModal();
+    closeAdjustedMinutesModal();
     elements.accessDeniedView.classList.add('hidden');
     elements.loginView.classList.remove('hidden');
     if (elements.loginAlert) {
       showLoginMessage('Admin-Zugriff wird geprüft …', false);
     }
+    renderLoadingOverlay();
     return;
   }
 
   if (!hasAdminAccess) {
     closeReportEditModal();
+    closeAdjustedMinutesModal();
+    renderLoadingOverlay();
     return;
   }
 
@@ -1022,6 +1103,7 @@ function render() {
   renderConfirmationFilters();
   renderConfirmationsTable();
   renderSaldoTable();
+  renderLoadingOverlay();
 }
 
 function renderSidebar() {
@@ -1034,6 +1116,51 @@ function renderSidebar() {
   }
   if (elements.userBadge) {
     elements.userBadge.textContent = state.hasAdminAccess ? 'Admin' : 'Kein Zugriff';
+  }
+}
+
+function renderLoadingOverlay() {
+  if (!elements.loadingOverlay || !elements.loadingOverlayText) {
+    return;
+  }
+  elements.loadingOverlay.classList.toggle('hidden', !state.isLoadingOverlayVisible);
+  elements.loadingOverlayText.textContent = state.loadingOverlayReason || 'Aktion wird ausgeführt.';
+}
+
+function scheduleLoadingOverlay(reason) {
+  if (state.loadingOverlayTimer) {
+    clearTimeout(state.loadingOverlayTimer);
+  }
+  state.loadingOverlayTimer = setTimeout(() => {
+    state.isLoadingOverlayVisible = true;
+    state.loadingOverlayReason = reason || 'Aktion wird ausgeführt.';
+    renderLoadingOverlay();
+  }, LONG_TASK_OVERLAY_DELAY_MS);
+}
+
+function hideLoadingOverlay() {
+  if (state.loadingOverlayTimer) {
+    clearTimeout(state.loadingOverlayTimer);
+    state.loadingOverlayTimer = null;
+  }
+  state.isLoadingOverlayVisible = false;
+  state.loadingOverlayReason = '';
+  renderLoadingOverlay();
+}
+
+async function withLongTask(reason, task) {
+  state.loadingTaskDepth += 1;
+  if (state.loadingTaskDepth === 1) {
+    scheduleLoadingOverlay(reason);
+  }
+
+  try {
+    return await task();
+  } finally {
+    state.loadingTaskDepth = Math.max(0, state.loadingTaskDepth - 1);
+    if (state.loadingTaskDepth === 0) {
+      hideLoadingOverlay();
+    }
   }
 }
 
@@ -1068,13 +1195,13 @@ function renderWeekSummary() {
 }
 
 function renderReportStats() {
-  const missingProfiles = getMissingProfiles();
+  const missingProfiles = getIncompleteSubmissionProfiles();
   const hasMissingReports = missingProfiles.length > 0;
 
   elements.reportStatusButton.classList.toggle('is-missing', hasMissingReports);
   elements.reportStatusButton.classList.toggle('is-complete', !hasMissingReports);
   elements.reportStatusIcon.textContent = hasMissingReports ? String(missingProfiles.length) : '✔';
-  elements.reportStatusText.textContent = hasMissingReports ? 'fehlende Wochenrapporte' : 'Alle Wochenrapporte vorhanden';
+  elements.reportStatusText.textContent = hasMissingReports ? 'fehlende/unvollständige Rapporte' : 'Alle Wochenrapporte vollständig';
 }
 
 function renderEmployeeFilters() {
@@ -1127,7 +1254,7 @@ function renderAbsenceFilters() {
 
 function renderReportsTable() {
   if (state.isLoadingData) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Rapporte für ${escapeHtml(getWeekLabel(state.selectedWeek))} werden geladen …</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Rapporte für ${escapeHtml(getWeekLabel(state.selectedWeek))} werden geladen …</td></tr>`;
     renderReportsPagination({ totalItems: 0, totalPages: 1, currentPage: 1, startIndex: 0, endIndex: 0 });
     return;
   }
@@ -1136,13 +1263,13 @@ function renderReportsTable() {
   const pagination = getReportsPaginationMeta(allReports);
 
   if (!state.weeklyReports.length) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
     renderReportsPagination(pagination);
     return;
   }
 
   if (!allReports.length) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
     renderReportsPagination(pagination);
     return;
   }
@@ -1157,6 +1284,11 @@ function renderReportsTable() {
           <td>${escapeHtml(report.commission_number || '–')}</td>
           <td>${escapeHtml(report.start_time || '–')} – ${escapeHtml(report.end_time || '–')}</td>
           <td>${formatMinutes(report.total_work_minutes)}</td>
+          <td>
+            <button class="adjusted-time-button" type="button" data-action="edit-adjusted-time" data-report-id="${escapeAttribute(report.id)}">
+              ${formatMinutes(getAdjustedWorkMinutes(report))}
+            </button>
+          </td>
           <td>${formatCurrency(Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0))}</td>
           <td>${escapeHtml(report.notes || report.expense_note || '–')}</td>
           <td>${renderAttachmentLinks(report.attachments)}</td>
@@ -1315,18 +1447,17 @@ function renderSubmissionLists() {
     `;
     });
 
-  const missingItems = summaries
-    .filter((summary) => !summary.hasSubmission)
+  const missingItems = getIncompleteSubmissionProfiles()
     .map(
-      (summary) => `
+      (entry) => `
       <li class="align-start">
         <div class="status-stack">
-          <strong>${escapeHtml(summary.profile.full_name)}</strong>
-          <div class="subtle-text">Für diese Woche wurde noch kein Rapport eingereicht.</div>
+          <strong>${escapeHtml(entry.profile.full_name)}</strong>
+          <div class="subtle-text">${escapeHtml(entry.description)}</div>
         </div>
         <div class="status-meta">
-          <span class="pill warning">Fehlt</span>
-          <strong>0.00 h</strong>
+          <span class="pill warning">${escapeHtml(entry.statusLabel)}</span>
+          <strong>${formatMinutes(entry.totalMinutes)}</strong>
         </div>
       </li>
     `,
@@ -1650,6 +1781,11 @@ function handleReportsTableClick(event) {
     return;
   }
 
+  if (trigger.dataset.action === 'edit-adjusted-time') {
+    openAdjustedMinutesModal(reportId);
+    return;
+  }
+
   if (trigger.dataset.action === 'confirm-report') {
     handleConfirmReport(reportId);
     return;
@@ -1734,26 +1870,27 @@ async function handleConfirmReport(reportId) {
 
   state.isSavingReport = true;
   try {
-    const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
-    const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
+    await withLongTask('Rapport wird bestätigt …', async () => {
+      const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+      const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
 
-    if (state.isDemoMode) {
-      updateDemoReport(reportId, { controll: controllName });
-      if (existingReport && !wasAlreadyConfirmed) {
-        applyDemoReportBookingDelta(existingReport, 1);
+      if (state.isDemoMode) {
+        updateDemoReport(reportId, { controll: controllName });
+        if (existingReport && !wasAlreadyConfirmed) {
+          applyDemoReportBookingDelta(existingReport, 1);
+        }
+      } else {
+        const { error } = await state.supabase
+          .from('weekly_reports')
+          .update({ controll: controllName })
+          .eq('id', reportId);
+        if (error) throw error;
+        if (existingReport && !wasAlreadyConfirmed) {
+          await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
+        }
       }
-    } else {
-      const { error } = await state.supabase
-        .from('weekly_reports')
-        .update({ controll: controllName })
-        .eq('id', reportId);
-      if (error) throw error;
-      if (existingReport && !wasAlreadyConfirmed) {
-        await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
-      }
-    }
-
-    await loadData();
+      await loadData();
+    });
   } catch (error) {
     console.error(error);
     alert(`Kontrolle konnte nicht gespeichert werden: ${error.message}`);
@@ -1781,38 +1918,42 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
 
   state.isSavingAbsence = true;
   try {
-    const updates = { [fieldName]: approvalName };
-    const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
+    await withLongTask('Absenzbestätigung wird verarbeitet …', async () => {
+      const updates = { [fieldName]: approvalName };
+      const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
 
-    if (state.isDemoMode) {
-      updateDemoHolidayRequest(requestId, updates);
-      const updatedRequest = demoHolidayRequests.find((item) => String(item.id) === String(requestId));
-      if (isHolidayRequestFullyApproved(updatedRequest)) {
-        archiveDemoHolidayRequestDecision(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
-        deleteDemoHolidayRequest(requestId);
-      }
-    } else {
-      let updatedRequest = request ? { ...request, ...updates } : null;
-      const { error } = await state.supabase.rpc('approve_holiday_request', {
-        p_request_id: requestId,
-        p_field_name: fieldName,
-        p_approval_name: approvalName,
-      });
+      if (state.isDemoMode) {
+        updateDemoHolidayRequest(requestId, updates);
+        const updatedRequest = demoHolidayRequests.find((item) => String(item.id) === String(requestId));
+        if (isHolidayRequestFullyApproved(updatedRequest)) {
+          await createAutoReportsForApprovedHolidayRequest(updatedRequest);
+          archiveDemoHolidayRequestDecision(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
+          deleteDemoHolidayRequest(requestId);
+        }
+      } else {
+        let updatedRequest = request ? { ...request, ...updates } : null;
+        const { error } = await state.supabase.rpc('approve_holiday_request', {
+          p_request_id: requestId,
+          p_field_name: fieldName,
+          p_approval_name: approvalName,
+        });
 
-      if (error) {
-        if (!request || !isMissingRpcFunctionError(error, 'approve_holiday_request')) {
-          throw error;
+        if (error) {
+          if (!request || !isMissingRpcFunctionError(error, 'approve_holiday_request')) {
+            throw error;
+          }
+
+          updatedRequest = await approveHolidayRequestWithoutRpc(request, fieldName, approvalName);
         }
 
-        updatedRequest = await approveHolidayRequestWithoutRpc(request, fieldName, approvalName);
+        if (request && isHolidayRequestFullyApproved(updatedRequest)) {
+          await createAutoReportsForApprovedHolidayRequest(updatedRequest);
+          await deleteHolidayRequestAttachmentsSafely(request.attachments);
+        }
       }
 
-      if (request && isHolidayRequestFullyApproved(updatedRequest)) {
-        await deleteHolidayRequestAttachmentsSafely(request.attachments);
-      }
-    }
-
-    await loadData();
+      await loadData();
+    });
   } catch (error) {
     console.error(error);
     alert(`Bestätigung ${roleLabel} konnte nicht gespeichert werden: ${error.message}`);
@@ -1903,6 +2044,75 @@ function closeReportEditModal() {
   elements.reportEditForm.reset();
 }
 
+function openAdjustedMinutesModal(reportId) {
+  const report = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+  if (!report || !elements.adjustedMinutesModal) {
+    return;
+  }
+
+  state.editingAdjustedReportId = report.id;
+  elements.adjustedReportId.value = report.id;
+  elements.adjustedMinutesInput.value = Number(getAdjustedWorkMinutes(report));
+  elements.adjustedMinutesModal.classList.remove('hidden');
+}
+
+function closeAdjustedMinutesModal() {
+  state.editingAdjustedReportId = null;
+  if (!elements.adjustedMinutesModal || !elements.adjustedMinutesForm) {
+    return;
+  }
+  elements.adjustedMinutesModal.classList.add('hidden');
+  elements.adjustedMinutesForm.reset();
+}
+
+async function handleAdjustedMinutesSubmit(event) {
+  event.preventDefault();
+  if (!state.editingAdjustedReportId || state.isSavingReport) {
+    return;
+  }
+
+  const reportId = state.editingAdjustedReportId;
+  const report = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+  if (!report) {
+    closeAdjustedMinutesModal();
+    return;
+  }
+
+  const adjustedMinutes = Math.max(0, Number(elements.adjustedMinutesInput.value || 0));
+  const wasConfirmed = Boolean(String(report.controll || '').trim());
+  const previousDelta = getReportBookingDelta(report, 1);
+  const updates = { adjusted_work_minutes: adjustedMinutes };
+  state.isSavingReport = true;
+
+  try {
+    if (state.isDemoMode) {
+      updateDemoReport(reportId, updates);
+      if (wasConfirmed) {
+        const updatedReport = { ...report, ...updates };
+        const nextDelta = getReportBookingDelta(updatedReport, 1);
+        applyDemoBookingDeltaDifference(report.profile_id, previousDelta, nextDelta);
+      }
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
+      if (error) throw error;
+      if (wasConfirmed) {
+        const updatedReport = { ...report, ...updates };
+        const nextDelta = getReportBookingDelta(updatedReport, 1);
+        await applyProfileBookingDeltaDifference(report.profile_id, previousDelta, nextDelta);
+      }
+    }
+
+    await loadData();
+    closeAdjustedMinutesModal();
+  } catch (error) {
+    console.error(error);
+    alert(`Adjusted Work Time konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingReport = false;
+    render();
+  }
+}
+
 async function handleReportEditSubmit(event) {
   event.preventDefault();
   if (!state.editingReportId || state.isSavingReport) {
@@ -1910,6 +2120,9 @@ async function handleReportEditSubmit(event) {
   }
 
   const reportId = state.editingReportId;
+  const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+  const wasConfirmed = Boolean(String(existingReport?.controll || '').trim());
+  const previousDelta = getReportBookingDelta(existingReport, 1);
   const updates = {
     work_date: elements.editWorkDate.value,
     commission_number: elements.editCommissionNumber.value.trim(),
@@ -1926,9 +2139,17 @@ async function handleReportEditSubmit(event) {
   try {
     if (state.isDemoMode) {
       updateDemoReport(reportId, updates);
+      if (wasConfirmed && existingReport) {
+        const nextDelta = getReportBookingDelta({ ...existingReport, ...updates }, 1);
+        applyDemoBookingDeltaDifference(existingReport.profile_id, previousDelta, nextDelta);
+      }
     } else {
       const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
       if (error) throw error;
+      if (wasConfirmed && existingReport) {
+        const nextDelta = getReportBookingDelta({ ...existingReport, ...updates }, 1);
+        await applyProfileBookingDeltaDifference(existingReport.profile_id, previousDelta, nextDelta);
+      }
     }
 
     await loadData();
@@ -2237,7 +2458,14 @@ function renderHistoryActionsCell(entry) {
 }
 
 function handleGlobalKeydown(event) {
-  if (event.key === 'Escape' && !elements.reportEditModal.classList.contains('hidden')) {
+  if (event.key !== 'Escape') {
+    return;
+  }
+  if (elements.adjustedMinutesModal && !elements.adjustedMinutesModal.classList.contains('hidden')) {
+    closeAdjustedMinutesModal();
+    return;
+  }
+  if (!elements.reportEditModal.classList.contains('hidden')) {
     closeReportEditModal();
   }
 }
@@ -2248,98 +2476,107 @@ function setCurrentPage(page) {
 }
 
 async function exportWeekPdf() {
-  const filteredReports = getSortedFilteredReports();
-  if (!filteredReports.length) {
-    alert('Für die gewählte Woche sind keine Rapporte vorhanden.');
-    return;
-  }
+  await withLongTask('PDF-Export wird vorbereitet …', async () => {
+    const filteredReports = getSortedFilteredReports();
+    if (!filteredReports.length) {
+      alert('Für die gewählte Woche sind keine Rapporte vorhanden.');
+      return;
+    }
 
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-  const grouped = groupReportsByProfile(filteredReports);
-  const weekRange = getWeekRange(state.selectedWeek);
-  let firstSection = true;
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const grouped = groupReportsByProfile(filteredReports);
+    const weekRange = getWeekRange(state.selectedWeek);
+    let firstSection = true;
 
-  for (const profile of getReportableProfiles().filter((item) => grouped.has(item.id))) {
-    const reports = grouped.get(profile.id) ?? [];
-    if (!firstSection) pdf.addPage();
-    firstSection = false;
+    for (const profile of getReportableProfiles().filter((item) => grouped.has(item.id))) {
+      const reports = grouped.get(profile.id) ?? [];
+      if (!firstSection) pdf.addPage();
+      firstSection = false;
 
-    const reportLayout = buildWeeklyReportLayout(reports);
-    drawWeeklyReportPage(pdf, {
-      profile,
-      weekRange,
-      calendarWeek: getWeekLabel(state.selectedWeek),
-      layout: reportLayout,
+      const reportLayout = buildWeeklyReportLayout(reports);
+      drawWeeklyReportPage(pdf, {
+        profile,
+        weekRange,
+        calendarWeek: getWeekLabel(state.selectedWeek),
+        layout: reportLayout,
+      });
+
+      const imageAttachments = reports
+        .flatMap((report) => Array.isArray(report.attachments) ? report.attachments : [])
+        .filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+      for (let index = 0; index < imageAttachments.length; index += 2) {
+        pdf.addPage();
+        await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
+          profileName: profile.full_name || 'Unbekannt',
+          calendarWeek: getWeekLabel(state.selectedWeek),
+        });
+      }
+    }
+
+    pdf.addPage();
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(18);
+    pdf.text('Fehlende/Unvollständige Wochenrapporte', 14, 18);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(10);
+    pdf.text(getWeekLabel(state.selectedWeek), 14, 24);
+    const missingRows = getIncompleteSubmissionProfiles({ selectedOnly: true }).map((entry) => [
+      entry.profile.full_name,
+      entry.profile.email,
+      entry.statusLabel,
+    ]);
+    pdf.autoTable({
+      startY: 30,
+      head: [['Mitarbeiter', 'E-Mail', 'Status']],
+      body: missingRows.length ? missingRows : [['Alle Mitarbeiter haben vollständig abgegeben.', '', '']],
+      styles: { fontSize: 9, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.2 },
+      headStyles: { fillColor: [22, 163, 74], textColor: [255, 255, 255] },
     });
 
-    const imageAttachments = reports
-      .flatMap((report) => Array.isArray(report.attachments) ? report.attachments : [])
-      .filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+    pdf.save(`wochenrapport-${state.selectedWeek}.pdf`);
+  });
+}
+
+
+async function exportHolidayConfirmationPdf(requestId) {
+  await withLongTask('Absenzbestätigung als PDF wird erstellt …', async () => {
+    const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
+    if (!request) {
+      alert('Die ausgewählte Absenz wurde nicht gefunden.');
+      return;
+    }
+
+    if (!isHolidayRequestFullyApproved(request)) {
+      alert('Das Bestätigungsdokument kann erst heruntergeladen werden, wenn PL und GL bestätigt haben.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const profile = getProfileById(request.profile_id);
+
+    drawHolidayConfirmationPage(pdf, { request, profile });
+
+    const attachments = Array.isArray(request.attachments) ? request.attachments : [];
+    const imageAttachments = attachments.filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+    const otherAttachments = attachments.filter((attachment) => !isImageAttachment(attachment));
+
+    if (otherAttachments.length) {
+      pdf.addPage();
+      drawHolidayAttachmentListPage(pdf, { attachments: otherAttachments, request, profile });
+    }
+
     for (let index = 0; index < imageAttachments.length; index += 2) {
       pdf.addPage();
       await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
-        profileName: profile.full_name || 'Unbekannt',
-        calendarWeek: getWeekLabel(state.selectedWeek),
+        profileName: profile?.full_name || 'Unbekannt',
+        calendarWeek: 'Absenz-Bestätigung',
       });
     }
-  }
 
-  pdf.addPage();
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(18);
-  pdf.text('Fehlende Wochenrapporte', 14, 18);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(10);
-  pdf.text(getWeekLabel(state.selectedWeek), 14, 24);
-  const missingRows = getMissingProfiles({ selectedOnly: true }).map((profile) => [profile.full_name, profile.email, profile.role_label || 'Profil']);
-  pdf.autoTable({
-    startY: 30,
-    head: [['Mitarbeiter', 'E-Mail', 'Rolle']],
-    body: missingRows.length ? missingRows : [['Alle Mitarbeiter haben abgegeben.', '', '']],
-    styles: { fontSize: 9, cellPadding: 3, lineColor: [0, 0, 0], lineWidth: 0.2 },
-    headStyles: { fillColor: [22, 163, 74], textColor: [255, 255, 255] },
+    pdf.save(buildHolidayConfirmationFileName(request, profile));
   });
-
-  pdf.save(`wochenrapport-${state.selectedWeek}.pdf`);
-}
-
-async function exportHolidayConfirmationPdf(requestId) {
-  const request = state.holidayRequests.find((item) => String(item.id) === String(requestId));
-  if (!request) {
-    alert('Die ausgewählte Absenz wurde nicht gefunden.');
-    return;
-  }
-
-  if (!isHolidayRequestFullyApproved(request)) {
-    alert('Das Bestätigungsdokument kann erst heruntergeladen werden, wenn PL und GL bestätigt haben.');
-    return;
-  }
-
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
-  const profile = getProfileById(request.profile_id);
-
-  drawHolidayConfirmationPage(pdf, { request, profile });
-
-  const attachments = Array.isArray(request.attachments) ? request.attachments : [];
-  const imageAttachments = attachments.filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
-  const otherAttachments = attachments.filter((attachment) => !isImageAttachment(attachment));
-
-  if (otherAttachments.length) {
-    pdf.addPage();
-    drawHolidayAttachmentListPage(pdf, { attachments: otherAttachments, request, profile });
-  }
-
-  for (let index = 0; index < imageAttachments.length; index += 2) {
-    pdf.addPage();
-    await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
-      profileName: profile?.full_name || 'Unbekannt',
-      calendarWeek: 'Absenz-Bestätigung',
-    });
-  }
-
-  pdf.save(buildHolidayConfirmationFileName(request, profile));
 }
 
 function buildRequestHistoryConfirmationFileName(entry, profile) {
@@ -2408,20 +2645,22 @@ function drawRequestHistoryConfirmationPage(pdf, { entry, details, profile }) {
   });
 }
 
-function exportRequestHistoryPdf(historyEntryId) {
-  const entry = state.requestHistory.find((item) => String(item.id) === String(historyEntryId));
-  if (!entry) {
-    alert('Der ausgewählte Bestätigungseintrag wurde nicht gefunden.');
-    return;
-  }
+async function exportRequestHistoryPdf(historyEntryId) {
+  await withLongTask('Bestätigung als PDF wird erstellt …', async () => {
+    const entry = state.requestHistory.find((item) => String(item.id) === String(historyEntryId));
+    if (!entry) {
+      alert('Der ausgewählte Bestätigungseintrag wurde nicht gefunden.');
+      return;
+    }
 
-  const details = parseRequestHistoryEntry(entry);
-  const profile = getProfileById(entry.profile_id);
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+    const details = parseRequestHistoryEntry(entry);
+    const profile = getProfileById(entry.profile_id);
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
 
-  drawRequestHistoryConfirmationPage(pdf, { entry, details, profile });
-  pdf.save(buildRequestHistoryConfirmationFileName(entry, profile));
+    drawRequestHistoryConfirmationPage(pdf, { entry, details, profile });
+    pdf.save(buildRequestHistoryConfirmationFileName(entry, profile));
+  });
 }
 
 async function handleDeleteHistoryEntry(historyEntryId) {
@@ -2977,6 +3216,85 @@ function isHolidayRequestFullyApproved(request) {
   return Boolean(String(request?.controll_pl || '').trim() && String(request?.controll_gl || '').trim());
 }
 
+async function createAutoReportsForApprovedHolidayRequest(request) {
+  if (!request?.profile_id || !request?.start_date || !request?.end_date) {
+    return;
+  }
+
+  const requestTypeLabel = HOLIDAY_TYPE_LABELS[request.request_type] ?? String(request.request_type || 'Absenz');
+  const days = [];
+  const cursor = new Date(`${request.start_date}T00:00:00Z`);
+  const endDate = new Date(`${request.end_date}T00:00:00Z`);
+  while (cursor <= endDate) {
+    const weekday = cursor.getUTCDay();
+    if (weekday >= 1 && weekday <= 5) {
+      days.push(cursor.toISOString().slice(0, 10));
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  if (!days.length) {
+    return;
+  }
+
+  if (state.isDemoMode) {
+    const existingDates = new Set(
+      demoWeeklyReports
+        .filter((report) => String(report.profile_id) === String(request.profile_id))
+        .map((report) => report.work_date),
+    );
+    days.forEach((workDate) => {
+      if (existingDates.has(workDate)) {
+        return;
+      }
+      demoWeeklyReports.push(buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel));
+    });
+    return;
+  }
+
+  const { data: existingReports, error: existingReportsError } = await state.supabase
+    .from('weekly_reports')
+    .select('work_date')
+    .eq('profile_id', request.profile_id)
+    .in('work_date', days);
+  if (existingReportsError) {
+    throw existingReportsError;
+  }
+  const existingDates = new Set((existingReports ?? []).map((report) => report.work_date));
+  const rowsToInsert = days
+    .filter((workDate) => !existingDates.has(workDate))
+    .map((workDate) => buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel));
+  if (!rowsToInsert.length) {
+    return;
+  }
+  const { error } = await state.supabase.from('weekly_reports').insert(rowsToInsert);
+  if (error) {
+    throw error;
+  }
+}
+
+function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
+  return {
+    id: crypto.randomUUID(),
+    profile_id: request.profile_id,
+    work_date: workDate,
+    project_name: requestTypeLabel,
+    commission_number: requestTypeLabel,
+    start_time: '07:00',
+    end_time: '16:30',
+    lunch_break_minutes: 60,
+    additional_break_minutes: 30,
+    total_work_minutes: 480,
+    adjusted_work_minutes: 480,
+    expenses_amount: 0,
+    other_costs_amount: 0,
+    expense_note: '',
+    notes: `Automatisch erstellt aus bestätigter Absenz (${requestTypeLabel}).`,
+    controll: '',
+    attachments: [],
+  };
+}
+
 function getHolidayRequestDurationLabel(request) {
   const start = new Date(`${request.start_date}T00:00:00Z`);
   const end = new Date(`${request.end_date}T00:00:00Z`);
@@ -3110,15 +3428,40 @@ function formatHours(totalMinutes) {
   return (numericMinutes / 60).toFixed(2);
 }
 
-function getMissingProfiles({ selectedOnly = false } = {}) {
+function getIncompleteSubmissionProfiles({ selectedOnly = false } = {}) {
   const groups = groupReportsByProfile(state.weeklyReports);
   const selectedIds = new Set(state.selectedEmployeeIds);
-  return getReportableProfiles().filter((profile) => {
+  return getReportableProfiles().flatMap((profile) => {
     if (selectedOnly && !selectedIds.has(profile.id)) {
-      return false;
+      return [];
     }
 
-    return !groups.has(profile.id);
+    const reports = groups.get(profile.id) ?? [];
+    const totalMinutes = reports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
+    const weeklyHours = Number(profile.weekly_hours || 40);
+    const minimumMinutes = weeklyHours * 60 * 0.8;
+
+    if (!reports.length) {
+      return [{
+        profile,
+        totalMinutes: 0,
+        status: 'missing',
+        statusLabel: 'Fehlt',
+        description: 'Für diese Woche wurde noch kein Rapport eingereicht.',
+      }];
+    }
+
+    if (totalMinutes < minimumMinutes) {
+      return [{
+        profile,
+        totalMinutes,
+        status: 'incomplete',
+        statusLabel: 'Unvollständig',
+        description: `Rapportierte Zeit liegt unter 80% der Sollzeit (${(minimumMinutes / 60).toFixed(2)} h).`,
+      }];
+    }
+
+    return [];
   });
 }
 
@@ -3311,8 +3654,16 @@ function getCurrentIsoWeekNumber() {
   return Number(weekPart || 1);
 }
 
+function getAdjustedWorkMinutes(report) {
+  const adjustedMinutes = Number(report?.adjusted_work_minutes);
+  if (Number.isFinite(adjustedMinutes) && adjustedMinutes >= 0) {
+    return adjustedMinutes;
+  }
+  return Number(report?.total_work_minutes || 0);
+}
+
 function getReportBookingDelta(report, multiplier = 1) {
-  const hours = Number(report?.total_work_minutes || 0) / 60;
+  const hours = getAdjustedWorkMinutes(report) / 60;
   const isVacation = isVacationReport(report);
   return {
     reportedHoursDelta: hours * multiplier,
@@ -3341,6 +3692,15 @@ function applyDemoReportBookingDelta(report, multiplier = 1) {
   profile.booked_vacation_hours = Number(profile.booked_vacation_hours || 0) + delta.bookedVacationHoursDelta;
 }
 
+function applyDemoBookingDeltaDifference(profileId, previousDelta, nextDelta) {
+  const profile = demoProfiles.find((item) => String(item.id) === String(profileId));
+  if (!profile) {
+    return;
+  }
+  profile.reported_hours = Number(profile.reported_hours || 0) + Number(nextDelta?.reportedHoursDelta || 0) - Number(previousDelta?.reportedHoursDelta || 0);
+  profile.booked_vacation_hours = Number(profile.booked_vacation_hours || 0) + Number(nextDelta?.bookedVacationHoursDelta || 0) - Number(previousDelta?.bookedVacationHoursDelta || 0);
+}
+
 async function applyProfileBookingDelta(profileId, delta) {
   if (!profileId || state.isDemoMode || !state.supabase || !delta) {
     return;
@@ -3360,6 +3720,14 @@ async function applyProfileBookingDelta(profileId, delta) {
   if (error) {
     throw error;
   }
+}
+
+async function applyProfileBookingDeltaDifference(profileId, previousDelta, nextDelta) {
+  const difference = {
+    reportedHoursDelta: Number(nextDelta?.reportedHoursDelta || 0) - Number(previousDelta?.reportedHoursDelta || 0),
+    bookedVacationHoursDelta: Number(nextDelta?.bookedVacationHoursDelta || 0) - Number(previousDelta?.bookedVacationHoursDelta || 0),
+  };
+  await applyProfileBookingDelta(profileId, difference);
 }
 
 function buildFallbackProfileFromUser(user) {

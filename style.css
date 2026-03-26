@@ -697,6 +697,10 @@ tbody tr:hover {
   background: var(--panel-strong);
 }
 
+.modal-card-compact {
+  width: min(520px, calc(100vw - 32px));
+}
+
 .report-edit-form {
   display: grid;
   gap: 16px;
@@ -742,6 +746,53 @@ tbody tr:hover {
 
 .page.hidden {
   display: none;
+}
+
+.adjusted-time-button {
+  border: none;
+  background: rgba(17, 17, 17, 0.04);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 17, 17, 0.35);
+  backdrop-filter: blur(3px);
+}
+
+.loading-card {
+  min-width: 280px;
+  text-align: center;
+  padding: 24px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.loading-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(17, 17, 17, 0.2);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1200px) {
