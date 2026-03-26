@@ -149,8 +149,8 @@
                       <th>Datum</th>
                       <th>Kommission</th>
                       <th>Zeit</th>
-                      <th>Total Work Time</th>
-                      <th>Total Adjusted Work Time</th>
+                      <th>Arbeitszeit</th>
+                      <th>Bereinigte Arbeitszeit</th>
                       <th>Spesen</th>
                       <th>Bemerkungen</th>
                       <th>Anhänge</th>
@@ -466,7 +466,7 @@
         <div class="modal-card panel modal-card-compact">
           <div class="section-heading compact">
             <div>
-              <h3 id="adjustedMinutesTitle">Adjusted Work Time bearbeiten</h3>
+              <h3 id="adjustedMinutesTitle">Bereinigte Arbeitszeit bearbeiten</h3>
               <p>Diese Zeit wird beim Bestätigen/Verbuchen verwendet.</p>
             </div>
             <button id="closeAdjustedMinutesModalButton" class="button button-ghost" type="button">Schliessen</button>
@@ -475,7 +475,7 @@
           <form id="adjustedMinutesForm" class="report-edit-form">
             <input id="adjustedReportId" type="hidden" />
             <label>
-              <span>Total Adjusted Work Time (Minuten)</span>
+              <span>Bereinigte Arbeitszeit (Minuten)</span>
               <input id="adjustedMinutesInput" type="number" min="0" step="15" required />
             </label>
             <div class="modal-actions">

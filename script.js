@@ -2081,7 +2081,7 @@ async function handleAdjustedMinutesSubmit(event) {
   const adjustedMinutes = Math.max(0, Number(elements.adjustedMinutesInput.value || 0));
   const wasConfirmed = Boolean(String(report.controll || '').trim());
   const previousDelta = getReportBookingDelta(report, 1);
-  const updates = { adjusted_work_minutes: adjustedMinutes };
+  const updates = buildAdjustedMinutesUpdatePayload(report, adjustedMinutes);
   state.isSavingReport = true;
 
   try {
@@ -2106,7 +2106,7 @@ async function handleAdjustedMinutesSubmit(event) {
     closeAdjustedMinutesModal();
   } catch (error) {
     console.error(error);
-    alert(`Adjusted Work Time konnte nicht gespeichert werden: ${error.message}`);
+    alert(`Bereinigte Arbeitszeit konnte nicht gespeichert werden: ${error.message}`);
   } finally {
     state.isSavingReport = false;
     render();
@@ -3654,7 +3654,19 @@ function getCurrentIsoWeekNumber() {
   return Number(weekPart || 1);
 }
 
+function buildAdjustedMinutesUpdatePayload(report, adjustedMinutes) {
+  if (Object.prototype.hasOwnProperty.call(report || {}, 'total_adjusted_work_minutes')) {
+    return { total_adjusted_work_minutes: adjustedMinutes };
+  }
+  return { adjusted_work_minutes: adjustedMinutes };
+}
+
 function getAdjustedWorkMinutes(report) {
+  const totalAdjustedMinutes = Number(report?.total_adjusted_work_minutes);
+  if (Number.isFinite(totalAdjustedMinutes) && totalAdjustedMinutes >= 0) {
+    return totalAdjustedMinutes;
+  }
+
   const adjustedMinutes = Number(report?.adjusted_work_minutes);
   if (Number.isFinite(adjustedMinutes) && adjustedMinutes >= 0) {
     return adjustedMinutes;
