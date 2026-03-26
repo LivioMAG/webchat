@@ -2714,7 +2714,7 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
       7: { cellWidth: 12, halign: 'center' },
       8: { cellWidth: 14, halign: 'center' },
       9: { cellWidth: 16, halign: 'center' },
-      10: { cellWidth: 70 },
+      10: { cellWidth: 77 },
     },
   });
 
@@ -2794,7 +2794,7 @@ function drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals }) {
 }
 
 function drawAbsenceTable(pdf, { margin, y, width, rows }) {
-  const labelWidth = 28;
+  const labelWidth = 96;
   const dayWidth = 12;
   const totalWidth = 14;
   const notesWidth = width - labelWidth - dayWidth * 6 - totalWidth;
