@@ -3204,7 +3204,7 @@ function buildAbsenceMatrixRows(reports) {
 }
 
 function getAbsenceMinutes(report) {
-  const recordedMinutes = Number(report.total_work_minutes || 0);
+  const recordedMinutes = getAdjustedWorkMinutes(report);
   if (recordedMinutes > 0) {
     return recordedMinutes;
   }
@@ -3274,6 +3274,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
 }
 
 function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
+  const adjustedMinutesField = getAdjustedMinutesFieldName();
   return {
     id: crypto.randomUUID(),
     profile_id: request.profile_id,
@@ -3285,7 +3286,7 @@ function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
     lunch_break_minutes: 60,
     additional_break_minutes: 30,
     total_work_minutes: 480,
-    adjusted_work_minutes: 480,
+    [adjustedMinutesField]: 480,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -3437,7 +3438,7 @@ function getIncompleteSubmissionProfiles({ selectedOnly = false } = {}) {
     }
 
     const reports = groups.get(profile.id) ?? [];
-    const totalMinutes = reports.reduce((sum, report) => sum + Number(report.total_work_minutes || 0), 0);
+    const totalMinutes = reports.reduce((sum, report) => sum + getAdjustedWorkMinutes(report), 0);
     const weeklyHours = Number(profile.weekly_hours || 40);
     const minimumMinutes = weeklyHours * 60 * 0.8;
 
@@ -3661,13 +3662,26 @@ function buildAdjustedMinutesUpdatePayload(report, adjustedMinutes) {
   return { adjusted_work_minutes: adjustedMinutes };
 }
 
+function getAdjustedMinutesFieldName() {
+  const hasTotalAdjustedMinutes = state.weeklyReports.some((report) =>
+    Object.prototype.hasOwnProperty.call(report || {}, 'total_adjusted_work_minutes'));
+  if (hasTotalAdjustedMinutes) {
+    return 'total_adjusted_work_minutes';
+  }
+  return 'adjusted_work_minutes';
+}
+
 function getAdjustedWorkMinutes(report) {
   const totalAdjustedMinutes = Number(report?.total_adjusted_work_minutes);
+  const adjustedMinutes = Number(report?.adjusted_work_minutes);
+
   if (Number.isFinite(totalAdjustedMinutes) && totalAdjustedMinutes >= 0) {
+    if (totalAdjustedMinutes === 0 && Number.isFinite(adjustedMinutes) && adjustedMinutes > 0) {
+      return adjustedMinutes;
+    }
     return totalAdjustedMinutes;
   }
 
-  const adjustedMinutes = Number(report?.adjusted_work_minutes);
   if (Number.isFinite(adjustedMinutes) && adjustedMinutes >= 0) {
     return adjustedMinutes;
   }
