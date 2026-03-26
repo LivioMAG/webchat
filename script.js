@@ -6,6 +6,9 @@ const HOLIDAY_TYPE_LABELS = {
   fehlen: 'Ferien',
   militaer: 'Militär',
   zivildienst: 'Zivildienst',
+  berufsschule: 'Berufsschule',
+  uk: 'Berufsschule',
+  'ük': 'Berufsschule',
   unfall: 'Unfall',
   krankheit: 'Krankheit',
   feiertag: 'Feiertag',
@@ -16,6 +19,7 @@ const ABSENCE_CATEGORY_CONFIG = [
   { key: 'ferien', label: 'Ferien', terms: ['ferien', 'fehlen'] },
   { key: 'krankheit', label: 'Krankheit', terms: ['krankheit'] },
   { key: 'feiertag', label: 'Feiertag', terms: ['feiertag'] },
+  { key: 'berufsschule', label: 'Berufsschule', terms: ['berufsschule', 'uk', 'ük'] },
 ];
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
@@ -309,6 +313,7 @@ const demoWeeklyReports = [
     id: crypto.randomUUID(),
     profile_id: '22222222-2222-2222-2222-222222222222',
     work_date: getDateForWeekOffset(0, 0),
+    project_name: 'Neubau Bahnhof Bern',
     commission_number: 'K-1024',
     start_time: '07:00',
     end_time: '17:00',
@@ -326,6 +331,7 @@ const demoWeeklyReports = [
     id: crypto.randomUUID(),
     profile_id: '22222222-2222-2222-2222-222222222222',
     work_date: getDateForWeekOffset(0, 1),
+    project_name: 'Neubau Bahnhof Bern',
     commission_number: 'K-1024',
     start_time: '07:15',
     end_time: '16:45',
@@ -343,6 +349,7 @@ const demoWeeklyReports = [
     id: crypto.randomUUID(),
     profile_id: '33333333-3333-3333-3333-333333333333',
     work_date: getDateForWeekOffset(0, 0),
+    project_name: 'Sanierung Schulhaus Süd',
     commission_number: 'K-2001',
     start_time: '08:00',
     end_time: '16:30',
@@ -360,7 +367,8 @@ const demoWeeklyReports = [
     id: crypto.randomUUID(),
     profile_id: '33333333-3333-3333-3333-333333333333',
     work_date: getDateForWeekOffset(0, 3),
-    commission_number: 'ferien',
+    project_name: 'Berufsschule',
+    commission_number: '',
     start_time: '00:00',
     end_time: '00:00',
     lunch_break_minutes: 0,
@@ -2247,7 +2255,7 @@ async function exportWeekPdf() {
   }
 
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
   const grouped = groupReportsByProfile(filteredReports);
   const weekRange = getWeekRange(state.selectedWeek);
   let firstSection = true;
@@ -2610,7 +2618,7 @@ function buildHolidayConfirmationFileName(request, profile) {
 
 function buildWeeklyReportLayout(reports) {
   const regularRows = buildWeeklyMatrixRows(
-    reports.filter((report) => !getAbsenceCategory(report.commission_number)),
+    reports.filter((report) => !getAbsenceCategory(report.project_name || report.commission_number)),
   );
   const absenceRows = buildAbsenceMatrixRows(reports);
   const notes = buildWeeklyRemarkLines(reports);
@@ -2659,6 +2667,7 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
 
   const regularBody = layout.regularRows.length
     ? layout.regularRows.map((row) => [
+        row.projectName,
         row.commission,
         ...row.days,
         formatHours(row.totalMinutes),
@@ -2667,14 +2676,14 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
       ])
     : [];
   while (regularBody.length < 10) {
-    regularBody.push(['', '', '', '', '', '', '', '', '', '']);
+    regularBody.push(['', '', '', '', '', '', '', '', '', '', '']);
   }
 
   pdf.autoTable({
     startY: mainTableY,
     margin: { left: marginLeft, right: marginRight },
     tableWidth: contentWidth,
-    head: [['Kom. Nr.', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA', 'Total', 'Spesen', 'Bemerkungen']],
+    head: [['Projektname', 'Kom. Nr.', 'MO', 'DI', 'MI', 'DO', 'FR', 'SA', 'Total', 'Spesen', 'Bemerkungen']],
     body: regularBody,
     theme: 'grid',
     styles: {
@@ -2695,16 +2704,17 @@ function drawWeeklyReportPage(pdf, { profile, weekRange, calendarWeek, layout })
       halign: 'center',
     },
     columnStyles: {
-      0: { cellWidth: 24 },
-      1: { cellWidth: 11, halign: 'center' },
-      2: { cellWidth: 11, halign: 'center' },
-      3: { cellWidth: 11, halign: 'center' },
-      4: { cellWidth: 11, halign: 'center' },
-      5: { cellWidth: 11, halign: 'center' },
-      6: { cellWidth: 11, halign: 'center' },
-      7: { cellWidth: 13, halign: 'center' },
-      8: { cellWidth: 16, halign: 'center' },
-      9: { cellWidth: 69 },
+      0: { cellWidth: 70 },
+      1: { cellWidth: 26 },
+      2: { cellWidth: 12, halign: 'center' },
+      3: { cellWidth: 12, halign: 'center' },
+      4: { cellWidth: 12, halign: 'center' },
+      5: { cellWidth: 12, halign: 'center' },
+      6: { cellWidth: 12, halign: 'center' },
+      7: { cellWidth: 12, halign: 'center' },
+      8: { cellWidth: 14, halign: 'center' },
+      9: { cellWidth: 16, halign: 'center' },
+      10: { cellWidth: 70 },
     },
   });
 
@@ -2745,7 +2755,12 @@ function drawReportHeader(pdf, { profile, weekRange, calendarWeek, marginLeft, c
 }
 
 function drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals }) {
-  const columns = [24, 11, 11, 11, 11, 11, 11, 13, 16, 62];
+  const projectWidth = 70;
+  const commissionWidth = 26;
+  const dayWidth = 12;
+  const totalWidth = 14;
+  const expensesWidth = 16;
+  const notesWidth = contentWidth - projectWidth - commissionWidth - dayWidth * 6 - totalWidth - expensesWidth;
   let x = margin;
 
   pdf.setLineWidth(0.2);
@@ -2753,30 +2768,35 @@ function drawWeeklyTotalRow(pdf, { margin, totalsY, contentWidth, totals }) {
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(8.5);
   pdf.text('Wochentotal', x + 1, totalsY + 5.3);
-  x += columns[0];
+  x += projectWidth;
+  pdf.line(x, totalsY, x, totalsY + 8);
+  x += commissionWidth;
+  pdf.line(x, totalsY, x, totalsY + 8);
 
-  totals.dailyMinutes.forEach((minutes, index) => {
+  totals.dailyMinutes.forEach((minutes) => {
     pdf.line(x, totalsY, x, totalsY + 8);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(formatHours(minutes), x + columns[index + 1] / 2, totalsY + 5.3, { align: 'center' });
-    x += columns[index + 1];
+    pdf.text(formatHours(minutes), x + dayWidth / 2, totalsY + 5.3, { align: 'center' });
+    x += dayWidth;
   });
 
   pdf.line(x, totalsY, x, totalsY + 8);
-  pdf.text(formatHours(totals.totalMinutes), x + columns[7] / 2, totalsY + 5.3, { align: 'center' });
-  x += columns[7];
+  pdf.text(formatHours(totals.totalMinutes), x + totalWidth / 2, totalsY + 5.3, { align: 'center' });
+  x += totalWidth;
 
   pdf.line(x, totalsY, x, totalsY + 8);
-  pdf.text(formatCurrency(totals.expenses), x + columns[8] / 2, totalsY + 5.3, { align: 'center' });
-  x += columns[8];
+  pdf.text(formatCurrency(totals.expenses), x + expensesWidth / 2, totalsY + 5.3, { align: 'center' });
+  x += expensesWidth;
 
+  pdf.line(x, totalsY, x, totalsY + 8);
+  x += notesWidth;
   pdf.line(x, totalsY, x, totalsY + 8);
 }
 
 function drawAbsenceTable(pdf, { margin, y, width, rows }) {
-  const labelWidth = 24;
-  const dayWidth = 11;
-  const totalWidth = 13;
+  const labelWidth = 28;
+  const dayWidth = 12;
+  const totalWidth = 14;
   const notesWidth = width - labelWidth - dayWidth * 6 - totalWidth;
   const rowHeight = 6;
   const absenceRows = rows.length ? rows : buildEmptyAbsenceRows();
@@ -2861,10 +2881,13 @@ function buildWeeklyMatrixRows(reports) {
   const groups = new Map();
 
   reports.forEach((report) => {
-    const key = report.commission_number || 'Ohne Kommission';
+    const projectName = String(report.project_name || '').trim();
+    const commission = String(report.commission_number || '').trim();
+    const key = `${projectName}__${commission}`;
     if (!groups.has(key)) {
       groups.set(key, {
-        commission: key,
+        projectName: projectName || 'Ohne Projektname',
+        commission: commission || '–',
         days: Array(6).fill(''),
         dailyMinutes: Array(6).fill(0),
         totalMinutes: 0,
@@ -2901,7 +2924,8 @@ function buildAbsenceMatrixRows(reports) {
   }));
 
   reports.forEach((report) => {
-    const absenceCategory = getAbsenceCategory(report.commission_number);
+    const absenceSource = report.project_name || report.commission_number;
+    const absenceCategory = getAbsenceCategory(absenceSource);
     if (!absenceCategory) {
       return;
     }
@@ -2915,8 +2939,10 @@ function buildAbsenceMatrixRows(reports) {
     const absenceMinutes = getAbsenceMinutes(report);
     row.days[dayIndex] += absenceMinutes;
     row.totalMinutes += absenceMinutes;
+    const projectName = String(report.project_name || '').trim();
     const commissionNumber = String(report.commission_number || '').trim();
-    if (commissionNumber) row.notes.push(commissionNumber);
+    if (projectName) row.notes.push(projectName);
+    if (!projectName && commissionNumber) row.notes.push(commissionNumber);
     if (report.notes) row.notes.push(report.notes);
   });
 
@@ -3022,6 +3048,7 @@ function buildEmptyAbsenceRows() {
     { label: 'Ferien', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Krankheit', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Feiertag', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Berufsschule', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Total Absenzen', days: Array(6).fill(''), total: '', notes: '' },
   ];
 }
