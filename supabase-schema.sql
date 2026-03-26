@@ -30,12 +30,14 @@ create table if not exists public.weekly_reports (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid not null references public.app_profiles(id) on delete cascade,
   work_date date not null,
+  project_name text,
   commission_number text not null,
   start_time time not null default '07:00',
   end_time time not null default '16:30',
   lunch_break_minutes integer not null default 60,
   additional_break_minutes integer not null default 30,
   total_work_minutes integer not null default 0,
+  adjusted_work_minutes integer not null default 0,
   expenses_amount numeric(10,2) not null default 0,
   other_costs_amount numeric(10,2) not null default 0,
   expense_note text,
@@ -92,6 +94,12 @@ add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.weekly_reports
 add column if not exists controll text;
+
+alter table public.weekly_reports
+add column if not exists project_name text;
+
+alter table public.weekly_reports
+add column if not exists adjusted_work_minutes integer not null default 0;
 
 alter table public.holiday_requests
 add column if not exists controll_pl text;
@@ -174,6 +182,50 @@ begin
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
+    insert into public.weekly_reports (
+      profile_id,
+      work_date,
+      project_name,
+      commission_number,
+      start_time,
+      end_time,
+      lunch_break_minutes,
+      additional_break_minutes,
+      total_work_minutes,
+      adjusted_work_minutes,
+      expenses_amount,
+      other_costs_amount,
+      expense_note,
+      notes,
+      controll,
+      attachments
+    )
+    select
+      updated_request.profile_id,
+      work_day::date,
+      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      '07:00'::time,
+      '16:30'::time,
+      60,
+      30,
+      480,
+      480,
+      0,
+      0,
+      '',
+      format('Automatisch aus bestätigter Absenz (%s).', initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' '))),
+      '',
+      '[]'::jsonb
+    from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
+    where extract(isodow from work_day) between 1 and 5
+      and not exists (
+        select 1
+        from public.weekly_reports existing
+        where existing.profile_id = updated_request.profile_id
+          and existing.work_date = work_day::date
+      );
+
     archive_context := format(
       'Bestätigt durch PL: %s | GL: %s',
       updated_request.controll_pl,
