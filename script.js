@@ -1298,6 +1298,7 @@ function renderReportsTable() {
       return `
         <tr class="report-row">
           <td>${escapeHtml(profile?.full_name ?? 'Unbekannt')}</td>
+          <td>${renderControllCell(report)}</td>
           <td>${formatDate(report.work_date)}</td>
           <td>${escapeHtml(report.commission_number || '–')}</td>
           <td>${escapeHtml(report.start_time || '–')} – ${escapeHtml(report.end_time || '–')}</td>
@@ -1310,7 +1311,6 @@ function renderReportsTable() {
           <td>${formatCurrency(Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0))}</td>
           <td>${escapeHtml(report.notes || report.expense_note || '–')}</td>
           <td>${renderAttachmentLinks(report.attachments)}</td>
-          <td>${renderControllCell(report)}</td>
           <td>
             <div class="table-row-actions">
               <button class="button button-small button-secondary" type="button" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">Bearbeiten</button>
