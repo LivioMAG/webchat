@@ -26,6 +26,7 @@ body {
   min-height: 100vh;
   font-family: 'Inter', sans-serif;
   color: var(--text);
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(215, 0, 21, 0.08), transparent 26%),
     radial-gradient(circle at top right, rgba(0, 0, 0, 0.04), transparent 22%),
@@ -305,6 +306,7 @@ textarea:focus {
 .table-panel,
 .prose-panel {
   padding: 26px;
+  min-width: 0;
 }
 
 .topbar {
@@ -456,7 +458,9 @@ textarea:focus {
 }
 
 .table-wrapper {
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-width: 100%;
   max-height: min(68vh, 960px);
   border-radius: 20px;
   border: 1px solid rgba(17, 17, 17, 0.06);
