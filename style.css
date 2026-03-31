@@ -982,12 +982,42 @@ tbody tr:hover {
 .dispo-item-text {
   font-size: 13px;
   flex: 1;
+  text-align: left;
+}
+
+.dispo-item-card {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  display: grid;
+  gap: 8px;
+}
+
+.dispo-item-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.dispo-item-card-red {
+  border-color: rgba(215, 0, 21, 0.35);
+  background: rgba(215, 0, 21, 0.08);
+}
+
+.dispo-item-card-green {
+  border-color: rgba(19, 115, 51, 0.35);
+  background: rgba(19, 115, 51, 0.1);
+}
+
+.dispo-item-card-orange {
+  border-color: rgba(255, 140, 0, 0.45);
+  background: rgba(255, 140, 0, 0.14);
 }
 
 .dispo-icon-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 6px;
 }
 
@@ -1041,6 +1071,7 @@ tbody tr:hover {
   gap: 8px;
   max-height: 220px;
   overflow: auto;
+  text-align: left;
 }
 
 .dispo-option-list label {
@@ -1048,4 +1079,24 @@ tbody tr:hover {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+  justify-content: flex-start;
+}
+
+.dispo-select-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.dispo-select-table th,
+.dispo-select-table td {
+  border-bottom: 1px solid rgba(17, 17, 17, 0.1);
+  padding: 8px 6px;
+  text-align: left;
+}
+
+.dispo-select-table th:last-child,
+.dispo-select-table td:last-child {
+  width: 80px;
+  text-align: center;
 }

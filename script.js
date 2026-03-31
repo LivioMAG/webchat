@@ -649,7 +649,6 @@ function cacheElements() {
   elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
   elements.dispoAssignModal = document.getElementById('dispoAssignModal');
   elements.dispoAssignForm = document.getElementById('dispoAssignForm');
-  elements.dispoAssignModeSelect = document.getElementById('dispoAssignModeSelect');
   elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
   elements.dispoAssignProjectsList = document.getElementById('dispoAssignProjectsList');
   elements.dispoAssignSpecialList = document.getElementById('dispoAssignSpecialList');
@@ -2666,12 +2665,29 @@ function renderDispoCell(profileId, date) {
     return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button></div></td>`;
   }
   return `<td><div class="dispo-cell">
-    <div class="dispo-items">${items.map((item, index) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span><button class="button button-danger button-icon-only" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(entry.id)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">🗑</button></div>`).join('')}</div>
+    <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
     <div class="dispo-icon-actions">
       <button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button>
-      <button class="button button-danger button-icon-only" type="button" data-action="clear-dispo" data-assignment-id="${escapeAttribute(entry.id)}" title="Alles löschen">🗑</button>
     </div>
   </div></td>`;
+}
+
+function renderDispoItemCard(item, assignmentId, index) {
+  const themeClass = getDispoCardThemeClass(item?.label);
+  return `<article class="dispo-item-card ${themeClass}">
+    <div class="dispo-item-text">${escapeHtml(item?.label || '')}</div>
+    <div class="dispo-item-actions">
+      <button class="button button-danger button-icon-only" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(assignmentId)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">🗑</button>
+    </div>
+  </article>`;
+}
+
+function getDispoCardThemeClass(label) {
+  const normalized = normalizeSearchValue(label || '');
+  if (normalized.includes('ferien')) return 'dispo-item-card-red';
+  if (normalized.includes('militaer') || normalized.includes('zivildienst')) return 'dispo-item-card-green';
+  if (normalized.includes('krankheit') || normalized.includes('unfall')) return 'dispo-item-card-orange';
+  return '';
 }
 
 function upsertLocalDailyAssignment(entry) {
@@ -2824,6 +2840,7 @@ async function handleDispoTableClick(event) {
     const profileId = button.dataset.profileId;
     openDispoAssignModal({
       targets: getWeekDateList(state.selectedWeek)
+        .filter((date) => !isWeekendDate(date))
         .filter((date) => !isWeeklyReportLocked(profileId, date))
         .map((date) => ({ profileId, date })),
       label: `Ganze Woche für ${getProfileById(profileId)?.full_name || ''}`,
@@ -2857,23 +2874,6 @@ async function handleDispoTableClick(event) {
       mode: 'replace',
     });
     return;
-  }
-  if (button.dataset.action === 'clear-dispo') {
-    const assignmentId = button.dataset.assignmentId;
-    const entry = state.dailyAssignments.find((item) => String(item.id) === String(assignmentId));
-    if (!entry) return;
-    if (isWeeklyReportLocked(entry.profile_id, entry.assignment_date)) {
-      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
-      return;
-    }
-    const { error } = await state.supabase.from('project_assignments').delete().eq('id', assignmentId);
-    if (error) {
-      showInlineAlert(elements.dispoAlert, error.message, true);
-      return;
-    }
-    removeLocalDailyAssignment(entry.profile_id, entry.assignment_date);
-    renderDispoPlanner();
-    showInlineAlert(elements.dispoAlert, 'Eintrag gelöscht.', false);
   }
 }
 
@@ -3051,6 +3051,11 @@ function getWeekDateList(weekValue) {
   return result;
 }
 
+function isWeekendDate(date) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
 function openDispoAssignModal({ targets, label }) {
   const editableTargets = (targets || []).filter((target) => !isWeeklyReportLocked(target.profileId, target.date));
   if (!editableTargets.length) {
@@ -3059,14 +3064,12 @@ function openDispoAssignModal({ targets, label }) {
   }
   state.dispoAssignContext = { targets: editableTargets };
   elements.dispoAssignTargetLabel.textContent = label || 'Auswahl treffen.';
-  elements.dispoAssignModeSelect.value = 'replace';
-  elements.dispoAssignModeSelect.disabled = true;
   const sortedProjects = [...state.projects].sort((left, right) => {
     const leftLabel = `${left.commission_number || ''} ${left.name || ''}`.trim().toLowerCase();
     const rightLabel = `${right.commission_number || ''} ${right.name || ''}`.trim().toLowerCase();
     return leftLabel.localeCompare(rightLabel, 'de');
   });
-  elements.dispoAssignProjectsList.innerHTML = sortedProjects.map((project, index) => `<label><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /><span>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</span></label>`).join('');
+  elements.dispoAssignProjectsList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Projekte</th><th>Auswahl</th></tr></thead><tbody>${sortedProjects.map((project, index) => `<tr><td>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</td><td><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /></td></tr>`).join('')}</tbody></table>`;
   elements.dispoAssignSpecialList.innerHTML = DISPO_SPECIAL_OPTIONS.map((labelText) => `<label><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /><span>${escapeHtml(labelText)}</span></label>`).join('');
   if (!state.projects.length) {
     const firstSpecial = elements.dispoAssignSpecialList.querySelector('input[type="radio"]');
@@ -3078,7 +3081,6 @@ function openDispoAssignModal({ targets, label }) {
 function closeDispoAssignModal() {
   elements.dispoAssignModal.classList.add('hidden');
   state.dispoAssignContext = null;
-  elements.dispoAssignModeSelect.disabled = false;
   elements.dispoAssignForm.reset();
 }
 
@@ -3100,7 +3102,7 @@ async function handleDispoAssignSubmit(event) {
     showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
     return;
   }
-  const mode = 'replace';
+  const mode = 'append';
   const errorMessages = [];
   for (const target of targets) {
     const result = await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
