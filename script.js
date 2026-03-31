@@ -2670,6 +2670,20 @@ function renderDispoCell(profileId, date) {
   </div></td>`;
 }
 
+function upsertLocalDailyAssignment(entry) {
+  if (!entry) return;
+  const index = state.dailyAssignments.findIndex((item) => item.profile_id === entry.profile_id && item.assignment_date === entry.assignment_date);
+  if (index >= 0) {
+    state.dailyAssignments[index] = entry;
+    return;
+  }
+  state.dailyAssignments.push(entry);
+}
+
+function removeLocalDailyAssignment(profileId, date) {
+  state.dailyAssignments = state.dailyAssignments.filter((item) => !(item.profile_id === profileId && item.assignment_date === date));
+}
+
 function getDispoItemsForEntry(entry) {
   if (!entry) return [];
   if (typeof entry.label === 'string' && entry.label.startsWith(DISPO_ITEMS_PREFIX)) {
@@ -2830,12 +2844,16 @@ async function handleDispoTableClick(event) {
   }
   if (button.dataset.action === 'clear-dispo') {
     const assignmentId = button.dataset.assignmentId;
+    const entry = state.dailyAssignments.find((item) => String(item.id) === String(assignmentId));
+    if (!entry) return;
     const { error } = await state.supabase.from('project_assignments').delete().eq('id', assignmentId);
     if (error) {
       showInlineAlert(elements.dispoAlert, error.message, true);
       return;
     }
-    await loadData();
+    removeLocalDailyAssignment(entry.profile_id, entry.assignment_date);
+    renderDispoPlanner();
+    showInlineAlert(elements.dispoAlert, 'Eintrag gelöscht.', false);
   }
 }
 
@@ -2847,6 +2865,10 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     if (existingEntry?.id) {
       const { error: deleteError } = await state.supabase.from('project_assignments').delete().eq('id', existingEntry.id);
       if (deleteError && !silent) showInlineAlert(elements.dispoAlert, deleteError.message, true);
+      if (!deleteError) {
+        removeLocalDailyAssignment(profileId, date);
+        if (!silent || !suppressReload) renderDispoPlanner();
+      }
     }
     if (!suppressReload) await loadData();
     return;
@@ -2860,11 +2882,17 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     assignment_type: 'daily',
     role: 'daily_assignment',
   };
-  const { error } = await state.supabase.from('project_assignments').upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' });
+  const { data, error } = await state.supabase
+    .from('project_assignments')
+    .upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' })
+    .select('*')
+    .single();
   if (error) {
     if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
     return;
   }
+  upsertLocalDailyAssignment(data);
+  if (!silent || !suppressReload) renderDispoPlanner();
   if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
   if (!suppressReload) await loadData();
 }
@@ -2884,6 +2912,7 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
     const existing = byKey.get(key);
     const isPastOrToday = date <= todayIso;
     if (existing && !isPastOrToday) continue;
+    if (existing?.source === 'manual') continue;
     const computed = mapWeeklyReportToDispoEntry(profileId, date, entries);
     if (!computed) continue;
     const computedSerialized = `${DISPO_ITEMS_PREFIX}${JSON.stringify(computed.items || [])}`;
@@ -2951,7 +2980,12 @@ function openDispoAssignModal({ targets, label }) {
   state.dispoAssignContext = { targets: targets || [] };
   elements.dispoAssignTargetLabel.textContent = label || 'Auswahl treffen.';
   elements.dispoAssignModeSelect.value = targets?.length > 1 ? 'replace' : 'append';
-  elements.dispoAssignProjectsList.innerHTML = state.projects.map((project, index) => `<label><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /><span>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</span></label>`).join('');
+  const sortedProjects = [...state.projects].sort((left, right) => {
+    const leftLabel = `${left.commission_number || ''} ${left.name || ''}`.trim().toLowerCase();
+    const rightLabel = `${right.commission_number || ''} ${right.name || ''}`.trim().toLowerCase();
+    return leftLabel.localeCompare(rightLabel, 'de');
+  });
+  elements.dispoAssignProjectsList.innerHTML = sortedProjects.map((project, index) => `<label><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /><span>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</span></label>`).join('');
   elements.dispoAssignSpecialList.innerHTML = DISPO_SPECIAL_OPTIONS.map((labelText) => `<label><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /><span>${escapeHtml(labelText)}</span></label>`).join('');
   if (!state.projects.length) {
     const firstSpecial = elements.dispoAssignSpecialList.querySelector('input[type="radio"]');
