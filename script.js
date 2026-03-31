@@ -1,7 +1,8 @@
 const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-const DISPO_ITEMS_PREFIX = '__dispo_items__:';
+const DISPO_ITEMS_PREFIX = 'dispo_items:';
+const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
 const DISPO_SPECIAL_OPTIONS = ['Diverses', 'Ferien', 'Feiertag', 'Militär', 'Krankheit', 'Unfall'];
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
@@ -2736,11 +2737,27 @@ function removeLocalDailyAssignment(profileId, date) {
   state.dailyAssignments = state.dailyAssignments.filter((item) => !(item.profile_id === profileId && item.assignment_date === date));
 }
 
+function serializeDispoItems(items = []) {
+  const normalizedItems = items
+    .filter((item) => item && typeof item.label === 'string' && item.label.trim())
+    .map((item) => {
+      const normalized = {
+        label: item.label.trim(),
+        start_time: normalizeDispoTimeValue(item.start_time, DISPO_DEFAULT_START_TIME),
+        end_time: normalizeDispoTimeValue(item.end_time, DISPO_DEFAULT_END_TIME),
+      };
+      if (item.project_id) normalized.project_id = item.project_id;
+      return normalized;
+    });
+  return `${DISPO_ITEMS_PREFIX}${JSON.stringify(normalizedItems)}`;
+}
+
 function getDispoItemsForEntry(entry) {
   if (!entry) return [];
-  if (typeof entry.label === 'string' && entry.label.startsWith(DISPO_ITEMS_PREFIX)) {
+  if (typeof entry.label === 'string' && (entry.label.startsWith(DISPO_ITEMS_PREFIX) || entry.label.startsWith(DISPO_ITEMS_LEGACY_PREFIX))) {
+    const prefix = entry.label.startsWith(DISPO_ITEMS_PREFIX) ? DISPO_ITEMS_PREFIX : DISPO_ITEMS_LEGACY_PREFIX;
     try {
-      const parsed = JSON.parse(entry.label.slice(DISPO_ITEMS_PREFIX.length));
+      const parsed = JSON.parse(entry.label.slice(prefix.length));
       if (Array.isArray(parsed)) {
         return parsed
           .filter((item) => item && typeof item.label === 'string' && item.label.trim())
@@ -2946,7 +2963,7 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     profile_id: profileId,
     assignment_date: date,
     project_id: null,
-    label: `${DISPO_ITEMS_PREFIX}${JSON.stringify(mergedItems)}`,
+    label: serializeDispoItems(mergedItems),
     source,
     assignment_type: 'daily',
     role: 'daily_assignment',
@@ -3021,7 +3038,7 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
     if (existing?.source === 'manual') continue;
     const computed = mapWeeklyReportToDispoEntry(profileId, date, entries);
     if (!computed) continue;
-    const computedSerialized = `${DISPO_ITEMS_PREFIX}${JSON.stringify(computed.items || [])}`;
+    const computedSerialized = serializeDispoItems(computed.items || []);
     if (existing && (existing.label || '') === computedSerialized) continue;
     await saveDispoAssignment({ profileId, date, items: computed.items || [], source: 'weekly_report', suppressReload: true, silent: true });
     const nextEntry = {
