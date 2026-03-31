@@ -2879,8 +2879,9 @@ async function handleDispoTableClick(event) {
 
 async function saveDispoAssignment({ profileId, date, items = [], source = 'manual', suppressReload = false, silent = false, mode = 'replace' }) {
   if (isWeeklyReportLocked(profileId, date)) {
-    if (!silent) showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
-    return false;
+    const message = 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.';
+    if (!silent) showInlineAlert(elements.dispoAlert, message, true);
+    return { saved: false, error: message };
   }
   const existingEntry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
@@ -2895,7 +2896,7 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
       }
     }
     if (!suppressReload) await loadData();
-    return true;
+    return { saved: true, error: null };
   }
   const payload = {
     profile_id: profileId,
@@ -2913,13 +2914,13 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     .single();
   if (error) {
     if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
-    return false;
+    return { saved: false, error: error.message };
   }
   upsertLocalDailyAssignment(data);
   if (!silent || !suppressReload) renderDispoPlanner();
   if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
   if (!suppressReload) await loadData();
-  return true;
+  return { saved: true, error: null };
 }
 
 async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
@@ -3064,13 +3065,15 @@ async function handleDispoAssignSubmit(event) {
     return;
   }
   const mode = 'replace';
-  let hasError = false;
+  const errorMessages = [];
   for (const target of targets) {
-    const saved = await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
-    if (!saved) hasError = true;
+    const result = await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
+    if (!result.saved) errorMessages.push(result.error || 'Unbekannter Fehler');
   }
-  if (hasError) {
-    showInlineAlert(elements.dispoAlert, 'Beim Speichern ist ein Fehler aufgetreten. Bitte erneut versuchen.', true);
+  if (errorMessages.length) {
+    const uniqueErrors = [...new Set(errorMessages)];
+    const details = uniqueErrors.join(' | ');
+    showInlineAlert(elements.dispoAlert, `Beim Speichern ist ein Fehler aufgetreten: ${details}`, true);
     await loadData();
     return;
   }
