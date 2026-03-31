@@ -2907,11 +2907,47 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     assignment_type: 'daily',
     role: 'daily_assignment',
   };
-  const { data, error } = await state.supabase
+  let data = null;
+  let error = null;
+  const upsertResult = await state.supabase
     .from('project_assignments')
     .upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' })
     .select('*')
     .single();
+  data = upsertResult.data;
+  error = upsertResult.error;
+  if (error?.message?.includes('no unique or exclusion constraint matching the ON CONFLICT specification')) {
+    let fallbackEntryId = existingEntry?.id || null;
+    if (!fallbackEntryId) {
+      const lookupResult = await state.supabase
+        .from('project_assignments')
+        .select('id')
+        .eq('profile_id', profileId)
+        .eq('assignment_date', date)
+        .eq('assignment_type', 'daily')
+        .limit(1)
+        .maybeSingle();
+      if (!lookupResult.error) fallbackEntryId = lookupResult.data?.id || null;
+    }
+    if (fallbackEntryId) {
+      const updateResult = await state.supabase
+        .from('project_assignments')
+        .update(payload)
+        .eq('id', fallbackEntryId)
+        .select('*')
+        .single();
+      data = updateResult.data;
+      error = updateResult.error;
+    } else {
+      const insertResult = await state.supabase
+        .from('project_assignments')
+        .insert(payload)
+        .select('*')
+        .single();
+      data = insertResult.data;
+      error = insertResult.error;
+    }
+  }
   if (error) {
     if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
     return { saved: false, error: error.message };
