@@ -957,10 +957,10 @@ tbody tr:hover {
 .dispo-cell {
   display: grid;
   gap: 6px;
-  padding: 8px;
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 .dispo-cell-locked {
@@ -983,20 +983,25 @@ tbody tr:hover {
   font-size: 13px;
   flex: 1;
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .dispo-item-card {
   border: 1px solid rgba(17, 17, 17, 0.1);
   border-radius: 10px;
-  padding: 8px;
+  padding: 6px 8px;
   background: rgba(255, 255, 255, 0.95);
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
 .dispo-item-actions {
   display: flex;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .dispo-item-card-red {
@@ -1012,6 +1017,32 @@ tbody tr:hover {
 .dispo-item-card-orange {
   border-color: rgba(255, 140, 0, 0.45);
   background: rgba(255, 140, 0, 0.14);
+}
+
+.dispo-item-card-dark {
+  border-color: rgba(17, 17, 17, 0.8);
+  background: rgba(17, 17, 17, 0.95);
+}
+
+.dispo-item-card-dark .dispo-item-text,
+.dispo-item-card-dark .dispo-item-time {
+  color: #fff;
+}
+
+.dispo-item-time {
+  display: inline;
+  color: rgba(17, 17, 17, 0.7);
+  font-size: 11px;
+}
+
+.dispo-delete-button {
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  border: none;
+  font-size: 12px;
 }
 
 .dispo-icon-actions {

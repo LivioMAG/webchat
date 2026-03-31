@@ -3,6 +3,8 @@ const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const DISPO_ITEMS_PREFIX = '__dispo_items__:';
 const DISPO_SPECIAL_OPTIONS = ['Diverses', 'Ferien', 'Feiertag', 'Militär', 'Krankheit', 'Unfall'];
+const DISPO_DEFAULT_START_TIME = '07:00';
+const DISPO_DEFAULT_END_TIME = '16:30';
 const HOLIDAY_TYPE_LABELS = {
   ferien: 'Ferien',
   fehlen: 'Ferien',
@@ -652,6 +654,8 @@ function cacheElements() {
   elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
   elements.dispoAssignProjectsList = document.getElementById('dispoAssignProjectsList');
   elements.dispoAssignSpecialList = document.getElementById('dispoAssignSpecialList');
+  elements.dispoAssignStartTime = document.getElementById('dispoAssignStartTime');
+  elements.dispoAssignEndTime = document.getElementById('dispoAssignEndTime');
   elements.closeDispoAssignModalButton = document.getElementById('closeDispoAssignModalButton');
   elements.cancelDispoAssignButton = document.getElementById('cancelDispoAssignButton');
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
@@ -2674,20 +2678,48 @@ function renderDispoCell(profileId, date) {
 
 function renderDispoItemCard(item, assignmentId, index) {
   const themeClass = getDispoCardThemeClass(item?.label);
+  const lineLabel = getDispoItemLineLabel(item);
+  const timeLabel = getDispoItemTimeLabel(item);
   return `<article class="dispo-item-card ${themeClass}">
-    <div class="dispo-item-text">${escapeHtml(item?.label || '')}</div>
+    <div class="dispo-item-text">
+      <span>${escapeHtml(lineLabel)}</span>
+      ${timeLabel ? `<small class="dispo-item-time">${escapeHtml(timeLabel)}</small>` : ''}
+    </div>
     <div class="dispo-item-actions">
-      <button class="button button-danger button-icon-only" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(assignmentId)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">🗑</button>
+      <button class="button button-icon-only dispo-delete-button" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(assignmentId)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">✕</button>
     </div>
   </article>`;
 }
 
 function getDispoCardThemeClass(label) {
   const normalized = normalizeSearchValue(label || '');
-  if (normalized.includes('ferien')) return 'dispo-item-card-red';
-  if (normalized.includes('militaer') || normalized.includes('zivildienst')) return 'dispo-item-card-green';
+  if (normalized.includes('divers')) return 'dispo-item-card-dark';
+  if (normalized.includes('feiertag') || normalized.includes('ferien')) return 'dispo-item-card-red';
   if (normalized.includes('krankheit') || normalized.includes('unfall')) return 'dispo-item-card-orange';
+  if (normalized.includes('militaer') || normalized.includes('zivildienst')) return 'dispo-item-card-green';
   return '';
+}
+
+function getDispoItemLineLabel(item) {
+  return item?.label || '';
+}
+
+function getDispoItemTimeLabel(item) {
+  if (isAbsenceDispoItem(item?.label)) return '';
+  const startTime = normalizeDispoTimeValue(item?.start_time, DISPO_DEFAULT_START_TIME);
+  const endTime = normalizeDispoTimeValue(item?.end_time, DISPO_DEFAULT_END_TIME);
+  return `${startTime} – ${endTime}`;
+}
+
+function normalizeDispoTimeValue(value, fallback) {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  return raw.slice(0, 5);
+}
+
+function isAbsenceDispoItem(label) {
+  const normalized = normalizeSearchValue(label || '');
+  return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'absenz'].some((term) => normalized.includes(term));
 }
 
 function upsertLocalDailyAssignment(entry) {
@@ -2710,7 +2742,13 @@ function getDispoItemsForEntry(entry) {
     try {
       const parsed = JSON.parse(entry.label.slice(DISPO_ITEMS_PREFIX.length));
       if (Array.isArray(parsed)) {
-        return parsed.filter((item) => item && typeof item.label === 'string' && item.label.trim());
+        return parsed
+          .filter((item) => item && typeof item.label === 'string' && item.label.trim())
+          .map((item) => ({
+            ...item,
+            start_time: normalizeDispoTimeValue(item.start_time, DISPO_DEFAULT_START_TIME),
+            end_time: normalizeDispoTimeValue(item.end_time, DISPO_DEFAULT_END_TIME),
+          }));
       }
     } catch (error) {
       console.warn('Ungültige Dispo-Liste', error);
@@ -2718,7 +2756,13 @@ function getDispoItemsForEntry(entry) {
   }
   const project = entry.project_id ? state.projects.find((item) => item.id === entry.project_id) : null;
   const label = project ? `${project.commission_number || ''} ${project.name || ''}`.trim() : (entry.label || '');
-  return label ? [{ type: project ? 'project' : 'special', project_id: project?.id || null, label }] : [];
+  return label ? [{
+    type: project ? 'project' : 'special',
+    project_id: project?.id || null,
+    label,
+    start_time: DISPO_DEFAULT_START_TIME,
+    end_time: DISPO_DEFAULT_END_TIME,
+  }] : [];
 }
 
 function getFilteredProjects() {
@@ -3015,9 +3059,21 @@ function mapReportToDispoItem(report) {
   const projectId = resolveProjectIdFromReport(report);
   if (projectId) {
     const project = state.projects.find((item) => item.id === projectId);
-    return { type: 'project', project_id: projectId, label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim() };
+    return {
+      type: 'project',
+      project_id: projectId,
+      label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim(),
+      start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
+      end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
+    };
   }
-  return { type: 'special', project_id: null, label: report.project_name || report.commission_number || report.notes || 'Diverses' };
+  return {
+    type: 'special',
+    project_id: null,
+    label: report.project_name || report.commission_number || report.notes || 'Diverses',
+    start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
+    end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
+  };
 }
 
 function resolveProjectIdFromReport(report) {
@@ -3033,6 +3089,8 @@ function getWeeklyReportItems(profileId, date) {
     type: 'weekly_report',
     project_id: resolveProjectIdFromReport(report),
     label: `${report.commission_number || ''} ${report.project_name || ''}`.trim() || 'Ohne Projekt',
+    start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
+    end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
   }));
 }
 
@@ -3070,7 +3128,9 @@ function openDispoAssignModal({ targets, label }) {
     return leftLabel.localeCompare(rightLabel, 'de');
   });
   elements.dispoAssignProjectsList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Projekte</th><th>Auswahl</th></tr></thead><tbody>${sortedProjects.map((project, index) => `<tr><td>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</td><td><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /></td></tr>`).join('')}</tbody></table>`;
-  elements.dispoAssignSpecialList.innerHTML = DISPO_SPECIAL_OPTIONS.map((labelText) => `<label><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /><span>${escapeHtml(labelText)}</span></label>`).join('');
+  elements.dispoAssignSpecialList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Schnellauswahl</th><th>Auswahl</th></tr></thead><tbody>${DISPO_SPECIAL_OPTIONS.map((labelText) => `<tr><td>${escapeHtml(labelText)}</td><td><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /></td></tr>`).join('')}</tbody></table>`;
+  elements.dispoAssignStartTime.value = DISPO_DEFAULT_START_TIME;
+  elements.dispoAssignEndTime.value = DISPO_DEFAULT_END_TIME;
   if (!state.projects.length) {
     const firstSpecial = elements.dispoAssignSpecialList.querySelector('input[type="radio"]');
     if (firstSpecial) firstSpecial.checked = true;
@@ -3094,10 +3154,12 @@ async function handleDispoAssignSubmit(event) {
     return;
   }
   const [type, rawValue] = checked.value.split(':');
+  const startTime = normalizeDispoTimeValue(elements.dispoAssignStartTime?.value, DISPO_DEFAULT_START_TIME);
+  const endTime = normalizeDispoTimeValue(elements.dispoAssignEndTime?.value, DISPO_DEFAULT_END_TIME);
   const selectedProject = state.projects.find((project) => String(project.id) === String(rawValue));
   const item = type === 'project'
-    ? { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim() }
-    : { type: 'special', project_id: null, label: rawValue };
+    ? { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim(), start_time: startTime, end_time: endTime }
+    : { type: 'special', project_id: null, label: rawValue, start_time: startTime, end_time: endTime };
   if (type === 'project' && !item.label) {
     showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
     return;
