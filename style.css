@@ -949,9 +949,18 @@ tbody tr:hover {
   vertical-align: top;
 }
 
+.dispo-table th,
+.dispo-table td {
+  text-align: left;
+}
+
 .dispo-cell {
   display: grid;
   gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .dispo-items {
@@ -968,12 +977,13 @@ tbody tr:hover {
 
 .dispo-item-text {
   font-size: 13px;
+  flex: 1;
 }
 
 .dispo-icon-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 6px;
 }
 
@@ -996,7 +1006,11 @@ tbody tr:hover {
 .dispo-header-cell {
   display: grid;
   gap: 6px;
-  justify-items: center;
+  justify-items: start;
+}
+
+.dispo-header-cell .button-icon-only {
+  justify-self: center;
 }
 
 .dispo-name-cell {
