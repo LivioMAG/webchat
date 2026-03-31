@@ -481,10 +481,17 @@ const state = {
   currentProfile: null,
   profiles: [],
   weeklyReports: [],
+  projects: [],
+  roleAssignments: [],
+  dailyAssignments: [],
   holidayRequests: [],
   requestHistory: [],
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
+  projectSearchQuery: '',
+  editingProjectId: null,
+  isSavingProject: false,
+  isSavingDispo: false,
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
@@ -614,8 +621,28 @@ function cacheElements() {
     absences: document.getElementById('absencesPage'),
     confirmations: document.getElementById('confirmationsPage'),
     saldo: document.getElementById('saldoPage'),
+    projects: document.getElementById('projectsPage'),
+    dispo: document.getElementById('dispoPage'),
     security: document.getElementById('securityPage'),
   };
+  elements.projectForm = document.getElementById('projectForm');
+  elements.projectIdInput = document.getElementById('projectIdInput');
+  elements.projectCommissionInput = document.getElementById('projectCommissionInput');
+  elements.projectNameInput = document.getElementById('projectNameInput');
+  elements.projectLeadSelect = document.getElementById('projectLeadSelect');
+  elements.constructionLeadSelect = document.getElementById('constructionLeadSelect');
+  elements.projectWorkersSelect = document.getElementById('projectWorkersSelect');
+  elements.projectSearchInput = document.getElementById('projectSearchInput');
+  elements.projectsTableBody = document.getElementById('projectsTableBody');
+  elements.projectsAlert = document.getElementById('projectsAlert');
+  elements.resetProjectFormButton = document.getElementById('resetProjectFormButton');
+  elements.dispoAlert = document.getElementById('dispoAlert');
+  elements.dispoPreviousWeekButton = document.getElementById('dispoPreviousWeekButton');
+  elements.dispoNextWeekButton = document.getElementById('dispoNextWeekButton');
+  elements.dispoWeekLabel = document.getElementById('dispoWeekLabel');
+  elements.dispoWeekDateRange = document.getElementById('dispoWeekDateRange');
+  elements.dispoTableHead = document.getElementById('dispoTableHead');
+  elements.dispoTableBody = document.getElementById('dispoTableBody');
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
   elements.adminSqlPreview = document.getElementById('adminSqlPreview');
 }
@@ -672,6 +699,21 @@ function bindEvents() {
     if (event.target?.dataset?.closeAdjustedModal === 'true') {
       closeAdjustedMinutesModal();
     }
+  });
+  elements.projectForm.addEventListener('submit', handleProjectSubmit);
+  elements.projectSearchInput.addEventListener('input', handleProjectSearchInput);
+  elements.projectsTableBody.addEventListener('click', handleProjectsTableClick);
+  elements.resetProjectFormButton.addEventListener('click', resetProjectForm);
+  elements.dispoTableBody.addEventListener('click', handleDispoTableClick);
+  elements.dispoPreviousWeekButton.addEventListener('click', async () => {
+    state.selectedWeek = shiftWeekValue(state.selectedWeek, -1);
+    elements.weekPicker.value = state.selectedWeek;
+    await loadData();
+  });
+  elements.dispoNextWeekButton.addEventListener('click', async () => {
+    state.selectedWeek = shiftWeekValue(state.selectedWeek, 1);
+    elements.weekPicker.value = state.selectedWeek;
+    await loadData();
   });
   document.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('focus', handleWindowFocus);
@@ -906,9 +948,14 @@ function resetAppState() {
   state.currentProfile = null;
   state.profiles = [];
   state.weeklyReports = [];
+  state.projects = [];
+  state.roleAssignments = [];
+  state.dailyAssignments = [];
   state.holidayRequests = [];
   state.requestHistory = [];
   state.employeeFilterQuery = '';
+  state.projectSearchQuery = '';
+  state.editingProjectId = null;
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = false;
   state.employeeSelectionTouched = false;
@@ -917,6 +964,8 @@ function resetAppState() {
   state.confirmationDateTo = '';
   state.editingReportId = null;
   state.isSavingReport = false;
+  state.isSavingProject = false;
+  state.isSavingDispo = false;
   state.hasAdminAccess = false;
   state.isAdminStatusResolved = false;
   state.isLoadingData = false;
@@ -963,6 +1012,9 @@ async function loadData() {
     if (!state.hasAdminAccess) {
       state.profiles = [];
       state.weeklyReports = [];
+      state.projects = [];
+      state.roleAssignments = [];
+      state.dailyAssignments = [];
       state.holidayRequests = [];
       state.requestHistory = [];
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
@@ -980,7 +1032,7 @@ async function loadData() {
       .order('work_date', { ascending: true })
       .order('start_time', { ascending: true });
 
-    const profilesQuery = state.supabase.from('app_profiles').select('*').order('full_name', { ascending: true });
+    const profilesQuery = fetchProfiles();
     const absencesQuery = state.supabase
       .from('holiday_requests')
       .select('*')
@@ -991,23 +1043,47 @@ async function loadData() {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(500);
+    const projectsQuery = state.supabase
+      .from('projects')
+      .select('*')
+      .order('commission_number', { ascending: true });
+    const weekRange = getWeekRange(state.selectedWeek);
+    const roleAssignmentsQuery = state.supabase
+      .from('project_assignments')
+      .select('*')
+      .eq('assignment_type', 'role');
+    const dailyAssignmentsQuery = state.supabase
+      .from('project_assignments')
+      .select('*')
+      .eq('assignment_type', 'daily')
+      .gte('assignment_date', weekRange.start)
+      .lte('assignment_date', weekRange.end);
 
     const [
       { data: reports, error: reportsError },
       { data: profiles, error: profilesError },
       { data: absences, error: absencesError },
       { data: requestHistory, error: requestHistoryError },
+      { data: projects, error: projectsError },
+      { data: roleAssignments, error: roleAssignmentsError },
+      { data: dailyAssignments, error: dailyAssignmentsError },
     ] = await Promise.all([
       reportsQuery,
       profilesQuery,
       absencesQuery,
       requestHistoryQuery,
+      projectsQuery,
+      roleAssignmentsQuery,
+      dailyAssignmentsQuery,
     ]);
 
     if (reportsError) throw reportsError;
     if (profilesError) throw profilesError;
     if (absencesError) throw absencesError;
     if (requestHistoryError) throw requestHistoryError;
+    if (projectsError) throw projectsError;
+    if (roleAssignmentsError) throw roleAssignmentsError;
+    if (dailyAssignmentsError) throw dailyAssignmentsError;
     if (!isActiveDataLoad(requestId)) {
       return;
     }
@@ -1016,6 +1092,9 @@ async function loadData() {
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
     state.requestHistory = requestHistory ?? [];
+    state.projects = projects ?? [];
+    state.roleAssignments = roleAssignments ?? [];
+    state.dailyAssignments = await mergeWeeklyReportsIntoDispo(dailyAssignments ?? []);
     syncEmployeeSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
@@ -1047,6 +1126,14 @@ async function fetchCurrentProfile() {
   return data ?? null;
 }
 
+async function fetchProfiles() {
+  const primary = await state.supabase.from('profiles').select('*').order('full_name', { ascending: true });
+  if (!primary.error) {
+    return primary;
+  }
+  return state.supabase.from('app_profiles').select('*').order('full_name', { ascending: true });
+}
+
 async function loadDemoData() {
   state.currentProfile = demoProfiles.find((profile) => profile.id === state.user.id) ?? demoProfiles[0];
   state.isAdminStatusResolved = true;
@@ -1054,6 +1141,9 @@ async function loadDemoData() {
   if (!state.hasAdminAccess) {
     state.profiles = [];
     state.weeklyReports = [];
+    state.projects = [];
+    state.roleAssignments = [];
+    state.dailyAssignments = [];
     state.holidayRequests = [];
     state.requestHistory = [];
     elements.dataTimestamp.textContent = 'Kein Zugriff – Demo-Profil hat is_admin = false';
@@ -1073,6 +1163,9 @@ async function loadDemoData() {
     return isoWeek.year === selectedYear && isoWeek.kw === selectedKw;
   });
   state.weeklyReports = reports;
+  state.projects = [];
+  state.roleAssignments = [];
+  state.dailyAssignments = [];
   state.holidayRequests = [...demoHolidayRequests];
   state.requestHistory = [...demoRequestHistory];
   syncEmployeeSelection();
@@ -1121,6 +1214,9 @@ function render() {
   renderConfirmationFilters();
   renderConfirmationsTable();
   renderSaldoTable();
+  renderProjectForm();
+  renderProjectsTable();
+  renderDispoPlanner();
   renderLoadingOverlay();
 }
 
@@ -1188,6 +1284,8 @@ function renderPages() {
     absences: 'Ferien & Absenzen',
     confirmations: 'Bestätigungen',
     saldo: 'Saldo',
+    projects: 'Projekte / Aufträge',
+    dispo: 'Dispo / Wochenplanung',
     security: 'Admin-Zugriff',
   };
 
@@ -1210,6 +1308,8 @@ function renderWeekSummary() {
   const disableWeekNavigation = state.isLoadingData || state.isSavingReport;
   elements.previousWeekButton.disabled = disableWeekNavigation;
   elements.nextWeekButton.disabled = disableWeekNavigation;
+  if (elements.dispoPreviousWeekButton) elements.dispoPreviousWeekButton.disabled = disableWeekNavigation;
+  if (elements.dispoNextWeekButton) elements.dispoNextWeekButton.disabled = disableWeekNavigation;
 }
 
 function renderReportStats() {
@@ -2474,6 +2574,287 @@ function renderHistoryActionsCell(entry) {
       <button class="button button-small button-danger" type="button" data-action="delete-history-entry" data-history-entry-id="${escapeAttribute(entry.id)}" ${state.isSavingConfirmation ? 'disabled' : ''}>Löschen</button>
     </div>
   `;
+}
+
+function renderProjectForm() {
+  if (!elements.projectLeadSelect) return;
+  const options = [`<option value="">Bitte wählen</option>`]
+    .concat(
+      state.profiles.map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
+    )
+    .join('');
+  elements.projectLeadSelect.innerHTML = options;
+  elements.constructionLeadSelect.innerHTML = options;
+  elements.projectWorkersSelect.innerHTML = state.profiles
+    .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
+    .join('');
+}
+
+function renderProjectsTable() {
+  if (!elements.projectsTableBody) return;
+  const rows = getFilteredProjects();
+  if (!rows.length) {
+    elements.projectsTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Keine Projekte vorhanden.</td></tr>';
+    return;
+  }
+  elements.projectsTableBody.innerHTML = rows.map((project) => {
+    const assignments = getProjectRoleAssignments(project.id);
+    const projectLead = getProfileById(assignments.projectLeadId)?.full_name || '—';
+    const constructionLead = getProfileById(assignments.constructionLeadId)?.full_name || '—';
+    const workers = assignments.workerIds.map((id) => getProfileById(id)?.full_name).filter(Boolean).join(', ') || '—';
+    return `<tr>
+      <td>${escapeHtml(project.commission_number || '')}</td>
+      <td>${escapeHtml(project.name || '')}</td>
+      <td>${escapeHtml(projectLead)}</td>
+      <td>${escapeHtml(constructionLead)}</td>
+      <td>${escapeHtml(workers)}</td>
+      <td>
+        <div class="table-row-actions">
+          <button class="button button-small button-secondary" type="button" data-action="edit-project" data-project-id="${escapeAttribute(project.id)}">Bearbeiten</button>
+          <button class="button button-small button-danger" type="button" data-action="delete-project" data-project-id="${escapeAttribute(project.id)}">Löschen</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderDispoPlanner() {
+  if (!elements.dispoTableBody) return;
+  const weekRange = getWeekRange(state.selectedWeek);
+  elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedWeek);
+  elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
+  const dates = getWeekDateList(state.selectedWeek);
+  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th>${escapeHtml(getWeekdayLabel(date))}<br /><span class="subtle-text">${escapeHtml(formatDate(date))}</span></th>`).join('')}</tr>`;
+  elements.dispoTableBody.innerHTML = state.profiles.map((profile) => {
+    const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
+    return `<tr><td><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong></td>${cells}</tr>`;
+  }).join('');
+}
+
+function renderDispoCell(profileId, date) {
+  const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
+  const project = entry?.project_id ? state.projects.find((item) => item.id === entry.project_id) : null;
+  const label = project ? `${project.commission_number || ''} ${project.name || ''}`.trim() : (entry?.label || '—');
+  const sourceTag = entry?.source ? `<span class="dispo-source-tag">${escapeHtml(entry.source)}</span>` : '';
+  return `<td><div class="dispo-cell">
+    <div>${escapeHtml(label)}</div>
+    ${sourceTag}
+    <div class="table-row-actions">
+      <button class="button button-small button-secondary" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}">Zuweisen</button>
+      ${entry ? `<button class="button button-small button-danger" type="button" data-action="clear-dispo" data-assignment-id="${escapeAttribute(entry.id)}">Löschen</button>` : ''}
+    </div>
+  </div></td>`;
+}
+
+function getFilteredProjects() {
+  const query = state.projectSearchQuery.trim().toLowerCase();
+  if (!query) return [...state.projects];
+  return state.projects.filter((project) => String(project.commission_number || '').toLowerCase().includes(query) || String(project.name || '').toLowerCase().includes(query));
+}
+
+function getProjectRoleAssignments(projectId) {
+  const rows = state.roleAssignments.filter((item) => item.project_id === projectId);
+  return {
+    projectLeadId: rows.find((item) => item.role === 'project_lead')?.profile_id || '',
+    constructionLeadId: rows.find((item) => item.role === 'construction_lead')?.profile_id || '',
+    workerIds: rows.filter((item) => item.role === 'worker').map((item) => item.profile_id),
+  };
+}
+
+function handleProjectSearchInput(event) {
+  state.projectSearchQuery = event.target.value || '';
+  renderProjectsTable();
+}
+
+async function handleProjectSubmit(event) {
+  event.preventDefault();
+  const commissionNumber = elements.projectCommissionInput.value.trim();
+  const name = elements.projectNameInput.value.trim();
+  const projectLeadId = elements.projectLeadSelect.value;
+  const constructionLeadId = elements.constructionLeadSelect.value;
+  const workerIds = Array.from(elements.projectWorkersSelect.selectedOptions).map((option) => option.value);
+  if (!commissionNumber || !name || !projectLeadId || !constructionLeadId) {
+    showInlineAlert(elements.projectsAlert, 'Kommissionsnummer, Projektname, Projektleiter und Bauleiter sind Pflicht.', true);
+    return;
+  }
+  if (projectLeadId === constructionLeadId) {
+    showInlineAlert(elements.projectsAlert, 'Projektleiter und Bauleiter müssen unterschiedliche Personen sein.', true);
+    return;
+  }
+  await withLongTask('Projekt wird gespeichert …', async () => {
+    const payload = { commission_number: commissionNumber, name };
+    let projectId = state.editingProjectId;
+    if (projectId) {
+      const { error } = await state.supabase.from('projects').update(payload).eq('id', projectId);
+      if (error) throw error;
+      const { error: deleteError } = await state.supabase.from('project_assignments').delete().eq('project_id', projectId).eq('assignment_type', 'role');
+      if (deleteError) throw deleteError;
+    } else {
+      const { data, error } = await state.supabase.from('projects').insert(payload).select('id').single();
+      if (error) throw error;
+      projectId = data.id;
+    }
+    const assignmentRows = [
+      { project_id: projectId, profile_id: projectLeadId, assignment_type: 'role', role: 'project_lead' },
+      { project_id: projectId, profile_id: constructionLeadId, assignment_type: 'role', role: 'construction_lead' },
+      ...workerIds.map((profileId) => ({ project_id: projectId, profile_id: profileId, assignment_type: 'role', role: 'worker' })),
+    ];
+    const { error: assignError } = await state.supabase.from('project_assignments').insert(assignmentRows);
+    if (assignError) throw assignError;
+    resetProjectForm();
+    showInlineAlert(elements.projectsAlert, 'Projekt erfolgreich gespeichert.', false);
+    await loadData();
+  });
+}
+
+function resetProjectForm() {
+  state.editingProjectId = null;
+  elements.projectIdInput.value = '';
+  elements.projectCommissionInput.value = '';
+  elements.projectNameInput.value = '';
+  elements.projectLeadSelect.value = '';
+  elements.constructionLeadSelect.value = '';
+  Array.from(elements.projectWorkersSelect.options).forEach((option) => { option.selected = false; });
+}
+
+async function handleProjectsTableClick(event) {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const action = button.dataset.action;
+  const projectId = button.dataset.projectId;
+  if (action === 'edit-project') {
+    const project = state.projects.find((item) => String(item.id) === String(projectId));
+    if (!project) return;
+    const roles = getProjectRoleAssignments(project.id);
+    state.editingProjectId = project.id;
+    elements.projectIdInput.value = project.id;
+    elements.projectCommissionInput.value = project.commission_number || '';
+    elements.projectNameInput.value = project.name || '';
+    elements.projectLeadSelect.value = roles.projectLeadId;
+    elements.constructionLeadSelect.value = roles.constructionLeadId;
+    Array.from(elements.projectWorkersSelect.options).forEach((option) => { option.selected = roles.workerIds.includes(option.value); });
+    return;
+  }
+  if (action === 'delete-project') {
+    if (!confirm('Projekt wirklich löschen?')) return;
+    const { error } = await state.supabase.from('projects').delete().eq('id', projectId);
+    if (error) {
+      showInlineAlert(elements.projectsAlert, error.message, true);
+      return;
+    }
+    showInlineAlert(elements.projectsAlert, 'Projekt gelöscht.', false);
+    await loadData();
+  }
+}
+
+async function handleDispoTableClick(event) {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  if (button.dataset.action === 'assign-dispo') {
+    const profileId = button.dataset.profileId;
+    const date = button.dataset.date;
+    const options = state.projects.map((project) => `${project.id}:${project.commission_number || ''} ${project.name || ''}`.trim()).join('\n');
+    const input = prompt(`Projekt-ID wählen (leer = Diverses/Ferien):\n${options}`);
+    if (input === null) return;
+    const [projectIdRaw] = input.split(':');
+    const projectId = projectIdRaw && state.projects.some((item) => item.id === projectIdRaw) ? projectIdRaw : null;
+    await saveDispoAssignment({ profileId, date, projectId, label: projectId ? null : 'Diverses' });
+  }
+  if (button.dataset.action === 'clear-dispo') {
+    const assignmentId = button.dataset.assignmentId;
+    const { error } = await state.supabase.from('project_assignments').delete().eq('id', assignmentId);
+    if (error) {
+      showInlineAlert(elements.dispoAlert, error.message, true);
+      return;
+    }
+    await loadData();
+  }
+}
+
+async function saveDispoAssignment({ profileId, date, projectId, label = null, source = 'manual', suppressReload = false, silent = false }) {
+  const payload = { profile_id: profileId, assignment_date: date, project_id: projectId, label, source, assignment_type: 'daily', role: 'daily_assignment' };
+  const { error } = await state.supabase.from('project_assignments').upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' });
+  if (error) {
+    if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
+    return;
+  }
+  if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
+  if (!suppressReload) await loadData();
+}
+
+async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
+  const merged = [...dailyAssignments];
+  const byKey = new Map(merged.map((entry) => [`${entry.profile_id}:${entry.assignment_date}`, entry]));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const weeklyGrouped = new Map();
+  for (const report of state.weeklyReports) {
+    const key = `${report.profile_id}:${report.work_date}`;
+    if (!weeklyGrouped.has(key)) weeklyGrouped.set(key, []);
+    weeklyGrouped.get(key).push(report);
+  }
+  for (const [key, entries] of weeklyGrouped.entries()) {
+    const [profileId, date] = key.split(':');
+    const existing = byKey.get(key);
+    const isPastOrToday = date <= todayIso;
+    if (existing && !isPastOrToday) continue;
+    const computed = mapWeeklyReportToDispoEntry(profileId, date, entries);
+    if (!computed) continue;
+    if (existing && existing.project_id === computed.project_id && (existing.label || '') === (computed.label || '')) continue;
+    await saveDispoAssignment({ profileId, date, projectId: computed.project_id, label: computed.label, source: 'weekly_report', suppressReload: true, silent: true });
+    const nextEntry = {
+      ...(existing || { id: `pending-${key}` }),
+      profile_id: profileId,
+      assignment_date: date,
+      project_id: computed.project_id,
+      label: computed.label,
+      source: 'weekly_report',
+      assignment_type: 'daily',
+    };
+    byKey.set(key, nextEntry);
+    if (existing) {
+      const index = merged.findIndex((item) => item.profile_id === profileId && item.assignment_date === date);
+      if (index >= 0) merged[index] = nextEntry;
+    } else {
+      merged.push(nextEntry);
+    }
+  }
+  return merged;
+}
+
+function mapWeeklyReportToDispoEntry(profileId, date, reports) {
+  if (!reports?.length) return null;
+  if (reports.length >= 2) {
+    if (state.hasAdminAccess) return { profile_id: profileId, assignment_date: date, project_id: null, label: 'Diverses' };
+    const first = reports[0];
+    return { profile_id: profileId, assignment_date: date, project_id: resolveProjectIdFromReport(first), label: first.project_name || first.commission_number || 'Diverses' };
+  }
+  const report = reports[0];
+  return { profile_id: profileId, assignment_date: date, project_id: resolveProjectIdFromReport(report), label: report.project_name || report.commission_number || report.notes || 'Diverses' };
+}
+
+function resolveProjectIdFromReport(report) {
+  const byCommission = state.projects.find((project) => String(project.commission_number || '').trim() === String(report.commission_number || '').trim());
+  if (byCommission) return byCommission.id;
+  const byName = state.projects.find((project) => String(project.name || '').trim().toLowerCase() === String(report.project_name || '').trim().toLowerCase());
+  return byName?.id || null;
+}
+
+function getWeekDateList(weekValue) {
+  const weekRange = getWeekRange(weekValue);
+  const cursor = new Date(`${weekRange.start}T00:00:00Z`);
+  const result = [];
+  for (let i = 0; i < 7; i += 1) {
+    result.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return result;
+}
+
+function showInlineAlert(element, message, isError = false) {
+  if (!element) return;
+  element.classList.remove('hidden');
+  element.textContent = message;
+  element.style.background = isError ? 'rgba(215, 0, 21, 0.08)' : 'rgba(19, 115, 51, 0.10)';
 }
 
 function handleGlobalKeydown(event) {

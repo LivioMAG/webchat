@@ -259,6 +259,78 @@ begin
 end;
 $$;
 
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  commission_number text not null,
+  name text not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create unique index if not exists projects_commission_number_idx
+on public.projects (commission_number);
+
+create table if not exists public.project_assignments (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references public.projects(id) on delete cascade,
+  profile_id uuid not null references public.app_profiles(id) on delete cascade,
+  assignment_type text not null check (assignment_type in ('role', 'daily')),
+  role text not null check (role in ('project_lead', 'construction_lead', 'worker', 'daily_assignment')),
+  assignment_date date,
+  label text,
+  source text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint project_assignment_role_date_check check (
+    (assignment_type = 'role' and assignment_date is null and project_id is not null)
+    or (assignment_type = 'daily' and assignment_date is not null)
+  )
+);
+
+create unique index if not exists project_assignments_unique_role
+on public.project_assignments (project_id, role)
+where assignment_type = 'role' and role in ('project_lead', 'construction_lead');
+
+create unique index if not exists project_assignments_unique_worker
+on public.project_assignments (project_id, profile_id, role)
+where assignment_type = 'role' and role = 'worker';
+
+create unique index if not exists project_assignments_daily_unique
+on public.project_assignments (profile_id, assignment_date, assignment_type)
+where assignment_type = 'daily';
+
+create index if not exists project_assignments_daily_date_idx
+on public.project_assignments (assignment_date, profile_id);
+
+drop trigger if exists projects_set_updated_at on public.projects;
+create trigger projects_set_updated_at
+before update on public.projects
+for each row execute function public.set_updated_at();
+
+drop trigger if exists project_assignments_set_updated_at on public.project_assignments;
+create trigger project_assignments_set_updated_at
+before update on public.project_assignments
+for each row execute function public.set_updated_at();
+
+alter table public.projects enable row level security;
+alter table public.project_assignments enable row level security;
+
+drop policy if exists "projects own or admin" on public.projects;
+create policy "projects own or admin"
+on public.projects
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "project_assignments own or admin" on public.project_assignments;
+create policy "project_assignments own or admin"
+on public.project_assignments
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
 create or replace function public.reject_holiday_request(
   p_request_id uuid,
   p_context text default 'Abgelehnt'

@@ -68,6 +68,14 @@
               <span class="nav-tab-icon" aria-hidden="true">⚖️</span>
               <span class="visually-hidden">Saldo</span>
             </button>
+            <button class="nav-tab" data-page="projects" type="button" title="Projekte" aria-label="Projekte">
+              <span class="nav-tab-icon" aria-hidden="true">🏗️</span>
+              <span class="visually-hidden">Projekte</span>
+            </button>
+            <button class="nav-tab" data-page="dispo" type="button" title="Dispo" aria-label="Dispo">
+              <span class="nav-tab-icon" aria-hidden="true">🗓️</span>
+              <span class="visually-hidden">Dispo</span>
+            </button>
             <button class="nav-tab" data-page="security" type="button" title="Admin-Zugriff" aria-label="Admin-Zugriff">
               <span class="nav-tab-icon" aria-hidden="true">🔒</span>
               <span class="visually-hidden">Admin-Zugriff</span>
@@ -328,6 +336,97 @@
                     </tr>
                   </thead>
                   <tbody id="saldoTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section id="projectsPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Projekte / Aufträge</h3>
+                  <p>Projekte verwalten und Rollen (Projektleiter, Bauleiter, Arbeiter) zuweisen.</p>
+                </div>
+              </div>
+              <div id="projectsAlert" class="alert hidden"></div>
+              <form id="projectForm" class="report-filter-panel projects-form">
+                <input id="projectIdInput" type="hidden" />
+                <div class="report-filter-toolbar projects-form-grid">
+                  <label>
+                    <span>Kommissionsnummer *</span>
+                    <input id="projectCommissionInput" type="text" required />
+                  </label>
+                  <label>
+                    <span>Projektname *</span>
+                    <input id="projectNameInput" type="text" required />
+                  </label>
+                  <label>
+                    <span>Projektleiter *</span>
+                    <select id="projectLeadSelect" required></select>
+                  </label>
+                  <label>
+                    <span>Bauleiter *</span>
+                    <select id="constructionLeadSelect" required></select>
+                  </label>
+                  <label class="projects-workers-select">
+                    <span>Arbeiter</span>
+                    <select id="projectWorkersSelect" multiple size="6"></select>
+                  </label>
+                </div>
+                <div class="report-filter-actions">
+                  <button id="saveProjectButton" class="button button-primary" type="submit">Projekt speichern</button>
+                  <button id="resetProjectFormButton" class="button button-secondary" type="button">Neu</button>
+                </div>
+              </form>
+              <div class="report-filter-panel">
+                <label>
+                  <span>Suche</span>
+                  <input id="projectSearchInput" type="search" placeholder="Nach Kommissionsnummer oder Projektname suchen" />
+                </label>
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kommissionsnummer</th>
+                      <th>Projektname</th>
+                      <th>Projektleiter</th>
+                      <th>Bauleiter</th>
+                      <th>Arbeiter</th>
+                      <th>Aktionen</th>
+                    </tr>
+                  </thead>
+                  <tbody id="projectsTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section id="dispoPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Dispo / Wochenplanung</h3>
+                  <p>Mitarbeiter pro Kalenderwoche auf Projekte disponieren.</p>
+                </div>
+              </div>
+              <div id="dispoAlert" class="alert hidden"></div>
+              <div class="toolbar panel dispo-toolbar">
+                <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
+                  <button id="dispoPreviousWeekButton" class="button button-secondary button-icon" type="button" aria-label="Vorherige Woche">←</button>
+                  <div class="week-summary">
+                    <span class="subtle-label">Kalenderwoche</span>
+                    <strong id="dispoWeekLabel">KW 00</strong>
+                    <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
+                  </div>
+                  <button id="dispoNextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
+                </div>
+              </div>
+              <div class="table-wrapper">
+                <table class="dispo-table">
+                  <thead id="dispoTableHead"></thead>
+                  <tbody id="dispoTableBody"></tbody>
                 </table>
               </div>
             </div>
