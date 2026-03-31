@@ -1116,7 +1116,7 @@ async function loadData() {
     state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
     state.roleAssignments = roleAssignments ?? [];
-    state.dailyAssignments = await mergeWeeklyReportsIntoDispo(dailyAssignments ?? []);
+    state.dailyAssignments = dailyAssignments ?? [];
     syncEmployeeSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
@@ -2654,6 +2654,13 @@ function renderDispoPlanner() {
 }
 
 function renderDispoCell(profileId, date) {
+  const weeklyReportItems = getWeeklyReportItems(profileId, date);
+  if (weeklyReportItems.length) {
+    return `<td><div class="dispo-cell dispo-cell-locked">
+      <div class="dispo-items">${weeklyReportItems.map((item) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span></div>`).join('')}</div>
+      <span class="dispo-source-tag">weekly_report</span>
+    </div></td>`;
+  }
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
   const sourceTag = entry?.source ? `<span class="dispo-source-tag">${escapeHtml(entry.source)}</span>` : '';
@@ -2806,6 +2813,10 @@ async function handleDispoTableClick(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
   if (button.dataset.action === 'assign-dispo') {
+    if (isWeeklyReportLocked(button.dataset.profileId, button.dataset.date)) {
+      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+      return;
+    }
     openDispoAssignModal({
       targets: [{ profileId: button.dataset.profileId, date: button.dataset.date }],
       label: `Mitarbeiter ${getProfileById(button.dataset.profileId)?.full_name || ''} · ${formatDate(button.dataset.date)}`,
@@ -2815,7 +2826,9 @@ async function handleDispoTableClick(event) {
   if (button.dataset.action === 'bulk-dispo-row') {
     const profileId = button.dataset.profileId;
     openDispoAssignModal({
-      targets: getWeekDateList(state.selectedWeek).map((date) => ({ profileId, date })),
+      targets: getWeekDateList(state.selectedWeek)
+        .filter((date) => !isWeeklyReportLocked(profileId, date))
+        .map((date) => ({ profileId, date })),
       label: `Ganze Woche für ${getProfileById(profileId)?.full_name || ''}`,
     });
     return;
@@ -2823,7 +2836,9 @@ async function handleDispoTableClick(event) {
   if (button.dataset.action === 'bulk-dispo-column') {
     const date = button.dataset.date;
     openDispoAssignModal({
-      targets: state.profiles.map((profile) => ({ profileId: profile.id, date })),
+      targets: state.profiles
+        .filter((profile) => !isWeeklyReportLocked(profile.id, date))
+        .map((profile) => ({ profileId: profile.id, date })),
       label: `Ganzer Tag ${getWeekdayLabel(date)} (${formatDate(date)})`,
     });
     return;
@@ -2831,6 +2846,10 @@ async function handleDispoTableClick(event) {
   if (button.dataset.action === 'remove-dispo-item') {
     const entry = state.dailyAssignments.find((item) => String(item.id) === String(button.dataset.assignmentId));
     if (!entry) return;
+    if (isWeeklyReportLocked(entry.profile_id, entry.assignment_date)) {
+      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+      return;
+    }
     const index = Number(button.dataset.itemIndex);
     const items = getDispoItemsForEntry(entry).filter((_, itemIndex) => itemIndex !== index);
     await saveDispoAssignment({
@@ -2846,6 +2865,10 @@ async function handleDispoTableClick(event) {
     const assignmentId = button.dataset.assignmentId;
     const entry = state.dailyAssignments.find((item) => String(item.id) === String(assignmentId));
     if (!entry) return;
+    if (isWeeklyReportLocked(entry.profile_id, entry.assignment_date)) {
+      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+      return;
+    }
     const { error } = await state.supabase.from('project_assignments').delete().eq('id', assignmentId);
     if (error) {
       showInlineAlert(elements.dispoAlert, error.message, true);
@@ -2858,6 +2881,10 @@ async function handleDispoTableClick(event) {
 }
 
 async function saveDispoAssignment({ profileId, date, items = [], source = 'manual', suppressReload = false, silent = false, mode = 'replace' }) {
+  if (isWeeklyReportLocked(profileId, date)) {
+    if (!silent) showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+    return;
+  }
   const existingEntry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
   const mergedItems = [...baseItems, ...items].filter((item) => item?.label);
@@ -2965,6 +2992,19 @@ function resolveProjectIdFromReport(report) {
   return byName?.id || null;
 }
 
+function getWeeklyReportItems(profileId, date) {
+  const reports = state.weeklyReports.filter((report) => report.profile_id === profileId && report.work_date === date);
+  return reports.map((report) => ({
+    type: 'weekly_report',
+    project_id: resolveProjectIdFromReport(report),
+    label: `${report.commission_number || ''} ${report.project_name || ''}`.trim() || 'Ohne Projekt',
+  }));
+}
+
+function isWeeklyReportLocked(profileId, date) {
+  return getWeeklyReportItems(profileId, date).length > 0;
+}
+
 function getWeekDateList(weekValue) {
   const weekRange = getWeekRange(weekValue);
   const cursor = new Date(`${weekRange.start}T00:00:00Z`);
@@ -2977,9 +3017,15 @@ function getWeekDateList(weekValue) {
 }
 
 function openDispoAssignModal({ targets, label }) {
-  state.dispoAssignContext = { targets: targets || [] };
+  const editableTargets = (targets || []).filter((target) => !isWeeklyReportLocked(target.profileId, target.date));
+  if (!editableTargets.length) {
+    showInlineAlert(elements.dispoAlert, 'Für die Auswahl gibt es bereits Wochenrapporte. Keine Dispo-Bearbeitung möglich.', true);
+    return;
+  }
+  state.dispoAssignContext = { targets: editableTargets };
   elements.dispoAssignTargetLabel.textContent = label || 'Auswahl treffen.';
-  elements.dispoAssignModeSelect.value = targets?.length > 1 ? 'replace' : 'append';
+  elements.dispoAssignModeSelect.value = 'replace';
+  elements.dispoAssignModeSelect.disabled = true;
   const sortedProjects = [...state.projects].sort((left, right) => {
     const leftLabel = `${left.commission_number || ''} ${left.name || ''}`.trim().toLowerCase();
     const rightLabel = `${right.commission_number || ''} ${right.name || ''}`.trim().toLowerCase();
@@ -2997,6 +3043,7 @@ function openDispoAssignModal({ targets, label }) {
 function closeDispoAssignModal() {
   elements.dispoAssignModal.classList.add('hidden');
   state.dispoAssignContext = null;
+  elements.dispoAssignModeSelect.disabled = false;
   elements.dispoAssignForm.reset();
 }
 
@@ -3013,7 +3060,7 @@ async function handleDispoAssignSubmit(event) {
   const item = type === 'project'
     ? { type: 'project', project_id: rawValue, label: `${state.projects.find((project) => project.id === rawValue)?.commission_number || ''} ${state.projects.find((project) => project.id === rawValue)?.name || ''}`.trim() }
     : { type: 'special', project_id: null, label: rawValue };
-  const mode = elements.dispoAssignModeSelect.value === 'append' ? 'append' : 'replace';
+  const mode = 'replace';
   for (const target of targets) {
     await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
   }
