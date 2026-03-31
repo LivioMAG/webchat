@@ -963,6 +963,10 @@ tbody tr:hover {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.dispo-cell-locked {
+  background: rgba(17, 17, 17, 0.04);
+}
+
 .dispo-items {
   display: grid;
   gap: 6px;
