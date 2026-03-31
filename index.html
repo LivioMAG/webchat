@@ -372,6 +372,7 @@
                   <label class="projects-workers-select">
                     <span>Arbeiter</span>
                     <select id="projectWorkersSelect" multiple size="6"></select>
+                    <small class="subtle-text">Nur ausgewählte Arbeiter werden im Auftrag gespeichert (Mehrfachauswahl mit Ctrl/Cmd).</small>
                   </label>
                 </div>
                 <div class="report-filter-actions">
@@ -421,6 +422,9 @@
                     <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
                   </div>
                   <button id="dispoNextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
+                </div>
+                <div class="toolbar-group toolbar-actions">
+                  <button id="dispoExportPdfButton" class="button button-secondary" type="button">Dispo als PDF</button>
                 </div>
               </div>
               <div class="table-wrapper">
@@ -590,6 +594,38 @@
             <div class="modal-actions">
               <button id="cancelAdjustedMinutesButton" class="button button-secondary" type="button">Abbrechen</button>
               <button class="button button-primary" type="submit">Speichern</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="dispoAssignModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dispoAssignTitle">
+        <div class="modal-backdrop" data-close-dispo-assign-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="dispoAssignTitle">Dispo zuweisen</h3>
+              <p id="dispoAssignTargetLabel">Auswahl treffen.</p>
+            </div>
+            <button id="closeDispoAssignModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+          <form id="dispoAssignForm" class="report-edit-form">
+            <label>
+              <span>Aktion</span>
+              <select id="dispoAssignModeSelect">
+                <option value="replace">Ersetzen</option>
+                <option value="append">Hinzufügen</option>
+              </select>
+            </label>
+            <div class="dispo-assign-options">
+              <h4>Projekte</h4>
+              <div id="dispoAssignProjectsList" class="dispo-option-list"></div>
+              <h4>Schnellauswahl</h4>
+              <div id="dispoAssignSpecialList" class="dispo-option-list"></div>
+            </div>
+            <div class="modal-actions">
+              <button id="cancelDispoAssignButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button class="button button-primary" type="submit">Zuweisen</button>
             </div>
           </form>
         </div>

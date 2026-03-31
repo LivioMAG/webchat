@@ -954,8 +954,56 @@ tbody tr:hover {
   gap: 6px;
 }
 
-.dispo-cell button {
-  width: 100%;
+.dispo-items {
+  display: grid;
+  gap: 6px;
+}
+
+.dispo-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dispo-item-text {
+  font-size: 13px;
+}
+
+.dispo-icon-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.button-icon-only {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.dispo-plus-cell {
+  min-height: 74px;
+  display: grid;
+  place-items: center;
+}
+
+.dispo-header-cell {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.dispo-name-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .dispo-source-tag {
@@ -964,4 +1012,22 @@ tbody tr:hover {
   border-radius: 999px;
   padding: 2px 8px;
   background: rgba(17, 17, 17, 0.08);
+}
+
+.dispo-assign-options h4 {
+  margin: 10px 0 8px;
+}
+
+.dispo-option-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.dispo-option-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
 }

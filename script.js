@@ -1,6 +1,8 @@
 const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+const DISPO_ITEMS_PREFIX = '__dispo_items__:';
+const DISPO_SPECIAL_OPTIONS = ['Diverses', 'Ferien', 'Feiertag', 'Militär', 'Krankheit', 'Unfall'];
 const HOLIDAY_TYPE_LABELS = {
   ferien: 'Ferien',
   fehlen: 'Ferien',
@@ -492,6 +494,7 @@ const state = {
   editingProjectId: null,
   isSavingProject: false,
   isSavingDispo: false,
+  dispoAssignContext: null,
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
@@ -643,6 +646,15 @@ function cacheElements() {
   elements.dispoWeekDateRange = document.getElementById('dispoWeekDateRange');
   elements.dispoTableHead = document.getElementById('dispoTableHead');
   elements.dispoTableBody = document.getElementById('dispoTableBody');
+  elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
+  elements.dispoAssignModal = document.getElementById('dispoAssignModal');
+  elements.dispoAssignForm = document.getElementById('dispoAssignForm');
+  elements.dispoAssignModeSelect = document.getElementById('dispoAssignModeSelect');
+  elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
+  elements.dispoAssignProjectsList = document.getElementById('dispoAssignProjectsList');
+  elements.dispoAssignSpecialList = document.getElementById('dispoAssignSpecialList');
+  elements.closeDispoAssignModalButton = document.getElementById('closeDispoAssignModalButton');
+  elements.cancelDispoAssignButton = document.getElementById('cancelDispoAssignButton');
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
   elements.adminSqlPreview = document.getElementById('adminSqlPreview');
 }
@@ -705,6 +717,16 @@ function bindEvents() {
   elements.projectsTableBody.addEventListener('click', handleProjectsTableClick);
   elements.resetProjectFormButton.addEventListener('click', resetProjectForm);
   elements.dispoTableBody.addEventListener('click', handleDispoTableClick);
+  elements.dispoTableHead.addEventListener('click', handleDispoTableClick);
+  elements.dispoExportPdfButton.addEventListener('click', exportDispoPdf);
+  elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
+  elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
+  elements.cancelDispoAssignButton.addEventListener('click', closeDispoAssignModal);
+  elements.dispoAssignModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.closeDispoAssignModal === 'true') {
+      closeDispoAssignModal();
+    }
+  });
   elements.dispoPreviousWeekButton.addEventListener('click', async () => {
     state.selectedWeek = shiftWeekValue(state.selectedWeek, -1);
     elements.weekPicker.value = state.selectedWeek;
@@ -2624,26 +2646,45 @@ function renderDispoPlanner() {
   elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedWeek);
   elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
   const dates = getWeekDateList(state.selectedWeek);
-  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th>${escapeHtml(getWeekdayLabel(date))}<br /><span class="subtle-text">${escapeHtml(formatDate(date))}</span></th>`).join('')}</tr>`;
+  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-column" data-date="${escapeAttribute(date)}" title="Tag für alle setzen">+</button></div></th>`).join('')}</tr>`;
   elements.dispoTableBody.innerHTML = state.profiles.map((profile) => {
     const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
-    return `<tr><td><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong></td>${cells}</tr>`;
+    return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-row" data-profile-id="${escapeAttribute(profile.id)}" title="Woche für Mitarbeiter setzen">+</button></div></td>${cells}</tr>`;
   }).join('');
 }
 
 function renderDispoCell(profileId, date) {
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
-  const project = entry?.project_id ? state.projects.find((item) => item.id === entry.project_id) : null;
-  const label = project ? `${project.commission_number || ''} ${project.name || ''}`.trim() : (entry?.label || '—');
+  const items = getDispoItemsForEntry(entry);
   const sourceTag = entry?.source ? `<span class="dispo-source-tag">${escapeHtml(entry.source)}</span>` : '';
+  if (!items.length) {
+    return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button></div></td>`;
+  }
   return `<td><div class="dispo-cell">
-    <div>${escapeHtml(label)}</div>
+    <div class="dispo-items">${items.map((item, index) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span><button class="button button-danger button-icon-only" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(entry.id)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">🗑</button></div>`).join('')}</div>
     ${sourceTag}
-    <div class="table-row-actions">
-      <button class="button button-small button-secondary" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}">Zuweisen</button>
-      ${entry ? `<button class="button button-small button-danger" type="button" data-action="clear-dispo" data-assignment-id="${escapeAttribute(entry.id)}">Löschen</button>` : ''}
+    <div class="dispo-icon-actions">
+      <button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button>
+      <button class="button button-danger button-icon-only" type="button" data-action="clear-dispo" data-assignment-id="${escapeAttribute(entry.id)}" title="Alles löschen">🗑</button>
     </div>
   </div></td>`;
+}
+
+function getDispoItemsForEntry(entry) {
+  if (!entry) return [];
+  if (typeof entry.label === 'string' && entry.label.startsWith(DISPO_ITEMS_PREFIX)) {
+    try {
+      const parsed = JSON.parse(entry.label.slice(DISPO_ITEMS_PREFIX.length));
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item) => item && typeof item.label === 'string' && item.label.trim());
+      }
+    } catch (error) {
+      console.warn('Ungültige Dispo-Liste', error);
+    }
+  }
+  const project = entry.project_id ? state.projects.find((item) => item.id === entry.project_id) : null;
+  const label = project ? `${project.commission_number || ''} ${project.name || ''}`.trim() : (entry.label || '');
+  return label ? [{ type: project ? 'project' : 'special', project_id: project?.id || null, label }] : [];
 }
 
 function getFilteredProjects() {
@@ -2751,14 +2792,41 @@ async function handleDispoTableClick(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
   if (button.dataset.action === 'assign-dispo') {
+    openDispoAssignModal({
+      targets: [{ profileId: button.dataset.profileId, date: button.dataset.date }],
+      label: `Mitarbeiter ${getProfileById(button.dataset.profileId)?.full_name || ''} · ${formatDate(button.dataset.date)}`,
+    });
+    return;
+  }
+  if (button.dataset.action === 'bulk-dispo-row') {
     const profileId = button.dataset.profileId;
+    openDispoAssignModal({
+      targets: getWeekDateList(state.selectedWeek).map((date) => ({ profileId, date })),
+      label: `Ganze Woche für ${getProfileById(profileId)?.full_name || ''}`,
+    });
+    return;
+  }
+  if (button.dataset.action === 'bulk-dispo-column') {
     const date = button.dataset.date;
-    const options = state.projects.map((project) => `${project.id}:${project.commission_number || ''} ${project.name || ''}`.trim()).join('\n');
-    const input = prompt(`Projekt-ID wählen (leer = Diverses/Ferien):\n${options}`);
-    if (input === null) return;
-    const [projectIdRaw] = input.split(':');
-    const projectId = projectIdRaw && state.projects.some((item) => item.id === projectIdRaw) ? projectIdRaw : null;
-    await saveDispoAssignment({ profileId, date, projectId, label: projectId ? null : 'Diverses' });
+    openDispoAssignModal({
+      targets: state.profiles.map((profile) => ({ profileId: profile.id, date })),
+      label: `Ganzer Tag ${getWeekdayLabel(date)} (${formatDate(date)})`,
+    });
+    return;
+  }
+  if (button.dataset.action === 'remove-dispo-item') {
+    const entry = state.dailyAssignments.find((item) => String(item.id) === String(button.dataset.assignmentId));
+    if (!entry) return;
+    const index = Number(button.dataset.itemIndex);
+    const items = getDispoItemsForEntry(entry).filter((_, itemIndex) => itemIndex !== index);
+    await saveDispoAssignment({
+      profileId: entry.profile_id,
+      date: entry.assignment_date,
+      items,
+      source: 'manual',
+      mode: 'replace',
+    });
+    return;
   }
   if (button.dataset.action === 'clear-dispo') {
     const assignmentId = button.dataset.assignmentId;
@@ -2771,8 +2839,27 @@ async function handleDispoTableClick(event) {
   }
 }
 
-async function saveDispoAssignment({ profileId, date, projectId, label = null, source = 'manual', suppressReload = false, silent = false }) {
-  const payload = { profile_id: profileId, assignment_date: date, project_id: projectId, label, source, assignment_type: 'daily', role: 'daily_assignment' };
+async function saveDispoAssignment({ profileId, date, items = [], source = 'manual', suppressReload = false, silent = false, mode = 'replace' }) {
+  const existingEntry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
+  const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
+  const mergedItems = [...baseItems, ...items].filter((item) => item?.label);
+  if (!mergedItems.length) {
+    if (existingEntry?.id) {
+      const { error: deleteError } = await state.supabase.from('project_assignments').delete().eq('id', existingEntry.id);
+      if (deleteError && !silent) showInlineAlert(elements.dispoAlert, deleteError.message, true);
+    }
+    if (!suppressReload) await loadData();
+    return;
+  }
+  const payload = {
+    profile_id: profileId,
+    assignment_date: date,
+    project_id: null,
+    label: `${DISPO_ITEMS_PREFIX}${JSON.stringify(mergedItems)}`,
+    source,
+    assignment_type: 'daily',
+    role: 'daily_assignment',
+  };
   const { error } = await state.supabase.from('project_assignments').upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' });
   if (error) {
     if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
@@ -2799,14 +2886,15 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
     if (existing && !isPastOrToday) continue;
     const computed = mapWeeklyReportToDispoEntry(profileId, date, entries);
     if (!computed) continue;
-    if (existing && existing.project_id === computed.project_id && (existing.label || '') === (computed.label || '')) continue;
-    await saveDispoAssignment({ profileId, date, projectId: computed.project_id, label: computed.label, source: 'weekly_report', suppressReload: true, silent: true });
+    const computedSerialized = `${DISPO_ITEMS_PREFIX}${JSON.stringify(computed.items || [])}`;
+    if (existing && (existing.label || '') === computedSerialized) continue;
+    await saveDispoAssignment({ profileId, date, items: computed.items || [], source: 'weekly_report', suppressReload: true, silent: true });
     const nextEntry = {
       ...(existing || { id: `pending-${key}` }),
       profile_id: profileId,
       assignment_date: date,
-      project_id: computed.project_id,
-      label: computed.label,
+      project_id: null,
+      label: computedSerialized,
       source: 'weekly_report',
       assignment_type: 'daily',
     };
@@ -2824,12 +2912,21 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
 function mapWeeklyReportToDispoEntry(profileId, date, reports) {
   if (!reports?.length) return null;
   if (reports.length >= 2) {
-    if (state.hasAdminAccess) return { profile_id: profileId, assignment_date: date, project_id: null, label: 'Diverses' };
+    if (state.hasAdminAccess) return { items: [{ type: 'special', project_id: null, label: 'Diverses' }] };
     const first = reports[0];
-    return { profile_id: profileId, assignment_date: date, project_id: resolveProjectIdFromReport(first), label: first.project_name || first.commission_number || 'Diverses' };
+    return { items: [mapReportToDispoItem(first)] };
   }
   const report = reports[0];
-  return { profile_id: profileId, assignment_date: date, project_id: resolveProjectIdFromReport(report), label: report.project_name || report.commission_number || report.notes || 'Diverses' };
+  return { items: [mapReportToDispoItem(report)] };
+}
+
+function mapReportToDispoItem(report) {
+  const projectId = resolveProjectIdFromReport(report);
+  if (projectId) {
+    const project = state.projects.find((item) => item.id === projectId);
+    return { type: 'project', project_id: projectId, label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim() };
+  }
+  return { type: 'special', project_id: null, label: report.project_name || report.commission_number || report.notes || 'Diverses' };
 }
 
 function resolveProjectIdFromReport(report) {
@@ -2850,6 +2947,47 @@ function getWeekDateList(weekValue) {
   return result;
 }
 
+function openDispoAssignModal({ targets, label }) {
+  state.dispoAssignContext = { targets: targets || [] };
+  elements.dispoAssignTargetLabel.textContent = label || 'Auswahl treffen.';
+  elements.dispoAssignModeSelect.value = targets?.length > 1 ? 'replace' : 'append';
+  elements.dispoAssignProjectsList.innerHTML = state.projects.map((project, index) => `<label><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /><span>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</span></label>`).join('');
+  elements.dispoAssignSpecialList.innerHTML = DISPO_SPECIAL_OPTIONS.map((labelText) => `<label><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /><span>${escapeHtml(labelText)}</span></label>`).join('');
+  if (!state.projects.length) {
+    const firstSpecial = elements.dispoAssignSpecialList.querySelector('input[type="radio"]');
+    if (firstSpecial) firstSpecial.checked = true;
+  }
+  elements.dispoAssignModal.classList.remove('hidden');
+}
+
+function closeDispoAssignModal() {
+  elements.dispoAssignModal.classList.add('hidden');
+  state.dispoAssignContext = null;
+  elements.dispoAssignForm.reset();
+}
+
+async function handleDispoAssignSubmit(event) {
+  event.preventDefault();
+  const targets = state.dispoAssignContext?.targets || [];
+  if (!targets.length) return;
+  const checked = elements.dispoAssignForm.querySelector('input[name="dispoAssignChoice"]:checked');
+  if (!checked) {
+    showInlineAlert(elements.dispoAlert, 'Bitte zuerst eine Zuweisung auswählen.', true);
+    return;
+  }
+  const [type, rawValue] = checked.value.split(':');
+  const item = type === 'project'
+    ? { type: 'project', project_id: rawValue, label: `${state.projects.find((project) => project.id === rawValue)?.commission_number || ''} ${state.projects.find((project) => project.id === rawValue)?.name || ''}`.trim() }
+    : { type: 'special', project_id: null, label: rawValue };
+  const mode = elements.dispoAssignModeSelect.value === 'append' ? 'append' : 'replace';
+  for (const target of targets) {
+    await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
+  }
+  closeDispoAssignModal();
+  showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
+  await loadData();
+}
+
 function showInlineAlert(element, message, isError = false) {
   if (!element) return;
   element.classList.remove('hidden');
@@ -2863,6 +3001,10 @@ function handleGlobalKeydown(event) {
   }
   if (elements.adjustedMinutesModal && !elements.adjustedMinutesModal.classList.contains('hidden')) {
     closeAdjustedMinutesModal();
+    return;
+  }
+  if (elements.dispoAssignModal && !elements.dispoAssignModal.classList.contains('hidden')) {
+    closeDispoAssignModal();
     return;
   }
   if (!elements.reportEditModal.classList.contains('hidden')) {
@@ -2935,6 +3077,38 @@ async function exportWeekPdf() {
     });
 
     pdf.save(`wochenrapport-${state.selectedWeek}.pdf`);
+  });
+}
+
+async function exportDispoPdf() {
+  await withLongTask('Dispo-PDF wird vorbereitet …', async () => {
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) {
+      alert('PDF-Export ist aktuell nicht verfügbar.');
+      return;
+    }
+    const dates = getWeekDateList(state.selectedWeek);
+    const body = state.profiles.map((profile) => {
+      const row = [profile.full_name || profile.email || 'Unbekannt'];
+      for (const date of dates) {
+        const entry = state.dailyAssignments.find((item) => item.profile_id === profile.id && item.assignment_date === date);
+        const labels = getDispoItemsForEntry(entry).map((item) => item.label);
+        row.push(labels.join(' | '));
+      }
+      return row;
+    });
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const head = [['Mitarbeiter', ...dates.map((date) => `${getWeekdayLabel(date)} ${formatDate(date)}`)]];
+    pdf.setFontSize(14);
+    pdf.text(`Dispo ${getWeekLabel(state.selectedWeek)} (${formatDate(dates[0])} – ${formatDate(dates[6])})`, 14, 14);
+    pdf.autoTable({
+      startY: 20,
+      head,
+      body,
+      styles: { fontSize: 8, cellPadding: 1.8 },
+      headStyles: { fillColor: [39, 78, 183] },
+    });
+    pdf.save(`dispo-${state.selectedWeek}.pdf`);
   });
 }
 
