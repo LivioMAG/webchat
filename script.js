@@ -2658,18 +2658,15 @@ function renderDispoCell(profileId, date) {
   if (weeklyReportItems.length) {
     return `<td><div class="dispo-cell dispo-cell-locked">
       <div class="dispo-items">${weeklyReportItems.map((item) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span></div>`).join('')}</div>
-      <span class="dispo-source-tag">weekly_report</span>
     </div></td>`;
   }
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
-  const sourceTag = entry?.source ? `<span class="dispo-source-tag">${escapeHtml(entry.source)}</span>` : '';
   if (!items.length) {
     return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button></div></td>`;
   }
   return `<td><div class="dispo-cell">
     <div class="dispo-items">${items.map((item, index) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span><button class="button button-danger button-icon-only" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(entry.id)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">🗑</button></div>`).join('')}</div>
-    ${sourceTag}
     <div class="dispo-icon-actions">
       <button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button>
       <button class="button button-danger button-icon-only" type="button" data-action="clear-dispo" data-assignment-id="${escapeAttribute(entry.id)}" title="Alles löschen">🗑</button>
@@ -2883,7 +2880,7 @@ async function handleDispoTableClick(event) {
 async function saveDispoAssignment({ profileId, date, items = [], source = 'manual', suppressReload = false, silent = false, mode = 'replace' }) {
   if (isWeeklyReportLocked(profileId, date)) {
     if (!silent) showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
-    return;
+    return false;
   }
   const existingEntry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
@@ -2898,7 +2895,7 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
       }
     }
     if (!suppressReload) await loadData();
-    return;
+    return true;
   }
   const payload = {
     profile_id: profileId,
@@ -2916,12 +2913,13 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     .single();
   if (error) {
     if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
-    return;
+    return false;
   }
   upsertLocalDailyAssignment(data);
   if (!silent || !suppressReload) renderDispoPlanner();
   if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
   if (!suppressReload) await loadData();
+  return true;
 }
 
 async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
@@ -3057,12 +3055,24 @@ async function handleDispoAssignSubmit(event) {
     return;
   }
   const [type, rawValue] = checked.value.split(':');
+  const selectedProject = state.projects.find((project) => String(project.id) === String(rawValue));
   const item = type === 'project'
-    ? { type: 'project', project_id: rawValue, label: `${state.projects.find((project) => project.id === rawValue)?.commission_number || ''} ${state.projects.find((project) => project.id === rawValue)?.name || ''}`.trim() }
+    ? { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim() }
     : { type: 'special', project_id: null, label: rawValue };
+  if (type === 'project' && !item.label) {
+    showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
+    return;
+  }
   const mode = 'replace';
+  let hasError = false;
   for (const target of targets) {
-    await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
+    const saved = await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
+    if (!saved) hasError = true;
+  }
+  if (hasError) {
+    showInlineAlert(elements.dispoAlert, 'Beim Speichern ist ein Fehler aufgetreten. Bitte erneut versuchen.', true);
+    await loadData();
+    return;
   }
   closeDispoAssignModal();
   showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
