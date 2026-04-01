@@ -530,12 +530,14 @@ const state = {
   loadStartedAt: 0,
   tabHiddenAt: 0,
   loadRecoveryTimer: null,
+  lastResumeRefreshAt: 0,
 };
 
 const elements = {};
 const STALE_LOADING_TIMEOUT_MS = 4000;
 const LOAD_WATCHDOG_TIMEOUT_MS = 10000;
 const LONG_TASK_OVERLAY_DELAY_MS = 550;
+const RESUME_REFRESH_COOLDOWN_MS = 1500;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -920,10 +922,29 @@ function recoverInteractionState({ forceReload = false } = {}) {
   }
 }
 
+function triggerResumeRefresh() {
+  if (!state.user || state.isLoadingData) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - state.lastResumeRefreshAt < RESUME_REFRESH_COOLDOWN_MS) {
+    return;
+  }
+
+  state.lastResumeRefreshAt = now;
+  loadData().catch((error) => {
+    console.error(error);
+  });
+}
+
 function handleWindowFocus() {
   const tabWasHidden = state.tabHiddenAt > 0;
   state.tabHiddenAt = 0;
   recoverInteractionState({ forceReload: tabWasHidden });
+  if (tabWasHidden) {
+    triggerResumeRefresh();
+  }
 }
 
 function handleVisibilityChange() {
@@ -934,6 +955,7 @@ function handleVisibilityChange() {
 
   if (document.visibilityState === 'visible') {
     recoverInteractionState({ forceReload: true });
+    triggerResumeRefresh();
   }
 }
 
@@ -998,6 +1020,7 @@ function resetAppState() {
   state.loadRequestId = 0;
   state.loadStartedAt = 0;
   state.tabHiddenAt = 0;
+  state.lastResumeRefreshAt = 0;
   clearLoadRecoveryTimer();
   closeReportEditModal();
   closeAdjustedMinutesModal();
