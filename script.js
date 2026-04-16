@@ -4761,11 +4761,9 @@ function getMatchingProfiles(profiles, query) {
 }
 
 function getFilteredHolidayRequests() {
-  const today = getTodayIsoDate();
   const selectedIds = new Set(state.selectedAbsenceEmployeeIds);
   return [...state.holidayRequests]
     .filter((request) => selectedIds.has(request.profile_id))
-    .filter((request) => String(request.end_date || '') >= today)
     .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
 }
 
