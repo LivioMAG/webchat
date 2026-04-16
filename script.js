@@ -2894,7 +2894,13 @@ function isMissingRpcFunctionError(error, functionName) {
 
 function isMissingTableError(error, tableName) {
   const message = String(error?.message || '').toLowerCase();
-  return error?.code === 'PGRST205' || message.includes(`relation "${String(tableName || '').toLowerCase()}" does not exist`);
+  const normalizedTable = String(tableName || '').toLowerCase();
+  return (
+    error?.code === 'PGRST205' ||
+    message.includes(`relation "${normalizedTable}" does not exist`) ||
+    message.includes(`could not find the table 'public.${normalizedTable}' in the schema cache`) ||
+    message.includes(`could not find the table '${normalizedTable}' in the schema cache`)
+  );
 }
 
 async function insertHolidayRequestHistoryEntry(request, context) {
@@ -5053,6 +5059,10 @@ function getAccessConfigurationHint(error) {
 
   if (message.includes('row-level security') || message.includes('permission denied') || message.includes('not allowed')) {
     return 'Bitte das aktualisierte SQL aus supabase-schema.sql im Supabase-Projekt ausführen, damit Profile mit is_admin = true Vollzugriff erhalten.';
+  }
+
+  if (message.includes("could not find the table 'public.project_assignments' in the schema cache")) {
+    return 'Die Tabelle project_assignments wird in der aktuellen App-Version nicht mehr verwendet. Bitte das aktuelle SQL aus supabase-schema.sql ausführen und veraltete Abfragen auf project_assignments entfernen.';
   }
 
   return '';
