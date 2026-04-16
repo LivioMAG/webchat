@@ -440,6 +440,7 @@
                   <table>
                     <thead>
                       <tr>
+                        <th>Kategorie</th>
                         <th>Firma</th>
                         <th>Vorname</th>
                         <th>Nachname</th>
@@ -453,30 +454,6 @@
                 </div>
               </div>
 
-              <div id="crmContactDetailView" class="hidden">
-                <div class="table-row-actions">
-                  <button id="backToCrmListButton" class="button button-secondary" type="button">← Zur Liste</button>
-                </div>
-                <div class="crm-detail-layout">
-                  <article class="mini-card">
-                    <h4>Kontaktinformationen</h4>
-                    <div id="crmContactDetailInfo" class="crm-detail-info"></div>
-                  </article>
-                  <article class="mini-card crm-notes-card">
-                    <h4>Notizen</h4>
-                    <div id="crmNotesHeader" class="subtle-text">Kein Kontakt ausgewählt.</div>
-                    <form id="crmNoteForm" class="settings-form">
-                      <input id="crmNoteTargetUidInput" type="hidden" />
-                      <label>
-                        <span>Kommentar</span>
-                        <textarea id="crmNoteTextInput" rows="3" placeholder="Kommentar hinzufügen..." required></textarea>
-                      </label>
-                      <button id="saveCrmNoteButton" class="button button-secondary" type="submit">Notiz speichern</button>
-                    </form>
-                    <ul id="crmNotesList" class="status-list"></ul>
-                  </article>
-                </div>
-              </div>
             </div>
           </section>
 
@@ -489,7 +466,7 @@
                 </div>
               </div>
               <div class="settings-grid">
-                <article class="mini-card settings-card">
+                <article class="mini-card settings-card settings-users-card">
                   <h4>Benutzerverwaltung</h4>
                   <p class="subtle-text">
                     Deaktivierte Benutzer werden in den Planungen und Filtern ausgeblendet,
@@ -513,7 +490,7 @@
                   </div>
                 </article>
 
-                <article class="mini-card settings-card">
+                <article class="mini-card settings-card settings-holidays-card">
                   <h4>Feiertage</h4>
                   <p class="subtle-text">
                     Neue Feiertage tragen automatisch für alle aktiven Benutzer einen
@@ -544,7 +521,7 @@
                   </div>
                 </article>
 
-                <article class="mini-card settings-card">
+                <article class="mini-card settings-card settings-vacations-card">
                   <h4>Ferienzeit (Berufsschule pausieren)</h4>
                   <p class="subtle-text">
                     In diesen Zeitfenstern werden keine automatischen Berufsschultage eingetragen.

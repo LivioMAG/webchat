@@ -401,6 +401,9 @@ textarea:focus {
   display: grid;
   gap: 20px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    'users users'
+    'vacations holidays';
 }
 
 .stats-grid {
@@ -418,6 +421,18 @@ textarea:focus {
 
 .settings-card {
   padding: 20px;
+}
+
+.settings-users-card {
+  grid-area: users;
+}
+
+.settings-holidays-card {
+  grid-area: holidays;
+}
+
+.settings-vacations-card {
+  grid-area: vacations;
 }
 
 .settings-form {
@@ -1056,6 +1071,14 @@ tbody tr:hover {
 }
 
 .project-row-clickable:hover {
+  background: rgba(215, 0, 21, 0.05);
+}
+
+.crm-row-clickable {
+  cursor: pointer;
+}
+
+.crm-row-clickable:hover {
   background: rgba(215, 0, 21, 0.05);
 }
 

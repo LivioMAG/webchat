@@ -371,11 +371,68 @@ create table if not exists public.notes (
   target_uid uuid not null,
   note_type text not null default 'crm',
   note_text text not null,
+  sender_uid uuid not null references public.app_profiles(id) on delete restrict,
+  recipient_uid uuid references public.app_profiles(id) on delete set null,
+  note_category text not null default 'information',
+  note_ranking smallint not null default 2 check (note_ranking between 1 and 3),
+  attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now())
 );
 
 alter table public.notes
 add column if not exists note_type text not null default 'crm';
+
+alter table public.notes
+add column if not exists sender_uid uuid references public.app_profiles(id) on delete restrict;
+
+alter table public.notes
+add column if not exists recipient_uid uuid references public.app_profiles(id) on delete set null;
+
+alter table public.notes
+add column if not exists note_category text not null default 'information';
+
+alter table public.notes
+add column if not exists note_ranking smallint not null default 2;
+
+alter table public.notes
+add column if not exists attachments jsonb not null default '[]'::jsonb;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notes'
+      and column_name = 'sender_uid'
+      and is_nullable = 'YES'
+  ) then
+    update public.notes
+    set sender_uid = (
+      select id
+      from public.app_profiles
+      order by created_at
+      limit 1
+    )
+    where sender_uid is null;
+    alter table public.notes alter column sender_uid set not null;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'notes_note_ranking_check'
+      and conrelid = 'public.notes'::regclass
+  ) then
+    alter table public.notes
+      add constraint notes_note_ranking_check check (note_ranking between 1 and 3);
+  end if;
+end;
+$$;
 
 alter table public.projects
 add column if not exists project_lead_profile_id uuid references public.app_profiles(id) on delete set null;
@@ -609,12 +666,18 @@ insert into storage.buckets (id, name, public)
 values ('weekly-attachments', 'weekly-attachments', true)
 on conflict (id) do nothing;
 
+insert into storage.buckets (id, name, public)
+values ('crm-note-attachments', 'crm-note-attachments', true)
+on conflict (id) do nothing;
+
 drop policy if exists "weekly attachment read own or master" on storage.objects;
 drop policy if exists "weekly attachment write own or master" on storage.objects;
 drop policy if exists "authenticated attachment read" on storage.objects;
 drop policy if exists "authenticated attachment write" on storage.objects;
 drop policy if exists "weekly attachment read own or admin" on storage.objects;
 drop policy if exists "weekly attachment write own or admin" on storage.objects;
+drop policy if exists "crm note attachment read own or admin" on storage.objects;
+drop policy if exists "crm note attachment write own or admin" on storage.objects;
 
 create policy "weekly attachment read own or admin"
 on storage.objects
@@ -639,6 +702,35 @@ using (
 )
 with check (
   bucket_id = 'weekly-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+);
+
+create policy "crm note attachment read own or admin"
+on storage.objects
+for select
+using (
+  bucket_id = 'crm-note-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+);
+
+create policy "crm note attachment write own or admin"
+on storage.objects
+for all
+using (
+  bucket_id = 'crm-note-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+)
+with check (
+  bucket_id = 'crm-note-attachments'
   and (
     public.is_admin_user()
     or auth.uid()::text = split_part(name, '/', 1)

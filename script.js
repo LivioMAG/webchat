@@ -1,8 +1,11 @@
 const STORAGE_BUCKET = 'weekly-attachments';
+const CRM_NOTE_STORAGE_BUCKET = 'crm-note-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const HOLIDAY_TABLE = 'platform_holidays';
 const NOTES_TABLE = 'notes';
 const CRM_NOTE_TYPE = 'crm';
+const CRM_NOTE_CATEGORY_DEFAULT = 'information';
+const CRM_NOTE_RANKING_DEFAULT = 2;
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
@@ -2694,27 +2697,25 @@ async function handleCrmContactSubmit(event) {
 }
 
 async function handleCrmContactsTableClick(event) {
+  if (state.isSavingSettings) return;
   const button = event.target.closest('button[data-action]');
-  if (!button || state.isSavingSettings) return;
-  const contactId = button.dataset.contactId;
+  const row = event.target.closest('tr[data-action="open-crm-contact"]');
+  const contactId = button?.dataset.contactId || row?.dataset.contactId;
+  if (!contactId) return;
   const contact = state.crmContacts.find((item) => String(item.id) === String(contactId));
   if (!contact) return;
 
-  if (button.dataset.action === 'open-crm-contact') {
-    state.selectedCrmContactId = contact.id;
-    renderCrmContactsTable();
-    renderCrmContactDetail();
-    renderCrmNotesPanel();
+  if (button?.dataset.action === 'open-crm-contact' || row) {
+    openCrmContactDetailPage(contact);
     return;
   }
 
-  if (button.dataset.action === 'edit-crm-contact') {
-    state.selectedCrmContactId = contact.id;
+  if (button?.dataset.action === 'edit-crm-contact') {
     openCrmContactModal(contact);
     return;
   }
 
-  if (button.dataset.action === 'delete-crm-contact') {
+  if (button?.dataset.action === 'delete-crm-contact') {
     if (!confirm('Kontakt wirklich löschen?')) return;
     state.isSavingSettings = true;
     try {
@@ -3597,13 +3598,14 @@ function renderCrmContactsTable() {
   }
   const rows = getFilteredCrmContacts().sort((left, right) => `${left.last_name || ''} ${left.first_name || ''}`.localeCompare(`${right.last_name || ''} ${right.first_name || ''}`, 'de'));
   if (!rows.length) {
-    elements.crmContactsTableBody.innerHTML = '<tr><td colspan="6">Keine Kontakte für den gewählten Filter gefunden.</td></tr>';
+    elements.crmContactsTableBody.innerHTML = '<tr><td colspan="7">Keine Kontakte für den gewählten Filter gefunden.</td></tr>';
     return;
   }
 
   elements.crmContactsTableBody.innerHTML = rows.map((contact) => {
-    const isSelected = String(contact.id) === String(state.selectedCrmContactId);
-    return `<tr class="${isSelected ? 'row-selected' : ''}">
+    const categoryLabel = CRM_CATEGORY_LABELS[String(contact.category || '').toLowerCase()] || contact.category || '—';
+    return `<tr class="crm-row-clickable" data-action="open-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">
+      <td>${escapeHtml(categoryLabel)}</td>
       <td>${escapeHtml(contact.company_name || '—')}</td>
       <td>${escapeHtml(contact.first_name || '')}</td>
       <td>${escapeHtml(contact.last_name || '')}</td>
@@ -3611,7 +3613,6 @@ function renderCrmContactsTable() {
       <td>${escapeHtml(contact.email || '—')}</td>
       <td>
         <div class="table-row-actions">
-          <button class="button button-small button-secondary" type="button" data-action="open-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Öffnen</button>
           <button class="button button-small button-secondary" type="button" data-action="edit-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Bearbeiten</button>
           <button class="button button-small button-danger" type="button" data-action="delete-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Löschen</button>
         </div>
@@ -4149,6 +4150,16 @@ function openProjectDetail(projectId) {
   detailUrl.searchParams.set('projectId', String(project.id));
   detailUrl.searchParams.set('commission', project.commission_number || '');
   detailUrl.searchParams.set('name', project.name || '');
+  window.location.href = detailUrl.toString();
+}
+
+function openCrmContactDetailPage(contact) {
+  if (!contact?.id) return;
+  const detailUrl = new URL('./crm-contact-detail.html', window.location.href);
+  detailUrl.searchParams.set('contactId', String(contact.id));
+  detailUrl.searchParams.set('firstName', contact.first_name || '');
+  detailUrl.searchParams.set('lastName', contact.last_name || '');
+  detailUrl.searchParams.set('company', contact.company_name || '');
   window.location.href = detailUrl.toString();
 }
 
@@ -5947,7 +5958,8 @@ function getAttachmentUrl(attachment) {
     return path;
   }
 
-  const { data } = state.supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  const bucket = String(attachment?.bucket || '').trim() || STORAGE_BUCKET;
+  const { data } = state.supabase.storage.from(bucket).getPublicUrl(path);
   return String(data?.publicUrl || '').trim() || path;
 }
 
