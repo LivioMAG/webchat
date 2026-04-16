@@ -574,6 +574,8 @@ const state = {
   crmContacts: [],
   crmNotes: [],
   selectedCrmContactId: null,
+  crmSearchQuery: '',
+  crmCategoryFilter: '',
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
   projectSearchQuery: '',
@@ -758,6 +760,15 @@ function cacheElements() {
   elements.holidayNameInput = document.getElementById('holidayNameInput');
   elements.saveHolidayButton = document.getElementById('saveHolidayButton');
   elements.crmAlert = document.getElementById('crmAlert');
+  elements.crmSearchInput = document.getElementById('crmSearchInput');
+  elements.crmCategoryFilterInput = document.getElementById('crmCategoryFilterInput');
+  elements.openCrmCreateModalButton = document.getElementById('openCrmCreateModalButton');
+  elements.crmContactListView = document.getElementById('crmContactListView');
+  elements.crmContactDetailView = document.getElementById('crmContactDetailView');
+  elements.backToCrmListButton = document.getElementById('backToCrmListButton');
+  elements.crmContactDetailInfo = document.getElementById('crmContactDetailInfo');
+  elements.crmContactModal = document.getElementById('crmContactModal');
+  elements.closeCrmContactModalButton = document.getElementById('closeCrmContactModalButton');
   elements.crmContactForm = document.getElementById('crmContactForm');
   elements.crmContactIdInput = document.getElementById('crmContactIdInput');
   elements.crmCategoryInput = document.getElementById('crmCategoryInput');
@@ -875,14 +886,36 @@ function bindEvents() {
   if (elements.crmContactForm) {
     elements.crmContactForm.addEventListener('submit', handleCrmContactSubmit);
   }
+  if (elements.crmSearchInput) {
+    elements.crmSearchInput.addEventListener('input', handleCrmSearchInput);
+  }
+  if (elements.crmCategoryFilterInput) {
+    elements.crmCategoryFilterInput.addEventListener('change', handleCrmCategoryFilterChange);
+  }
+  if (elements.openCrmCreateModalButton) {
+    elements.openCrmCreateModalButton.addEventListener('click', () => openCrmContactModal());
+  }
+  if (elements.backToCrmListButton) {
+    elements.backToCrmListButton.addEventListener('click', closeCrmContactDetail);
+  }
   if (elements.resetCrmContactFormButton) {
     elements.resetCrmContactFormButton.addEventListener('click', resetCrmContactForm);
+  }
+  if (elements.closeCrmContactModalButton) {
+    elements.closeCrmContactModalButton.addEventListener('click', closeCrmContactModal);
   }
   if (elements.crmContactsTableBody) {
     elements.crmContactsTableBody.addEventListener('click', handleCrmContactsTableClick);
   }
   if (elements.crmNoteForm) {
     elements.crmNoteForm.addEventListener('submit', handleCrmNoteSubmit);
+  }
+  if (elements.crmContactModal) {
+    elements.crmContactModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeCrmContactModal === 'true') {
+        closeCrmContactModal();
+      }
+    });
   }
   document.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('focus', handleWindowFocus);
@@ -1472,6 +1505,7 @@ function render() {
   renderSettingsUsersTable();
   renderSettingsHolidaysTable();
   renderCrmContactsTable();
+  renderCrmContactDetail();
   renderCrmNotesPanel();
   renderLoadingOverlay();
 }
@@ -2189,6 +2223,15 @@ function handleAbsencesTableClick(event) {
     handleConfirmHolidayRequest(requestId, 'controll_gl', 'GL');
     return;
   }
+
+  if (trigger.dataset.action === 'reject-absence-request') {
+    handleRejectHolidayRequest(requestId);
+    return;
+  }
+
+  if (trigger.dataset.action === 'download-absence-confirmation') {
+    exportHolidayConfirmationPdf(requestId);
+  }
 }
 
 function handleConfirmationsTableClick(event) {
@@ -2398,6 +2441,7 @@ function resetCrmContactForm() {
   if (elements.crmContactIdInput) {
     elements.crmContactIdInput.value = '';
   }
+  closeCrmContactModal();
 }
 
 async function handleCrmContactSubmit(event) {
@@ -2448,27 +2492,17 @@ async function handleCrmContactsTableClick(event) {
   const contact = state.crmContacts.find((item) => String(item.id) === String(contactId));
   if (!contact) return;
 
-  if (button.dataset.action === 'select-crm-contact') {
+  if (button.dataset.action === 'open-crm-contact') {
     state.selectedCrmContactId = contact.id;
     renderCrmContactsTable();
+    renderCrmContactDetail();
     renderCrmNotesPanel();
     return;
   }
 
   if (button.dataset.action === 'edit-crm-contact') {
     state.selectedCrmContactId = contact.id;
-    elements.crmContactIdInput.value = contact.id || '';
-    elements.crmCategoryInput.value = contact.category || 'kunde';
-    elements.crmCompanyInput.value = contact.company_name || '';
-    elements.crmFirstNameInput.value = contact.first_name || '';
-    elements.crmLastNameInput.value = contact.last_name || '';
-    elements.crmStreetInput.value = contact.street || '';
-    elements.crmCityInput.value = contact.city || '';
-    elements.crmPostalCodeInput.value = contact.postal_code || '';
-    elements.crmPhoneInput.value = contact.phone || '';
-    elements.crmEmailInput.value = contact.email || '';
-    renderCrmContactsTable();
-    renderCrmNotesPanel();
+    openCrmContactModal(contact);
     return;
   }
 
@@ -2491,6 +2525,16 @@ async function handleCrmContactsTableClick(event) {
       render();
     }
   }
+}
+
+function handleCrmSearchInput(event) {
+  state.crmSearchQuery = String(event.target.value || '').trim().toLowerCase();
+  renderCrmContactsTable();
+}
+
+function handleCrmCategoryFilterChange(event) {
+  state.crmCategoryFilter = String(event.target.value || '').trim().toLowerCase();
+  renderCrmContactsTable();
 }
 
 async function handleCrmNoteSubmit(event) {
@@ -3194,10 +3238,15 @@ function renderControllCell(report) {
 function renderHolidayApprovalCell(request, fieldName, roleLabel) {
   const approvalValue = String(request?.[fieldName] || '').trim();
   if (approvalValue) {
-    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong></div>`;
+    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong>${!isHolidayRequestFullyApproved(request) ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}</div>`;
   }
 
-  return `<button class="button button-small button-success" type="button" data-action="confirm-absence-${escapeAttribute(roleLabel.toLowerCase())}" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Bestätigung ${escapeHtml(roleLabel)}</button>`;
+  return `
+    <div class="status-stack compact">
+      <button class="button button-small button-success" type="button" data-action="confirm-absence-${escapeAttribute(roleLabel.toLowerCase())}" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Bestätigung ${escapeHtml(roleLabel)}</button>
+      <button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>
+    </div>
+  `;
 }
 
 function renderHolidayConfirmationCell(request) {
@@ -3229,30 +3278,29 @@ function renderHistoryActionsCell(entry) {
 
 function renderCrmContactsTable() {
   if (!elements.crmContactsTableBody) return;
-  const rows = [...state.crmContacts].sort((left, right) => `${left.last_name || ''} ${left.first_name || ''}`.localeCompare(`${right.last_name || ''} ${right.first_name || ''}`, 'de'));
+  if (elements.crmSearchInput) {
+    elements.crmSearchInput.value = state.crmSearchQuery;
+  }
+  if (elements.crmCategoryFilterInput) {
+    elements.crmCategoryFilterInput.value = state.crmCategoryFilter;
+  }
+  const rows = getFilteredCrmContacts().sort((left, right) => `${left.last_name || ''} ${left.first_name || ''}`.localeCompare(`${right.last_name || ''} ${right.first_name || ''}`, 'de'));
   if (!rows.length) {
-    elements.crmContactsTableBody.innerHTML = '<tr><td colspan="11">Noch keine Kontakte erfasst.</td></tr>';
+    elements.crmContactsTableBody.innerHTML = '<tr><td colspan="6">Keine Kontakte für den gewählten Filter gefunden.</td></tr>';
     return;
   }
 
   elements.crmContactsTableBody.innerHTML = rows.map((contact) => {
-    const categoryLabel = CRM_CATEGORY_LABELS[contact.category] || contact.category || '—';
     const isSelected = String(contact.id) === String(state.selectedCrmContactId);
-    const latestNote = state.crmNotes.find((note) => String(note.target_uid) === String(contact.id));
     return `<tr class="${isSelected ? 'row-selected' : ''}">
-      <td>${escapeHtml(categoryLabel)}</td>
       <td>${escapeHtml(contact.company_name || '—')}</td>
       <td>${escapeHtml(contact.first_name || '')}</td>
       <td>${escapeHtml(contact.last_name || '')}</td>
-      <td>${escapeHtml(contact.street || '—')}</td>
-      <td>${escapeHtml(contact.city || '—')}</td>
-      <td>${escapeHtml(contact.postal_code || '—')}</td>
       <td>${escapeHtml(contact.phone || '—')}</td>
       <td>${escapeHtml(contact.email || '—')}</td>
-      <td>${escapeHtml((latestNote?.note_text || '').slice(0, 80) || '—')}</td>
       <td>
         <div class="table-row-actions">
-          <button class="button button-small button-secondary" type="button" data-action="select-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Öffnen</button>
+          <button class="button button-small button-secondary" type="button" data-action="open-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Öffnen</button>
           <button class="button button-small button-secondary" type="button" data-action="edit-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Bearbeiten</button>
           <button class="button button-small button-danger" type="button" data-action="delete-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Löschen</button>
         </div>
@@ -3291,6 +3339,88 @@ function renderCrmNotesPanel() {
       </div>
     </li>
   `).join('');
+}
+
+function renderCrmContactDetail() {
+  if (!elements.crmContactListView || !elements.crmContactDetailView || !elements.crmContactDetailInfo) return;
+  const selectedContact = state.crmContacts.find((entry) => String(entry.id) === String(state.selectedCrmContactId));
+  const hasSelection = Boolean(selectedContact);
+  elements.crmContactListView.classList.toggle('hidden', hasSelection);
+  elements.crmContactDetailView.classList.toggle('hidden', !hasSelection);
+  if (!selectedContact) {
+    elements.crmContactDetailInfo.innerHTML = '';
+    return;
+  }
+
+  const categoryLabel = CRM_CATEGORY_LABELS[selectedContact.category] || selectedContact.category || '—';
+  elements.crmContactDetailInfo.innerHTML = `
+    <dl>
+      <dt>Kategorie</dt><dd>${escapeHtml(categoryLabel)}</dd>
+      <dt>Firma</dt><dd>${escapeHtml(selectedContact.company_name || '—')}</dd>
+      <dt>Vorname</dt><dd>${escapeHtml(selectedContact.first_name || '—')}</dd>
+      <dt>Nachname</dt><dd>${escapeHtml(selectedContact.last_name || '—')}</dd>
+      <dt>Strasse</dt><dd>${escapeHtml(selectedContact.street || '—')}</dd>
+      <dt>Ort</dt><dd>${escapeHtml(selectedContact.city || '—')}</dd>
+      <dt>PLZ</dt><dd>${escapeHtml(selectedContact.postal_code || '—')}</dd>
+      <dt>Telefon</dt><dd>${escapeHtml(selectedContact.phone || '—')}</dd>
+      <dt>E-Mail</dt><dd>${escapeHtml(selectedContact.email || '—')}</dd>
+    </dl>
+  `;
+}
+
+function openCrmContactModal(contact = null) {
+  if (!elements.crmContactModal) return;
+  elements.crmContactModal.classList.remove('hidden');
+  if (!contact) {
+    if (elements.crmContactForm) {
+      elements.crmContactForm.reset();
+    }
+    if (elements.crmContactIdInput) {
+      elements.crmContactIdInput.value = '';
+    }
+    return;
+  }
+
+  elements.crmContactIdInput.value = contact.id || '';
+  elements.crmCategoryInput.value = contact.category || 'kunde';
+  elements.crmCompanyInput.value = contact.company_name || '';
+  elements.crmFirstNameInput.value = contact.first_name || '';
+  elements.crmLastNameInput.value = contact.last_name || '';
+  elements.crmStreetInput.value = contact.street || '';
+  elements.crmCityInput.value = contact.city || '';
+  elements.crmPostalCodeInput.value = contact.postal_code || '';
+  elements.crmPhoneInput.value = contact.phone || '';
+  elements.crmEmailInput.value = contact.email || '';
+}
+
+function closeCrmContactModal() {
+  if (!elements.crmContactModal) return;
+  elements.crmContactModal.classList.add('hidden');
+}
+
+function closeCrmContactDetail() {
+  state.selectedCrmContactId = null;
+  renderCrmContactsTable();
+  renderCrmContactDetail();
+  renderCrmNotesPanel();
+}
+
+function getFilteredCrmContacts() {
+  return state.crmContacts.filter((contact) => {
+    const category = String(contact.category || '').trim().toLowerCase();
+    if (state.crmCategoryFilter && category !== state.crmCategoryFilter) {
+      return false;
+    }
+    if (!state.crmSearchQuery) {
+      return true;
+    }
+    const haystack = [
+      contact.company_name || '',
+      contact.first_name || '',
+      contact.last_name || '',
+    ].join(' ').toLowerCase();
+    return haystack.includes(state.crmSearchQuery);
+  });
 }
 
 function renderSettingsUsersTable() {
