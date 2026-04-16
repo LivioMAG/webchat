@@ -30,6 +30,8 @@ create table if not exists public.app_profiles (
   credited_hours numeric(10,2) not null default 0,
   weekly_hours numeric(10,2) not null default 40,
   target_revenue numeric(12,2) not null default 0,
+  school_day_1 smallint,
+  school_day_2 smallint,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -104,6 +106,15 @@ create table if not exists public.platform_holidays (
   created_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.school_vacations (
+  id uuid primary key default gen_random_uuid(),
+  start_date date not null,
+  end_date date not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint school_vacations_range_check check (end_date >= start_date)
+);
+
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
 
@@ -130,6 +141,12 @@ add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.app_profiles
 add column if not exists target_revenue numeric(12,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists school_day_1 smallint;
+
+alter table public.app_profiles
+add column if not exists school_day_2 smallint;
 
 alter table public.weekly_reports
 add column if not exists controll text;
@@ -319,6 +336,7 @@ create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   commission_number text not null,
   name text not null,
+  allow_expenses boolean not null default true,
   project_lead_profile_id uuid references public.app_profiles(id) on delete set null,
   construction_lead_profile_id uuid references public.app_profiles(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
@@ -365,6 +383,9 @@ add column if not exists project_lead_profile_id uuid references public.app_prof
 alter table public.projects
 add column if not exists construction_lead_profile_id uuid references public.app_profiles(id) on delete set null;
 
+alter table public.projects
+add column if not exists allow_expenses boolean not null default true;
+
 create unique index if not exists projects_commission_number_idx
 on public.projects (commission_number);
 
@@ -379,6 +400,7 @@ for each row execute function public.set_updated_at();
 alter table public.projects enable row level security;
 alter table public.crm_contacts enable row level security;
 alter table public.notes enable row level security;
+alter table public.school_vacations enable row level security;
 
 drop policy if exists "projects own or admin" on public.projects;
 create policy "projects own or admin"
@@ -399,6 +421,14 @@ with check (public.is_admin_user());
 drop policy if exists "notes admin access" on public.notes;
 create policy "notes admin access"
 on public.notes
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "school_vacations admin access" on public.school_vacations;
+create policy "school_vacations admin access"
+on public.school_vacations
 for all
 to authenticated
 using (public.is_admin_user())
@@ -503,6 +533,12 @@ execute function public.set_updated_at();
 drop trigger if exists set_updated_at_crm_contacts on public.crm_contacts;
 create trigger set_updated_at_crm_contacts
 before update on public.crm_contacts
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_school_vacations on public.school_vacations;
+create trigger set_updated_at_school_vacations
+before update on public.school_vacations
 for each row
 execute function public.set_updated_at();
 

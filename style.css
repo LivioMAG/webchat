@@ -1027,6 +1027,19 @@ tbody tr:hover {
   grid-column: 1 / -1;
 }
 
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 30px;
+}
+
+.checkbox-label input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
 .dispo-table td {
   min-width: 140px;
   vertical-align: top;

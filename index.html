@@ -331,6 +331,10 @@
                     <span>Bauleiter *</span>
                     <select id="constructionLeadSelect" required></select>
                   </label>
+                  <label class="checkbox-label">
+                    <input id="projectExpensesAllowedInput" type="checkbox" checked />
+                    <span>Spesen auf Projekt erlaubt</span>
+                  </label>
                 </div>
                 <div class="report-filter-actions">
                   <button id="saveProjectButton" class="button button-primary" type="submit">Projekt speichern</button>
@@ -356,6 +360,7 @@
                       <th>PL User-ID</th>
                       <th>Bauleiter</th>
                       <th>BL User-ID</th>
+                      <th>Spesen</th>
                       <th>Aktionen</th>
                     </tr>
                   </thead>
@@ -498,6 +503,7 @@
                           <th>Name</th>
                           <th>E-Mail</th>
                           <th>Rolle</th>
+                          <th>Schultage</th>
                           <th>Sollerlös (CHF)</th>
                           <th>Status</th>
                           <th>Aktion</th>
@@ -535,6 +541,36 @@
                         </tr>
                       </thead>
                       <tbody id="settingsHolidaysTableBody"></tbody>
+                    </table>
+                  </div>
+                </article>
+
+                <article class="mini-card settings-card">
+                  <h4>Ferienzeit (Berufsschule pausieren)</h4>
+                  <p class="subtle-text">
+                    In diesen Zeitfenstern werden keine automatischen Berufsschultage eingetragen.
+                  </p>
+                  <form id="schoolVacationForm" class="settings-form">
+                    <label>
+                      <span>Von</span>
+                      <input id="schoolVacationStartInput" type="date" required />
+                    </label>
+                    <label>
+                      <span>Bis</span>
+                      <input id="schoolVacationEndInput" type="date" required />
+                    </label>
+                    <button id="saveSchoolVacationButton" class="button button-primary" type="submit">Ferienzeit hinzufügen</button>
+                  </form>
+                  <div class="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Von</th>
+                          <th>Bis</th>
+                          <th>Aktion</th>
+                        </tr>
+                      </thead>
+                      <tbody id="settingsSchoolVacationsTableBody"></tbody>
                     </table>
                   </div>
                 </article>
