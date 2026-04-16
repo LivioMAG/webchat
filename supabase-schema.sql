@@ -82,6 +82,19 @@ create table if not exists public.request_history (
   context text not null
 );
 
+create table if not exists public.daily_assignments (
+  id uuid primary key default gen_random_uuid(),
+  profile_id uuid not null references public.app_profiles(id) on delete cascade,
+  assignment_date date not null,
+  project_id uuid references public.projects(id) on delete set null,
+  label text not null,
+  source text not null default 'manual',
+  assignment_type text not null default 'daily',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint daily_assignments_unique_profile_day unique (profile_id, assignment_date)
+);
+
 create table if not exists public.platform_holidays (
   id uuid primary key default gen_random_uuid(),
   holiday_date date not null unique,
@@ -444,6 +457,7 @@ create index if not exists weekly_reports_profile_work_date_idx on public.weekly
 create index if not exists weekly_reports_year_kw_idx on public.weekly_reports (year, kw);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
 create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
+create index if not exists daily_assignments_profile_date_idx on public.daily_assignments (profile_id, assignment_date);
 create index if not exists crm_contacts_last_name_idx on public.crm_contacts (last_name, first_name);
 create index if not exists crm_notes_target_uid_created_at_idx on public.crm_notes (target_uid, created_at desc);
 
@@ -465,6 +479,12 @@ before update on public.holiday_requests
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists set_updated_at_daily_assignments on public.daily_assignments;
+create trigger set_updated_at_daily_assignments
+before update on public.daily_assignments
+for each row
+execute function public.set_updated_at();
+
 drop trigger if exists set_updated_at_crm_contacts on public.crm_contacts;
 create trigger set_updated_at_crm_contacts
 before update on public.crm_contacts
@@ -474,6 +494,7 @@ execute function public.set_updated_at();
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
+alter table public.daily_assignments enable row level security;
 
 -- Vollzugriff nur für Profile mit is_admin = true.
 drop policy if exists "app_profiles own or master" on public.app_profiles;
@@ -492,6 +513,7 @@ drop policy if exists "app_profiles update own or admin" on public.app_profiles;
 drop policy if exists "app_profiles delete own or admin" on public.app_profiles;
 drop policy if exists "weekly_reports own or admin" on public.weekly_reports;
 drop policy if exists "holiday_requests own or admin" on public.holiday_requests;
+drop policy if exists "daily_assignments own or admin" on public.daily_assignments;
 
 create policy "app_profiles own or admin"
 on public.app_profiles
@@ -522,6 +544,12 @@ with check (public.is_admin_user() or auth.uid() = profile_id);
 
 create policy "holiday_requests own or admin"
 on public.holiday_requests
+for all
+using (public.is_admin_user() or auth.uid() = profile_id)
+with check (public.is_admin_user() or auth.uid() = profile_id);
+
+create policy "daily_assignments own or admin"
+on public.daily_assignments
 for all
 using (public.is_admin_user() or auth.uid() = profile_id)
 with check (public.is_admin_user() or auth.uid() = profile_id);
