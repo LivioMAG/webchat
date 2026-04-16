@@ -1213,18 +1213,6 @@ async function loadData() {
       .from(HOLIDAY_TABLE)
       .select('*')
       .order('holiday_date', { ascending: true });
-    const weekRange = getWeekRange(state.selectedWeek);
-    const roleAssignmentsQuery = state.supabase
-      .from('project_assignments')
-      .select('*')
-      .eq('assignment_type', 'role');
-    const dailyAssignmentsQuery = state.supabase
-      .from('project_assignments')
-      .select('*')
-      .eq('assignment_type', 'daily')
-      .gte('assignment_date', weekRange.start)
-      .lte('assignment_date', weekRange.end);
-
     const [
       { data: reports, error: reportsError },
       { data: profiles, error: profilesError },
@@ -1232,8 +1220,6 @@ async function loadData() {
       { data: requestHistory, error: requestHistoryError },
       { data: projects, error: projectsError },
       { data: platformHolidays, error: platformHolidaysError },
-      { data: roleAssignments, error: roleAssignmentsError },
-      { data: dailyAssignments, error: dailyAssignmentsError },
     ] = await Promise.all([
       reportsQuery,
       profilesQuery,
@@ -1241,8 +1227,6 @@ async function loadData() {
       requestHistoryQuery,
       projectsQuery,
       platformHolidaysQuery,
-      roleAssignmentsQuery,
-      dailyAssignmentsQuery,
     ]);
 
     if (reportsError) throw reportsError;
@@ -1251,8 +1235,6 @@ async function loadData() {
     if (requestHistoryError) throw requestHistoryError;
     if (projectsError) throw projectsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
-    if (roleAssignmentsError) throw roleAssignmentsError;
-    if (dailyAssignmentsError) throw dailyAssignmentsError;
     if (!isActiveDataLoad(requestId)) {
       return;
     }
@@ -1263,8 +1245,8 @@ async function loadData() {
     state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
     state.platformHolidays = platformHolidays ?? [];
-    state.roleAssignments = roleAssignments ?? [];
-    state.dailyAssignments = dailyAssignments ?? [];
+    state.roleAssignments = [];
+    state.dailyAssignments = [];
     syncEmployeeSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
@@ -3264,16 +3246,9 @@ function getFilteredProjects() {
 
 function getProjectRoleAssignments(projectId) {
   const project = state.projects.find((item) => item.id === projectId);
-  if (project?.project_lead_profile_id || project?.construction_lead_profile_id) {
-    return {
-      projectLeadId: project.project_lead_profile_id || '',
-      constructionLeadId: project.construction_lead_profile_id || '',
-    };
-  }
-  const rows = state.roleAssignments.filter((item) => item.project_id === projectId);
   return {
-    projectLeadId: rows.find((item) => item.role === 'project_lead')?.profile_id || '',
-    constructionLeadId: rows.find((item) => item.role === 'construction_lead')?.profile_id || '',
+    projectLeadId: project?.project_lead_profile_id || '',
+    constructionLeadId: project?.construction_lead_profile_id || '',
   };
 }
 
@@ -3421,75 +3396,22 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
   const mergedItems = [...baseItems, ...items].filter((item) => item?.label);
   if (!mergedItems.length) {
-    if (existingEntry?.id) {
-      const { error: deleteError } = await state.supabase.from('project_assignments').delete().eq('id', existingEntry.id);
-      if (deleteError && !silent) showInlineAlert(elements.dispoAlert, deleteError.message, true);
-      if (!deleteError) {
-        removeLocalDailyAssignment(profileId, date);
-        if (!silent || !suppressReload) renderDispoPlanner();
-      }
-    }
-    if (!suppressReload) await loadData();
+    removeLocalDailyAssignment(profileId, date);
+    if (!silent || !suppressReload) renderDispoPlanner();
     return { saved: true, error: null };
   }
-  const payload = {
+  const entry = {
+    id: existingEntry?.id || `local-${profileId}-${date}`,
     profile_id: profileId,
     assignment_date: date,
     project_id: null,
     label: serializeDispoItems(mergedItems),
     source,
     assignment_type: 'daily',
-    role: 'daily_assignment',
   };
-  let data = null;
-  let error = null;
-  const upsertResult = await state.supabase
-    .from('project_assignments')
-    .upsert(payload, { onConflict: 'profile_id,assignment_date,assignment_type' })
-    .select('*')
-    .single();
-  data = upsertResult.data;
-  error = upsertResult.error;
-  if (error?.message?.includes('no unique or exclusion constraint matching the ON CONFLICT specification')) {
-    let fallbackEntryId = existingEntry?.id || null;
-    if (!fallbackEntryId) {
-      const lookupResult = await state.supabase
-        .from('project_assignments')
-        .select('id')
-        .eq('profile_id', profileId)
-        .eq('assignment_date', date)
-        .eq('assignment_type', 'daily')
-        .limit(1)
-        .maybeSingle();
-      if (!lookupResult.error) fallbackEntryId = lookupResult.data?.id || null;
-    }
-    if (fallbackEntryId) {
-      const updateResult = await state.supabase
-        .from('project_assignments')
-        .update(payload)
-        .eq('id', fallbackEntryId)
-        .select('*')
-        .single();
-      data = updateResult.data;
-      error = updateResult.error;
-    } else {
-      const insertResult = await state.supabase
-        .from('project_assignments')
-        .insert(payload)
-        .select('*')
-        .single();
-      data = insertResult.data;
-      error = insertResult.error;
-    }
-  }
-  if (error) {
-    if (!silent) showInlineAlert(elements.dispoAlert, error.message, true);
-    return { saved: false, error: error.message };
-  }
-  upsertLocalDailyAssignment(data);
+  upsertLocalDailyAssignment(entry);
   if (!silent || !suppressReload) renderDispoPlanner();
   if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
-  if (!suppressReload) await loadData();
   return { saved: true, error: null };
 }
 
