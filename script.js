@@ -18,13 +18,36 @@ const HOLIDAY_TYPE_LABELS = {
   krankheit: 'Krankheit',
   feiertag: 'Feiertag',
 };
+const ABSENCE_TYPE_CODE_LABELS = {
+  1: 'Ferien',
+  2: 'Krankheit',
+  3: 'Militär',
+  4: 'Unfall',
+  5: 'Feiertag',
+  6: 'ÜK',
+  7: 'Berufsschule',
+};
+const HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE = {
+  ferien: 1,
+  fehlen: 1,
+  krankheit: 2,
+  militaer: 3,
+  militar: 3,
+  zivildienst: 3,
+  unfall: 4,
+  feiertag: 5,
+  uk: 6,
+  'ük': 6,
+  berufsschule: 7,
+};
 const ABSENCE_CATEGORY_CONFIG = [
-  { key: 'unfall', label: 'Unfall', terms: ['unfall'] },
-  { key: 'militaer', label: 'Militär', terms: ['militaer', 'militär', 'zivildienst'] },
-  { key: 'ferien', label: 'Ferien', terms: ['ferien', 'fehlen'] },
-  { key: 'krankheit', label: 'Krankheit', terms: ['krankheit'] },
-  { key: 'feiertag', label: 'Feiertag', terms: ['feiertag'] },
-  { key: 'berufsschule', label: 'Berufsschule', terms: ['berufsschule', 'uk', 'ük'] },
+  { typeCode: 1, label: 'Ferien' },
+  { typeCode: 2, label: 'Krankheit' },
+  { typeCode: 3, label: 'Militär' },
+  { typeCode: 4, label: 'Unfall' },
+  { typeCode: 5, label: 'Feiertag' },
+  { typeCode: 6, label: 'ÜK' },
+  { typeCode: 7, label: 'Berufsschule' },
 ];
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
@@ -64,6 +87,9 @@ add column if not exists year integer;
 
 alter table public.weekly_reports
 add column if not exists kw integer;
+
+alter table public.weekly_reports
+add column if not exists abz_typ integer not null default 0;
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
@@ -156,6 +182,7 @@ begin
       kw,
       project_name,
       commission_number,
+      abz_typ,
       start_time,
       end_time,
       lunch_break_minutes,
@@ -176,6 +203,19 @@ begin
       extract(week from work_day)::integer,
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      case lower(coalesce(updated_request.request_type, ''))
+        when 'ferien' then 1
+        when 'fehlen' then 1
+        when 'krankheit' then 2
+        when 'militaer' then 3
+        when 'zivildienst' then 3
+        when 'unfall' then 4
+        when 'feiertag' then 5
+        when 'uk' then 6
+        when 'ük' then 6
+        when 'berufsschule' then 7
+        else 0
+      end,
       '07:00'::time,
       '16:30'::time,
       60,
@@ -1518,7 +1558,7 @@ function renderAbsenceTable() {
       return `
         <tr>
           <td>${escapeHtml(profile?.full_name ?? 'Unbekannt')}</td>
-          <td>${escapeHtml(HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type)}</td>
+          <td>${escapeHtml(getAbsenceTypeLabel(request, request.request_type))}</td>
           <td>${formatDate(request.start_date)}</td>
           <td>${formatDate(request.end_date)}</td>
           <td>${escapeHtml(request.notes || '–')}</td>
@@ -2531,7 +2571,7 @@ function buildHolidayRequestArchiveSummary(request) {
   }
 
   const parts = [
-    HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type ?? 'Absenzantrag',
+    getAbsenceTypeLabel(request, request.request_type ?? 'Absenzantrag'),
     request.start_date && request.end_date ? `${formatDate(request.start_date)} bis ${formatDate(request.end_date)}` : '',
     String(request.notes || '').trim(),
   ].filter(Boolean);
@@ -3544,7 +3584,7 @@ function drawHolidayConfirmationPage(pdf, { request, profile }) {
   const margin = 18;
   const contentWidth = pageWidth - margin * 2;
   const approvalDate = new Date().toLocaleDateString('de-CH');
-  const typeLabel = HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type;
+  const typeLabel = getAbsenceTypeLabel(request, request.request_type);
   const detailRows = [
     ['Mitarbeiter', profile?.full_name || 'Unbekannt'],
     ['Typ', typeLabel],
@@ -3657,7 +3697,7 @@ function drawHolidayAttachmentListPage(pdf, { attachments, request, profile }) {
   pdf.text('Anhangsverzeichnis', 15, 18);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(10);
-  pdf.text(`${profile?.full_name || 'Unbekannt'} · ${HOLIDAY_TYPE_LABELS[request.request_type] ?? request.request_type}`, 15, 25);
+  pdf.text(`${profile?.full_name || 'Unbekannt'} · ${getAbsenceTypeLabel(request, request.request_type)}`, 15, 25);
 
   const body = attachments.map((attachment) => [
     attachment.name || 'Anhang',
@@ -3692,7 +3732,7 @@ function buildHolidayConfirmationFileName(request, profile) {
 
 function buildWeeklyReportLayout(reports) {
   const regularRows = buildWeeklyMatrixRows(
-    reports.filter((report) => !getAbsenceCategory(report.project_name || report.commission_number)),
+    reports.filter((report) => !isAbsenceReport(report)),
   );
   const absenceRows = buildAbsenceMatrixRows(reports);
   const notes = buildWeeklyRemarkLines(reports);
@@ -3991,6 +4031,7 @@ function buildWeeklyMatrixRows(reports) {
 
 function buildAbsenceMatrixRows(reports) {
   const rows = ABSENCE_CATEGORY_CONFIG.map((category) => ({
+    typeCode: category.typeCode,
     label: category.label,
     days: Array(6).fill(0),
     totalMinutes: 0,
@@ -3998,13 +4039,12 @@ function buildAbsenceMatrixRows(reports) {
   }));
 
   reports.forEach((report) => {
-    const absenceSource = report.project_name || report.commission_number;
-    const absenceCategory = getAbsenceCategory(absenceSource);
-    if (!absenceCategory) {
+    const absenceTypeCode = getAbsenceTypeCode(report);
+    if (!absenceTypeCode) {
       return;
     }
 
-    const row = rows.find((item) => item.label === absenceCategory.label);
+    const row = rows.find((item) => item.typeCode === absenceTypeCode);
     const dayIndex = getWeekdayIndex(report.work_date);
     if (!row || dayIndex < 0 || dayIndex > 5) {
       return;
@@ -4056,7 +4096,8 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
     return;
   }
 
-  const requestTypeLabel = HOLIDAY_TYPE_LABELS[request.request_type] ?? String(request.request_type || 'Absenz');
+  const requestTypeLabel = getAbsenceTypeLabel(request, String(request.request_type || 'Absenz'));
+  const requestTypeCode = getAbsenceTypeCode(request);
   const days = [];
   const cursor = new Date(`${request.start_date}T00:00:00Z`);
   const endDate = new Date(`${request.end_date}T00:00:00Z`);
@@ -4082,7 +4123,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
       if (existingDates.has(workDate)) {
         return;
       }
-      demoWeeklyReports.push(buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel));
+      demoWeeklyReports.push(buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode));
     });
     return;
   }
@@ -4098,7 +4139,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
   const existingDates = new Set((existingReports ?? []).map((report) => report.work_date));
   const rowsToInsert = days
     .filter((workDate) => !existingDates.has(workDate))
-    .map((workDate) => buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel));
+    .map((workDate) => buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode));
   if (!rowsToInsert.length) {
     return;
   }
@@ -4108,7 +4149,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
   }
 }
 
-function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
+function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode) {
   const adjustedMinutesField = getAdjustedMinutesFieldName();
   const isoWeek = getIsoYearAndWeekFromDateString(workDate);
   return {
@@ -4119,6 +4160,7 @@ function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel) {
     kw: isoWeek.kw,
     project_name: requestTypeLabel,
     commission_number: requestTypeLabel,
+    abz_typ: Number.isInteger(requestTypeCode) ? requestTypeCode : 0,
     start_time: '07:00',
     end_time: '16:30',
     lunch_break_minutes: 60,
@@ -4200,25 +4242,50 @@ function getNightShiftOverlap(startTime, endTime) {
 
 function buildEmptyAbsenceRows() {
   return [
-    { label: 'Unfall', days: Array(6).fill(''), total: '', notes: '' },
-    { label: 'Militär', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Ferien', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Krankheit', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Militär', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Unfall', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Feiertag', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'ÜK', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Berufsschule', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Total Absenzen', days: Array(6).fill(''), total: '', notes: '' },
   ];
 }
 
-function getAbsenceCategory(commissionNumber) {
-  const normalizedCommission = normalizeSearchValue(commissionNumber);
-  if (!normalizedCommission) {
-    return null;
+function isAbsenceReport(report) {
+  return getAbsenceTypeCode(report) > 0;
+}
+
+function getAbsenceTypeCode(source) {
+  const explicitFieldCandidates = ['abz_typ', 'abts_type', 'abts_underscore_type', 'absence_type'];
+  for (const fieldName of explicitFieldCandidates) {
+    const value = Number(source?.[fieldName]);
+    if (Number.isInteger(value) && value >= 0) {
+      return value;
+    }
   }
 
-  return ABSENCE_CATEGORY_CONFIG.find((category) =>
-    category.terms.some((term) => normalizedCommission.includes(normalizeSearchValue(term)))
-  ) ?? null;
+  const normalizedRequestType = normalizeSearchValue(source?.request_type);
+  if (normalizedRequestType && Object.prototype.hasOwnProperty.call(HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE, normalizedRequestType)) {
+    return HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE[normalizedRequestType];
+  }
+
+  return 0;
+}
+
+function getAbsenceTypeLabel(source, fallbackLabel = '') {
+  const typeCode = getAbsenceTypeCode(source);
+  if (typeCode > 0 && ABSENCE_TYPE_CODE_LABELS[typeCode]) {
+    return ABSENCE_TYPE_CODE_LABELS[typeCode];
+  }
+
+  const requestType = normalizeSearchValue(source?.request_type);
+  if (requestType && HOLIDAY_TYPE_LABELS[requestType]) {
+    return HOLIDAY_TYPE_LABELS[requestType];
+  }
+
+  return String(fallbackLabel || source?.request_type || 'Absenz').trim() || 'Absenz';
 }
 
 function normalizeSearchValue(value) {
