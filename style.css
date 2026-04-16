@@ -809,6 +809,13 @@ tbody tr:hover {
   width: auto;
 }
 
+.checkbox-inline.with-icon {
+  padding: 8px 10px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+}
+
 .table-row-actions input[type='number'] {
   width: 120px;
   padding: 8px 10px;
@@ -1014,7 +1021,6 @@ tbody tr:hover {
 .projects-form {
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .projects-form-grid {
@@ -1031,7 +1037,7 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 30px;
+  margin-top: 10px;
 }
 
 .checkbox-label input[type='checkbox'] {
@@ -1043,6 +1049,14 @@ tbody tr:hover {
 .dispo-table td {
   min-width: 140px;
   vertical-align: top;
+}
+
+.project-row-clickable {
+  cursor: pointer;
+}
+
+.project-row-clickable:hover {
+  background: rgba(215, 0, 21, 0.05);
 }
 
 .dispo-table th,
