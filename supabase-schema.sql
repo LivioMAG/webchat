@@ -409,20 +409,23 @@ create index if not exists weekly_reports_year_kw_idx on public.weekly_reports (
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
 create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
 
+drop trigger if exists set_updated_at_app_profiles on public.app_profiles;
 create trigger set_updated_at_app_profiles
 before update on public.app_profiles
 for each row
-execute procedure public.set_updated_at();
+execute function public.set_updated_at();
 
+drop trigger if exists set_updated_at_weekly_reports on public.weekly_reports;
 create trigger set_updated_at_weekly_reports
 before update on public.weekly_reports
 for each row
-execute procedure public.set_updated_at();
+execute function public.set_updated_at();
 
+drop trigger if exists set_updated_at_holiday_requests on public.holiday_requests;
 create trigger set_updated_at_holiday_requests
 before update on public.holiday_requests
 for each row
-execute procedure public.set_updated_at();
+execute function public.set_updated_at();
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
