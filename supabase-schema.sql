@@ -310,6 +310,28 @@ create table if not exists public.projects (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.crm_contacts (
+  id uuid primary key default gen_random_uuid(),
+  category text not null check (category in ('kunde', 'lieferant', 'elektroplaner', 'subunternehmer', 'unternehmer')),
+  company_name text,
+  first_name text not null,
+  last_name text not null,
+  street text,
+  city text,
+  postal_code text,
+  phone text,
+  email text,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.crm_notes (
+  id uuid primary key default gen_random_uuid(),
+  target_uid uuid not null,
+  note_text text not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 alter table public.projects
 add column if not exists project_lead_profile_id uuid references public.app_profiles(id) on delete set null;
 
@@ -327,10 +349,28 @@ before update on public.projects
 for each row execute function public.set_updated_at();
 
 alter table public.projects enable row level security;
+alter table public.crm_contacts enable row level security;
+alter table public.crm_notes enable row level security;
 
 drop policy if exists "projects own or admin" on public.projects;
 create policy "projects own or admin"
 on public.projects
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "crm_contacts admin access" on public.crm_contacts;
+create policy "crm_contacts admin access"
+on public.crm_contacts
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "crm_notes admin access" on public.crm_notes;
+create policy "crm_notes admin access"
+on public.crm_notes
 for all
 to authenticated
 using (public.is_admin_user())
@@ -404,6 +444,8 @@ create index if not exists weekly_reports_profile_work_date_idx on public.weekly
 create index if not exists weekly_reports_year_kw_idx on public.weekly_reports (year, kw);
 create index if not exists holiday_requests_profile_dates_idx on public.holiday_requests (profile_id, start_date, end_date);
 create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
+create index if not exists crm_contacts_last_name_idx on public.crm_contacts (last_name, first_name);
+create index if not exists crm_notes_target_uid_created_at_idx on public.crm_notes (target_uid, created_at desc);
 
 drop trigger if exists set_updated_at_app_profiles on public.app_profiles;
 create trigger set_updated_at_app_profiles
@@ -420,6 +462,12 @@ execute function public.set_updated_at();
 drop trigger if exists set_updated_at_holiday_requests on public.holiday_requests;
 create trigger set_updated_at_holiday_requests
 before update on public.holiday_requests
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_crm_contacts on public.crm_contacts;
+create trigger set_updated_at_crm_contacts
+before update on public.crm_contacts
 for each row
 execute function public.set_updated_at();
 

@@ -72,9 +72,9 @@
               <span class="nav-tab-icon" aria-hidden="true">🗓️</span>
               <span class="visually-hidden">Dispo</span>
             </button>
-            <button class="nav-tab" data-page="security" type="button" title="Admin-Zugriff" aria-label="Admin-Zugriff">
-              <span class="nav-tab-icon" aria-hidden="true">🔒</span>
-              <span class="visually-hidden">Admin-Zugriff</span>
+            <button class="nav-tab" data-page="crm" type="button" title="CRM" aria-label="CRM">
+              <span class="nav-tab-icon" aria-hidden="true">🧾</span>
+              <span class="visually-hidden">CRM</span>
             </button>
             <button class="nav-tab" data-page="settings" type="button" title="Einstellungen" aria-label="Einstellungen">
               <span class="nav-tab-icon" aria-hidden="true">⚙️</span>
@@ -397,55 +397,110 @@
             </div>
           </section>
 
-          <section id="securityPage" class="page hidden">
-            <div class="panel prose-panel">
+          <section id="crmPage" class="page hidden">
+            <div class="panel table-panel">
               <div class="section-heading">
                 <div>
-                  <h3>Admin-Zugriff &amp; Supabase-Regeln</h3>
+                  <h3>CRM Kontakte</h3>
                   <p>
-                    Die folgenden Hinweise und SQL-Blöcke koppeln den Vollzugriff an
-                    <code>app_profiles.is_admin = true</code>.
+                    Kontakte zentral erfassen, kategorisieren und mit Notizen pro Datensatz
+                    dokumentieren.
                   </p>
                 </div>
               </div>
+              <div id="crmAlert" class="alert hidden"></div>
 
-              <div class="code-block">
-                <pre id="adminSqlPreview"></pre>
+              <form id="crmContactForm" class="settings-form">
+                <input id="crmContactIdInput" type="hidden" />
+                <div class="crm-form-grid">
+                  <label>
+                    <span>Kategorie</span>
+                    <select id="crmCategoryInput" required>
+                      <option value="kunde">Kunde</option>
+                      <option value="lieferant">Lieferant</option>
+                      <option value="elektroplaner">Elektroplaner</option>
+                      <option value="subunternehmer">Subunternehmer</option>
+                      <option value="unternehmer">Unternehmer</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Firma (optional)</span>
+                    <input id="crmCompanyInput" type="text" maxlength="180" placeholder="Muster AG" />
+                  </label>
+                  <label>
+                    <span>Vorname</span>
+                    <input id="crmFirstNameInput" type="text" maxlength="120" required />
+                  </label>
+                  <label>
+                    <span>Nachname</span>
+                    <input id="crmLastNameInput" type="text" maxlength="120" required />
+                  </label>
+                  <label>
+                    <span>Strasse</span>
+                    <input id="crmStreetInput" type="text" maxlength="180" />
+                  </label>
+                  <label>
+                    <span>Ort</span>
+                    <input id="crmCityInput" type="text" maxlength="120" />
+                  </label>
+                  <label>
+                    <span>Postleitzahl</span>
+                    <input id="crmPostalCodeInput" type="text" maxlength="20" />
+                  </label>
+                  <label>
+                    <span>Telefon</span>
+                    <input id="crmPhoneInput" type="text" maxlength="50" />
+                  </label>
+                  <label>
+                    <span>E-Mail</span>
+                    <input id="crmEmailInput" type="email" maxlength="180" />
+                  </label>
+                </div>
+                <div class="table-row-actions">
+                  <button id="saveCrmContactButton" class="button button-primary" type="submit">Kontakt speichern</button>
+                  <button id="resetCrmContactFormButton" class="button button-secondary" type="button">Zurücksetzen</button>
+                </div>
+              </form>
+
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Kategorie</th>
+                      <th>Firma</th>
+                      <th>Vorname</th>
+                      <th>Nachname</th>
+                      <th>Strasse</th>
+                      <th>Ort</th>
+                      <th>PLZ</th>
+                      <th>Telefon</th>
+                      <th>E-Mail</th>
+                      <th>Notiz</th>
+                      <th>Aktion</th>
+                    </tr>
+                  </thead>
+                  <tbody id="crmContactsTableBody"></tbody>
+                </table>
               </div>
 
-              <div class="security-grid">
-                <article class="mini-card">
-                  <h4>1. Auth</h4>
-                  <p>
-                    Login erfolgt weiterhin normal über Supabase Auth mit E-Mail und Passwort.
-                    Die Visualisierung wird nur angezeigt, wenn das eingeloggte Profil
-                    <code>is_admin = true</code> hat.
-                  </p>
-                </article>
-                <article class="mini-card">
-                  <h4>2. Tabellen</h4>
-                  <p>
-                    Admin-Profile mit <code>is_admin = true</code> erhalten globalen Zugriff auf
-                    <code>app_profiles</code>, <code>weekly_reports</code> und
-                    <code>holiday_requests</code>.
-                  </p>
-                </article>
-                <article class="mini-card">
-                  <h4>3. Storage</h4>
-                  <p>
-                    Im Bucket <code>weekly-attachments</code> dürfen Admin-Profile alle Objekte
-                    lesen und verwalten; normale Benutzer bleiben auf ihren eigenen Ordner
-                    beschränkt.
-                  </p>
-                </article>
-                <article class="mini-card">
-                  <h4>4. Web-Export</h4>
-                  <p>
-                    Der PDF-Export erstellt ein kombiniertes Dokument pro Kalenderwoche und listet
-                    zusätzlich fehlende Rapporte auf.
-                  </p>
-                </article>
-              </div>
+              <article class="mini-card crm-notes-card">
+                <h4>Notizen</h4>
+                <p class="subtle-text">
+                  Für den ausgewählten Kontakt wird immer die neuste Notiz oben angezeigt.
+                  Notizen werden in der separaten Tabelle gespeichert und über die UID des
+                  Haupteintrags verknüpft.
+                </p>
+                <div id="crmNotesHeader" class="subtle-text">Kein Kontakt ausgewählt.</div>
+                <form id="crmNoteForm" class="settings-form">
+                  <input id="crmNoteTargetUidInput" type="hidden" />
+                  <label>
+                    <span>Kommentar</span>
+                    <textarea id="crmNoteTextInput" rows="3" placeholder="Kommentar hinzufügen..." required></textarea>
+                  </label>
+                  <button id="saveCrmNoteButton" class="button button-secondary" type="submit">Notiz speichern</button>
+                </form>
+                <ul id="crmNotesList" class="status-list"></ul>
+              </article>
             </div>
           </section>
 
