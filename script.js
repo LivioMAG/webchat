@@ -611,7 +611,7 @@ const state = {
   isSavingProject: false,
   isSavingDispo: false,
   dispoAssignContext: null,
-  dispoAllowMultiplePerDay: false,
+  dispoAllowMultiplePerDay: true,
   selectedProjectId: null,
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
@@ -1258,7 +1258,7 @@ function resetAppState() {
   state.showControlledAbsences = false;
   state.reportsPage = 1;
   state.selectedProjectId = null;
-  state.dispoAllowMultiplePerDay = false;
+  state.dispoAllowMultiplePerDay = true;
   state.includeConfirmationHistory = false;
   state.isConfirmationsModalOpen = false;
   state.editingReportId = null;
@@ -1990,6 +1990,7 @@ function handleShowControlledAbsencesToggle() {
 
 function handleDispoMultiEntryToggle() {
   state.dispoAllowMultiplePerDay = Boolean(elements.dispoMultiEntryInput?.checked);
+  renderDispoPlanner();
 }
 
 function handleConfirmationHistoryToggle() {
@@ -3907,11 +3908,13 @@ function renderDispoCell(profileId, date) {
   }
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
+  const addButton = `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`;
   if (!items.length) {
-    return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button></div></td>`;
+    return `<td><div class="dispo-plus-cell">${addButton}</div></td>`;
   }
   return `<td><div class="dispo-cell">
     <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
+    ${state.dispoAllowMultiplePerDay ? `<div class="dispo-add-row">${addButton}</div>` : ''}
   </div></td>`;
 }
 
@@ -4142,11 +4145,11 @@ function closeProjectModal() {
 function openProjectDetail(projectId) {
   const project = state.projects.find((item) => String(item.id) === String(projectId));
   if (!project) return;
-  state.selectedProjectId = project.id;
-  if (elements.projectDetailTitle) {
-    elements.projectDetailTitle.textContent = `${project.commission_number || ''} ${project.name || ''}`.trim() || 'Projekt';
-  }
-  setCurrentPage('projectDetail');
+  const detailUrl = new URL('./project-detail.html', window.location.href);
+  detailUrl.searchParams.set('projectId', String(project.id));
+  detailUrl.searchParams.set('commission', project.commission_number || '');
+  detailUrl.searchParams.set('name', project.name || '');
+  window.location.href = detailUrl.toString();
 }
 
 async function handleDispoTableClick(event) {

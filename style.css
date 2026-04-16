@@ -1082,6 +1082,11 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.dispo-add-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .dispo-item-row {
   display: flex;
   align-items: center;
