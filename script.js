@@ -78,6 +78,9 @@ alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.app_profiles
+add column if not exists target_revenue numeric(12,2) not null default 0;
+
+alter table public.app_profiles
 add column if not exists is_active boolean not null default true;
 
 alter table public.weekly_reports
@@ -94,6 +97,12 @@ add column if not exists kw integer;
 
 alter table public.weekly_reports
 add column if not exists abz_typ integer not null default 0;
+
+alter table public.projects
+add column if not exists project_lead_profile_id uuid references public.app_profiles(id) on delete set null;
+
+alter table public.projects
+add column if not exists construction_lead_profile_id uuid references public.app_profiles(id) on delete set null;
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
@@ -391,6 +400,7 @@ const demoProfiles = [
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
+    target_revenue: 0,
   },
   {
     id: '22222222-2222-2222-2222-222222222222',
@@ -405,6 +415,7 @@ const demoProfiles = [
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
+    target_revenue: 0,
   },
   {
     id: '33333333-3333-3333-3333-333333333333',
@@ -419,6 +430,7 @@ const demoProfiles = [
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
+    target_revenue: 0,
   },
   {
     id: '44444444-4444-4444-4444-444444444444',
@@ -427,6 +439,7 @@ const demoProfiles = [
     role_label: 'Monteur',
     is_admin: false,
     is_active: true,
+    target_revenue: 0,
   },
 ];
 
@@ -565,8 +578,8 @@ const state = {
   selectedAbsenceEmployeeIds: [],
   absenceSelectionInitialized: false,
   absenceSelectionTouched: false,
-  confirmationDateFrom: '',
-  confirmationDateTo: '',
+  includeConfirmationHistory: false,
+  isConfirmationsModalOpen: false,
   reportsPage: 1,
   reportsPerPage: 10,
   editingReportId: null,
@@ -656,9 +669,11 @@ function cacheElements() {
   elements.absenceFilterList = document.getElementById('absenceFilterList');
   elements.selectAllAbsenceEmployeesButton = document.getElementById('selectAllAbsenceEmployeesButton');
   elements.clearAbsenceSelectionButton = document.getElementById('clearAbsenceSelectionButton');
-  elements.confirmationDateFromInput = document.getElementById('confirmationDateFromInput');
-  elements.confirmationDateToInput = document.getElementById('confirmationDateToInput');
-  elements.clearConfirmationDateFilterButton = document.getElementById('clearConfirmationDateFilterButton');
+  elements.openConfirmationsModalButton = document.getElementById('openConfirmationsModalButton');
+  elements.confirmationsModal = document.getElementById('confirmationsModal');
+  elements.closeConfirmationsModalButton = document.getElementById('closeConfirmationsModalButton');
+  elements.includeConfirmationHistoryInput = document.getElementById('includeConfirmationHistoryInput');
+  elements.exportConfirmationsPdfButton = document.getElementById('exportConfirmationsPdfButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
   elements.reportsNextPageButton = document.getElementById('reportsNextPageButton');
   elements.reportsPaginationSummary = document.getElementById('reportsPaginationSummary');
@@ -688,7 +703,6 @@ function cacheElements() {
   elements.pages = {
     reports: document.getElementById('reportsPage'),
     absences: document.getElementById('absencesPage'),
-    confirmations: document.getElementById('confirmationsPage'),
     saldo: document.getElementById('saldoPage'),
     projects: document.getElementById('projectsPage'),
     dispo: document.getElementById('dispoPage'),
@@ -760,9 +774,10 @@ function bindEvents() {
   elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
   elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
   elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
-  elements.confirmationDateFromInput.addEventListener('change', handleConfirmationDateFilterChange);
-  elements.confirmationDateToInput.addEventListener('change', handleConfirmationDateFilterChange);
-  elements.clearConfirmationDateFilterButton.addEventListener('click', clearConfirmationDateFilter);
+  elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
+  elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
+  elements.includeConfirmationHistoryInput.addEventListener('change', handleConfirmationHistoryToggle);
+  elements.exportConfirmationsPdfButton.addEventListener('click', exportFilteredConfirmationsPdf);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
   elements.confirmationsTableBody.addEventListener('click', handleConfirmationsTableClick);
@@ -798,6 +813,11 @@ function bindEvents() {
   elements.dispoAssignModal.addEventListener('click', (event) => {
     if (event.target?.dataset?.closeDispoAssignModal === 'true') {
       closeDispoAssignModal();
+    }
+  });
+  elements.confirmationsModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.closeConfirmationsModal === 'true') {
+      closeConfirmationsModal();
     }
   });
   elements.dispoPreviousWeekButton.addEventListener('click', async () => {
@@ -1085,8 +1105,8 @@ function resetAppState() {
   state.employeeSelectionInitialized = false;
   state.employeeSelectionTouched = false;
   state.reportsPage = 1;
-  state.confirmationDateFrom = '';
-  state.confirmationDateTo = '';
+  state.includeConfirmationHistory = false;
+  state.isConfirmationsModalOpen = false;
   state.editingReportId = null;
   state.isSavingReport = false;
   state.isSavingProject = false;
@@ -1375,7 +1395,7 @@ function render() {
   renderReportsTable();
   renderSubmissionLists();
   renderAbsenceTable();
-  renderConfirmationFilters();
+  renderConfirmationsModalState();
   renderConfirmationsTable();
   renderSaldoTable();
   renderProjectForm();
@@ -1448,7 +1468,6 @@ function renderPages() {
   const pageTitles = {
     reports: 'Wochenrapporte',
     absences: 'Ferien & Absenzen',
-    confirmations: 'Bestätigungen',
     saldo: 'Saldo',
     projects: 'Projekte / Aufträge',
     dispo: 'Dispo / Wochenplanung',
@@ -1459,6 +1478,7 @@ function renderPages() {
   elements.pageTitle.textContent = pageTitles[state.currentPage];
 
   for (const [key, page] of Object.entries(elements.pages)) {
+    if (!page) continue;
     page.classList.toggle('hidden', key !== state.currentPage);
   }
 
@@ -1623,13 +1643,10 @@ function renderAbsenceTable() {
 }
 
 
-function renderConfirmationFilters() {
-  if (!elements.confirmationDateFromInput || !elements.confirmationDateToInput) {
-    return;
-  }
-
-  elements.confirmationDateFromInput.value = state.confirmationDateFrom;
-  elements.confirmationDateToInput.value = state.confirmationDateTo;
+function renderConfirmationsModalState() {
+  if (!elements.includeConfirmationHistoryInput || !elements.confirmationsModal) return;
+  elements.includeConfirmationHistoryInput.checked = state.includeConfirmationHistory;
+  elements.confirmationsModal.classList.toggle('hidden', !state.isConfirmationsModalOpen);
 }
 
 function renderConfirmationsTable() {
@@ -1764,16 +1781,8 @@ function handleAbsenceFilterInput(event) {
   renderAbsenceFilters();
 }
 
-function handleConfirmationDateFilterChange() {
-  state.confirmationDateFrom = elements.confirmationDateFromInput.value || '';
-  state.confirmationDateTo = elements.confirmationDateToInput.value || '';
-  renderConfirmationsTable();
-}
-
-function clearConfirmationDateFilter() {
-  state.confirmationDateFrom = '';
-  state.confirmationDateTo = '';
-  renderConfirmationFilters();
+function handleConfirmationHistoryToggle() {
+  state.includeConfirmationHistory = Boolean(elements.includeConfirmationHistoryInput?.checked);
   renderConfirmationsTable();
 }
 
@@ -1907,26 +1916,30 @@ function getSortedFilteredReports() {
 
 
 function getFilteredRequestHistory() {
-  const fromDate = state.confirmationDateFrom || null;
-  const toDate = state.confirmationDateTo || null;
-
+  const today = getTodayIsoDate();
   return [...state.requestHistory]
     .filter((entry) => {
-      const createdAt = String(entry?.created_at || '');
-      if (!createdAt) {
-        return false;
-      }
-
-      const createdDate = createdAt.slice(0, 10);
-      if (fromDate && createdDate < fromDate) {
-        return false;
-      }
-      if (toDate && createdDate > toDate) {
-        return false;
-      }
-      return true;
+      if (state.includeConfirmationHistory) return true;
+      const details = parseRequestHistoryEntry(entry);
+      const period = parseHistoryPeriod(details.periodLabel);
+      if (!period) return true;
+      return period.endDate >= today;
     })
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+}
+
+function getTodayIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseHistoryPeriod(periodLabel) {
+  const match = String(periodLabel || '').match(/(\d{4}-\d{2}-\d{2})\s+bis\s+(\d{4}-\d{2}-\d{2})/i);
+  if (!match) return null;
+  return { startDate: match[1], endDate: match[2] };
 }
 
 function parseRequestHistoryEntry(entry) {
@@ -2144,7 +2157,7 @@ function handleSaldoTableClick(event) {
 }
 
 async function handleSettingsUsersTableClick(event) {
-  const trigger = event.target.closest('[data-action="toggle-user-active"]');
+  const trigger = event.target.closest('[data-action]');
   if (!trigger || state.isSavingSettings) {
     return;
   }
@@ -2154,6 +2167,19 @@ async function handleSettingsUsersTableClick(event) {
   if (!profile) {
     return;
   }
+
+  const action = trigger.dataset.action;
+  if (action === 'save-target-revenue') {
+    await handleSaveTargetRevenue(profileId);
+    return;
+  }
+
+  if (action === 'purge-user-account') {
+    await handlePurgeUserAccount(profile);
+    return;
+  }
+
+  if (action !== 'toggle-user-active') return;
 
   const nextValue = profile.is_active === false;
   state.isSavingSettings = true;
@@ -2172,6 +2198,67 @@ async function handleSettingsUsersTableClick(event) {
   } catch (error) {
     console.error(error);
     alert(`Benutzerstatus konnte nicht aktualisiert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleSaveTargetRevenue(profileId) {
+  const input = document.querySelector(`[data-target-revenue-input="${profileId}"]`);
+  const parsedValue = Number(String(input?.value || '').replace(',', '.'));
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    alert('Bitte einen gültigen Sollerlös (CHF) >= 0 eingeben.');
+    return;
+  }
+
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (demoProfile) demoProfile.target_revenue = parsedValue;
+    } else {
+      const { error } = await state.supabase
+        .from('app_profiles')
+        .update({ target_revenue: parsedValue })
+        .eq('id', profileId);
+      if (error) throw error;
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Sollerlös konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handlePurgeUserAccount(profile) {
+  const profileId = profile?.id;
+  if (!profileId) return;
+  if (String(profileId) === String(state.currentProfile?.id)) {
+    alert('Der eigene Account kann hier nicht gelöscht werden.');
+    return;
+  }
+  const shouldDelete = window.confirm(`Account von "${profile.full_name || profile.email}" inkl. Dateien wirklich restlos entfernen?`);
+  if (!shouldDelete) return;
+
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const index = demoProfiles.findIndex((item) => String(item.id) === String(profileId));
+      if (index >= 0) demoProfiles.splice(index, 1);
+    } else {
+      const { error } = await state.supabase.rpc('purge_user_account', {
+        p_profile_id: profileId,
+      });
+      if (error) throw error;
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Account konnte nicht vollständig entfernt werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
@@ -2929,7 +3016,7 @@ function renderHistoryActionsCell(entry) {
 function renderSettingsUsersTable() {
   if (!elements.settingsUsersTableBody) return;
   if (!state.profiles.length) {
-    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="5">Keine Benutzer gefunden.</td></tr>';
+    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="6">Keine Benutzer gefunden.</td></tr>';
     return;
   }
 
@@ -2941,11 +3028,30 @@ function renderSettingsUsersTable() {
       <td>${escapeHtml(profile.full_name || '–')}</td>
       <td>${escapeHtml(profile.email || '–')}</td>
       <td>${escapeHtml(profile.role_label || '–')}</td>
+      <td>
+        <div class="table-row-actions">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value="${escapeAttribute(Number(profile.target_revenue || 0).toFixed(2))}"
+            data-target-revenue-input="${escapeAttribute(profile.id)}"
+          />
+          <button class="button button-small button-secondary" type="button" data-action="save-target-revenue" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+            Speichern
+          </button>
+        </div>
+      </td>
       <td><span class="pill ${isActive ? 'success' : 'warning'}">${isActive ? 'Aktiv' : 'Deaktiviert'}</span></td>
       <td>
-        <button class="button button-small ${isActive ? 'button-danger' : 'button-secondary'}" type="button" data-action="toggle-user-active" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
-          ${isActive ? 'Deaktivieren' : 'Aktivieren'}
-        </button>
+        <div class="table-row-actions">
+          <button class="button button-small ${isActive ? 'button-danger' : 'button-secondary'}" type="button" data-action="toggle-user-active" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
+            ${isActive ? 'Deaktivieren' : 'Aktivieren'}
+          </button>
+          <button class="button button-small button-danger" type="button" data-action="purge-user-account" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
+            Restlos löschen
+          </button>
+        </div>
       </td>
     </tr>`;
   }).join('');
@@ -2987,7 +3093,7 @@ function renderProjectsTable() {
   if (!elements.projectsTableBody) return;
   const rows = getFilteredProjects();
   if (!rows.length) {
-    elements.projectsTableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Keine Projekte vorhanden.</td></tr>';
+    elements.projectsTableBody.innerHTML = '<tr><td colspan="10" class="empty-state">Keine Projekte vorhanden.</td></tr>';
     return;
   }
   elements.projectsTableBody.innerHTML = rows.map((project) => {
@@ -2995,10 +3101,15 @@ function renderProjectsTable() {
     const projectLead = getProfileById(assignments.projectLeadId)?.full_name || '—';
     const constructionLead = getProfileById(assignments.constructionLeadId)?.full_name || '—';
     return `<tr>
+      <td>${escapeHtml(project.id || '')}</td>
       <td>${escapeHtml(project.commission_number || '')}</td>
       <td>${escapeHtml(project.name || '')}</td>
+      <td>${escapeHtml(formatDateTime(project.created_at))}</td>
+      <td>${escapeHtml(formatDateTime(project.updated_at))}</td>
       <td>${escapeHtml(projectLead)}</td>
+      <td>${escapeHtml(assignments.projectLeadId || '—')}</td>
       <td>${escapeHtml(constructionLead)}</td>
+      <td>${escapeHtml(assignments.constructionLeadId || '—')}</td>
       <td>
         <div class="table-row-actions">
           <button class="button button-small button-secondary" type="button" data-action="edit-project" data-project-id="${escapeAttribute(project.id)}">Bearbeiten</button>
@@ -3015,11 +3126,11 @@ function renderDispoPlanner() {
   elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedWeek);
   elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
   const dates = getWeekDateList(state.selectedWeek);
-  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-column" data-date="${escapeAttribute(date)}" title="Tag für alle setzen">+</button></div></th>`).join('')}</tr>`;
+  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span></div></th>`).join('')}</tr>`;
   const activeProfiles = getActiveProfiles();
   elements.dispoTableBody.innerHTML = activeProfiles.map((profile) => {
     const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
-    return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-row" data-profile-id="${escapeAttribute(profile.id)}" title="Woche für Mitarbeiter setzen">+</button></div></td>${cells}</tr>`;
+    return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong></div></td>${cells}</tr>`;
   }).join('');
 }
 
@@ -3033,13 +3144,10 @@ function renderDispoCell(profileId, date) {
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
   if (!items.length) {
-    return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button></div></td>`;
+    return '<td><div class="dispo-plus-cell"><span class="subtle-text">–</span></div></td>';
   }
   return `<td><div class="dispo-cell">
     <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
-    <div class="dispo-icon-actions">
-      <button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Zuweisen">+</button>
-    </div>
   </div></td>`;
 }
 
@@ -3155,6 +3263,13 @@ function getFilteredProjects() {
 }
 
 function getProjectRoleAssignments(projectId) {
+  const project = state.projects.find((item) => item.id === projectId);
+  if (project?.project_lead_profile_id || project?.construction_lead_profile_id) {
+    return {
+      projectLeadId: project.project_lead_profile_id || '',
+      constructionLeadId: project.construction_lead_profile_id || '',
+    };
+  }
   const rows = state.roleAssignments.filter((item) => item.project_id === projectId);
   return {
     projectLeadId: rows.find((item) => item.role === 'project_lead')?.profile_id || '',
@@ -3182,24 +3297,21 @@ async function handleProjectSubmit(event) {
     return;
   }
   await withLongTask('Projekt wird gespeichert …', async () => {
-    const payload = { commission_number: commissionNumber, name };
+    const payload = {
+      commission_number: commissionNumber,
+      name,
+      project_lead_profile_id: projectLeadId,
+      construction_lead_profile_id: constructionLeadId,
+    };
     let projectId = state.editingProjectId;
     if (projectId) {
       const { error } = await state.supabase.from('projects').update(payload).eq('id', projectId);
       if (error) throw error;
-      const { error: deleteError } = await state.supabase.from('project_assignments').delete().eq('project_id', projectId).eq('assignment_type', 'role');
-      if (deleteError) throw deleteError;
     } else {
       const { data, error } = await state.supabase.from('projects').insert(payload).select('id').single();
       if (error) throw error;
       projectId = data.id;
     }
-    const assignmentRows = [
-      { project_id: projectId, profile_id: projectLeadId, assignment_type: 'role', role: 'project_lead' },
-      { project_id: projectId, profile_id: constructionLeadId, assignment_type: 'role', role: 'construction_lead' },
-    ];
-    const { error: assignError } = await state.supabase.from('project_assignments').insert(assignmentRows);
-    if (assignError) throw assignError;
     resetProjectForm();
     showInlineAlert(elements.projectsAlert, 'Projekt erfolgreich gespeichert.', false);
     await loadData();
@@ -3579,8 +3691,35 @@ function handleGlobalKeydown(event) {
     closeDispoAssignModal();
     return;
   }
+  if (elements.confirmationsModal && !elements.confirmationsModal.classList.contains('hidden')) {
+    closeConfirmationsModal();
+    return;
+  }
   if (!elements.reportEditModal.classList.contains('hidden')) {
     closeReportEditModal();
+  }
+}
+
+function openConfirmationsModal() {
+  state.isConfirmationsModalOpen = true;
+  renderConfirmationsModalState();
+  renderConfirmationsTable();
+}
+
+function closeConfirmationsModal() {
+  state.isConfirmationsModalOpen = false;
+  renderConfirmationsModalState();
+}
+
+async function exportFilteredConfirmationsPdf() {
+  const entries = getFilteredRequestHistory();
+  if (!entries.length) {
+    alert('Keine bestätigten Absenzen für den aktuellen Filter vorhanden.');
+    return;
+  }
+  for (const entry of entries) {
+    // eslint-disable-next-line no-await-in-loop
+    await exportRequestHistoryPdf(entry.id, true);
   }
 }
 
@@ -4680,9 +4819,11 @@ function getMatchingProfiles(profiles, query) {
 }
 
 function getFilteredHolidayRequests() {
+  const today = getTodayIsoDate();
   const selectedIds = new Set(state.selectedAbsenceEmployeeIds);
   return [...state.holidayRequests]
     .filter((request) => selectedIds.has(request.profile_id))
+    .filter((request) => String(request.end_date || '') >= today)
     .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
 }
 
