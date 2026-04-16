@@ -393,6 +393,12 @@ textarea:focus {
   gap: 20px;
 }
 
+.settings-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .stats-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -404,6 +410,16 @@ textarea:focus {
 
 .security-grid {
   margin-top: 24px;
+}
+
+.settings-card {
+  padding: 20px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 18px;
 }
 
 .stat-card {
@@ -821,7 +837,8 @@ tbody tr:hover {
   .dashboard,
   .stats-grid,
   .grid-two,
-  .security-grid {
+  .security-grid,
+  .settings-grid {
     grid-template-columns: 1fr;
   }
 
