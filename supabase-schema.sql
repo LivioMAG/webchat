@@ -32,6 +32,7 @@ create table if not exists public.weekly_reports (
   work_date date not null,
   year integer,
   kw integer,
+  abz_typ integer not null default 0,
   project_name text,
   commission_number text not null,
   start_time time not null default '07:00',
@@ -108,6 +109,9 @@ add column if not exists year integer;
 
 alter table public.weekly_reports
 add column if not exists kw integer;
+
+alter table public.weekly_reports
+add column if not exists abz_typ integer not null default 0;
 
 alter table public.holiday_requests
 add column if not exists controll_pl text;
@@ -197,6 +201,7 @@ begin
       kw,
       project_name,
       commission_number,
+      abz_typ,
       start_time,
       end_time,
       lunch_break_minutes,
@@ -217,6 +222,19 @@ begin
       extract(week from work_day)::integer,
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
       initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+      case lower(coalesce(updated_request.request_type, ''))
+        when 'ferien' then 1
+        when 'fehlen' then 1
+        when 'krankheit' then 2
+        when 'militaer' then 3
+        when 'zivildienst' then 3
+        when 'unfall' then 4
+        when 'feiertag' then 5
+        when 'uk' then 6
+        when 'ük' then 6
+        when 'berufsschule' then 7
+        else 0
+      end,
       '07:00'::time,
       '16:30'::time,
       60,
