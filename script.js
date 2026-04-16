@@ -7,6 +7,13 @@ const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
 const DISPO_SPECIAL_OPTIONS = ['Diverses', 'Ferien', 'Feiertag', 'Militär', 'Krankheit', 'Unfall'];
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
+const CRM_CATEGORY_LABELS = {
+  kunde: 'Kunde',
+  lieferant: 'Lieferant',
+  elektroplaner: 'Elektroplaner',
+  subunternehmer: 'Subunternehmer',
+  unternehmer: 'Unternehmer',
+};
 const HOLIDAY_TYPE_LABELS = {
   ferien: 'Ferien',
   fehlen: 'Ferien',
@@ -563,6 +570,9 @@ const state = {
   holidayRequests: [],
   requestHistory: [],
   platformHolidays: [],
+  crmContacts: [],
+  crmNotes: [],
+  selectedCrmContactId: null,
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
   projectSearchQuery: '',
@@ -619,7 +629,9 @@ async function init() {
   cacheElements();
   bindEvents();
   elements.weekPicker.value = state.selectedWeek;
-  elements.adminSqlPreview.textContent = ADMIN_SQL_SNIPPET;
+  if (elements.adminSqlPreview) {
+    elements.adminSqlPreview.textContent = ADMIN_SQL_SNIPPET;
+  }
 
   await initializeSupabase();
   await bootstrapSession();
@@ -706,7 +718,7 @@ function cacheElements() {
     saldo: document.getElementById('saldoPage'),
     projects: document.getElementById('projectsPage'),
     dispo: document.getElementById('dispoPage'),
-    security: document.getElementById('securityPage'),
+    crm: document.getElementById('crmPage'),
     settings: document.getElementById('settingsPage'),
   };
   elements.projectForm = document.getElementById('projectForm');
@@ -744,6 +756,26 @@ function cacheElements() {
   elements.holidayDateInput = document.getElementById('holidayDateInput');
   elements.holidayNameInput = document.getElementById('holidayNameInput');
   elements.saveHolidayButton = document.getElementById('saveHolidayButton');
+  elements.crmAlert = document.getElementById('crmAlert');
+  elements.crmContactForm = document.getElementById('crmContactForm');
+  elements.crmContactIdInput = document.getElementById('crmContactIdInput');
+  elements.crmCategoryInput = document.getElementById('crmCategoryInput');
+  elements.crmCompanyInput = document.getElementById('crmCompanyInput');
+  elements.crmFirstNameInput = document.getElementById('crmFirstNameInput');
+  elements.crmLastNameInput = document.getElementById('crmLastNameInput');
+  elements.crmStreetInput = document.getElementById('crmStreetInput');
+  elements.crmCityInput = document.getElementById('crmCityInput');
+  elements.crmPostalCodeInput = document.getElementById('crmPostalCodeInput');
+  elements.crmPhoneInput = document.getElementById('crmPhoneInput');
+  elements.crmEmailInput = document.getElementById('crmEmailInput');
+  elements.saveCrmContactButton = document.getElementById('saveCrmContactButton');
+  elements.resetCrmContactFormButton = document.getElementById('resetCrmContactFormButton');
+  elements.crmContactsTableBody = document.getElementById('crmContactsTableBody');
+  elements.crmNotesHeader = document.getElementById('crmNotesHeader');
+  elements.crmNoteForm = document.getElementById('crmNoteForm');
+  elements.crmNoteTargetUidInput = document.getElementById('crmNoteTargetUidInput');
+  elements.crmNoteTextInput = document.getElementById('crmNoteTextInput');
+  elements.crmNotesList = document.getElementById('crmNotesList');
 }
 
 function bindEvents() {
@@ -838,6 +870,18 @@ function bindEvents() {
   }
   if (elements.holidayForm) {
     elements.holidayForm.addEventListener('submit', handleHolidayFormSubmit);
+  }
+  if (elements.crmContactForm) {
+    elements.crmContactForm.addEventListener('submit', handleCrmContactSubmit);
+  }
+  if (elements.resetCrmContactFormButton) {
+    elements.resetCrmContactFormButton.addEventListener('click', resetCrmContactForm);
+  }
+  if (elements.crmContactsTableBody) {
+    elements.crmContactsTableBody.addEventListener('click', handleCrmContactsTableClick);
+  }
+  if (elements.crmNoteForm) {
+    elements.crmNoteForm.addEventListener('submit', handleCrmNoteSubmit);
   }
   document.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('focus', handleWindowFocus);
@@ -1098,6 +1142,9 @@ function resetAppState() {
   state.holidayRequests = [];
   state.requestHistory = [];
   state.platformHolidays = [];
+  state.crmContacts = [];
+  state.crmNotes = [];
+  state.selectedCrmContactId = null;
   state.employeeFilterQuery = '';
   state.projectSearchQuery = '';
   state.editingProjectId = null;
@@ -1173,6 +1220,9 @@ async function loadData() {
       state.holidayRequests = [];
       state.requestHistory = [];
       state.platformHolidays = [];
+      state.crmContacts = [];
+      state.crmNotes = [];
+      state.selectedCrmContactId = null;
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
       finishDataLoad(requestId);
       render();
@@ -1213,6 +1263,16 @@ async function loadData() {
       .from(HOLIDAY_TABLE)
       .select('*')
       .order('holiday_date', { ascending: true });
+    const crmContactsQuery = state.supabase
+      .from('crm_contacts')
+      .select('*')
+      .order('last_name', { ascending: true })
+      .order('first_name', { ascending: true });
+    const crmNotesQuery = state.supabase
+      .from('crm_notes')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
     const [
       { data: reports, error: reportsError },
       { data: profiles, error: profilesError },
@@ -1220,6 +1280,8 @@ async function loadData() {
       { data: requestHistory, error: requestHistoryError },
       { data: projects, error: projectsError },
       { data: platformHolidays, error: platformHolidaysError },
+      { data: crmContacts, error: crmContactsError },
+      { data: crmNotes, error: crmNotesError },
     ] = await Promise.all([
       reportsQuery,
       profilesQuery,
@@ -1227,6 +1289,8 @@ async function loadData() {
       requestHistoryQuery,
       projectsQuery,
       platformHolidaysQuery,
+      crmContactsQuery,
+      crmNotesQuery,
     ]);
 
     if (reportsError) throw reportsError;
@@ -1235,6 +1299,8 @@ async function loadData() {
     if (requestHistoryError) throw requestHistoryError;
     if (projectsError) throw projectsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
+    if (crmContactsError && !isMissingTableError(crmContactsError, 'crm_contacts')) throw crmContactsError;
+    if (crmNotesError && !isMissingTableError(crmNotesError, 'crm_notes')) throw crmNotesError;
     if (!isActiveDataLoad(requestId)) {
       return;
     }
@@ -1245,6 +1311,11 @@ async function loadData() {
     state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
     state.platformHolidays = platformHolidays ?? [];
+    state.crmContacts = crmContacts ?? [];
+    state.crmNotes = crmNotes ?? [];
+    if (state.selectedCrmContactId && !state.crmContacts.some((item) => String(item.id) === String(state.selectedCrmContactId))) {
+      state.selectedCrmContactId = null;
+    }
     state.roleAssignments = [];
     state.dailyAssignments = [];
     syncEmployeeSelection();
@@ -1334,6 +1405,9 @@ async function loadDemoData() {
   state.holidayRequests = [...demoHolidayRequests];
   state.requestHistory = [...demoRequestHistory];
   state.platformHolidays = [...demoPlatformHolidays];
+  state.crmContacts = [];
+  state.crmNotes = [];
+  state.selectedCrmContactId = null;
   syncEmployeeSelection();
   syncAbsenceSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
@@ -1385,6 +1459,8 @@ function render() {
   renderDispoPlanner();
   renderSettingsUsersTable();
   renderSettingsHolidaysTable();
+  renderCrmContactsTable();
+  renderCrmNotesPanel();
   renderLoadingOverlay();
 }
 
@@ -1453,7 +1529,7 @@ function renderPages() {
     saldo: 'Saldo',
     projects: 'Projekte / Aufträge',
     dispo: 'Dispo / Wochenplanung',
-    security: 'Admin-Zugriff',
+    crm: 'CRM',
     settings: 'Einstellungen',
   };
 
@@ -2303,6 +2379,143 @@ async function handleSettingsHolidaysTableClick(event) {
   }
 }
 
+function resetCrmContactForm() {
+  if (elements.crmContactForm) {
+    elements.crmContactForm.reset();
+  }
+  if (elements.crmContactIdInput) {
+    elements.crmContactIdInput.value = '';
+  }
+}
+
+async function handleCrmContactSubmit(event) {
+  event.preventDefault();
+  if (!state.supabase || state.isSavingSettings) return;
+
+  const contactId = String(elements.crmContactIdInput?.value || '').trim();
+  const payload = {
+    category: String(elements.crmCategoryInput?.value || '').trim().toLowerCase(),
+    company_name: String(elements.crmCompanyInput?.value || '').trim() || null,
+    first_name: String(elements.crmFirstNameInput?.value || '').trim(),
+    last_name: String(elements.crmLastNameInput?.value || '').trim(),
+    street: String(elements.crmStreetInput?.value || '').trim() || null,
+    city: String(elements.crmCityInput?.value || '').trim() || null,
+    postal_code: String(elements.crmPostalCodeInput?.value || '').trim() || null,
+    phone: String(elements.crmPhoneInput?.value || '').trim() || null,
+    email: String(elements.crmEmailInput?.value || '').trim().toLowerCase() || null,
+  };
+  if (!payload.first_name || !payload.last_name || !Object.prototype.hasOwnProperty.call(CRM_CATEGORY_LABELS, payload.category)) {
+    showInlineAlert(elements.crmAlert, 'Bitte Kategorie, Vorname und Nachname korrekt erfassen.', true);
+    return;
+  }
+
+  state.isSavingSettings = true;
+  try {
+    const query = contactId
+      ? state.supabase.from('crm_contacts').update(payload).eq('id', contactId)
+      : state.supabase.from('crm_contacts').insert(payload);
+    const { error } = await query;
+    if (error) throw error;
+
+    showInlineAlert(elements.crmAlert, contactId ? 'Kontakt aktualisiert.' : 'Kontakt erstellt.', false);
+    resetCrmContactForm();
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    showInlineAlert(elements.crmAlert, `Kontakt konnte nicht gespeichert werden: ${error.message}`, true);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleCrmContactsTableClick(event) {
+  const button = event.target.closest('button[data-action]');
+  if (!button || state.isSavingSettings) return;
+  const contactId = button.dataset.contactId;
+  const contact = state.crmContacts.find((item) => String(item.id) === String(contactId));
+  if (!contact) return;
+
+  if (button.dataset.action === 'select-crm-contact') {
+    state.selectedCrmContactId = contact.id;
+    renderCrmContactsTable();
+    renderCrmNotesPanel();
+    return;
+  }
+
+  if (button.dataset.action === 'edit-crm-contact') {
+    state.selectedCrmContactId = contact.id;
+    elements.crmContactIdInput.value = contact.id || '';
+    elements.crmCategoryInput.value = contact.category || 'kunde';
+    elements.crmCompanyInput.value = contact.company_name || '';
+    elements.crmFirstNameInput.value = contact.first_name || '';
+    elements.crmLastNameInput.value = contact.last_name || '';
+    elements.crmStreetInput.value = contact.street || '';
+    elements.crmCityInput.value = contact.city || '';
+    elements.crmPostalCodeInput.value = contact.postal_code || '';
+    elements.crmPhoneInput.value = contact.phone || '';
+    elements.crmEmailInput.value = contact.email || '';
+    renderCrmContactsTable();
+    renderCrmNotesPanel();
+    return;
+  }
+
+  if (button.dataset.action === 'delete-crm-contact') {
+    if (!confirm('Kontakt wirklich löschen?')) return;
+    state.isSavingSettings = true;
+    try {
+      const { error } = await state.supabase.from('crm_contacts').delete().eq('id', contactId);
+      if (error) throw error;
+      if (String(state.selectedCrmContactId) === String(contactId)) {
+        state.selectedCrmContactId = null;
+      }
+      showInlineAlert(elements.crmAlert, 'Kontakt gelöscht.', false);
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      showInlineAlert(elements.crmAlert, `Kontakt konnte nicht gelöscht werden: ${error.message}`, true);
+    } finally {
+      state.isSavingSettings = false;
+      render();
+    }
+  }
+}
+
+async function handleCrmNoteSubmit(event) {
+  event.preventDefault();
+  if (!state.supabase || state.isSavingSettings) return;
+  const targetUid = String(elements.crmNoteTargetUidInput?.value || '').trim();
+  const noteText = String(elements.crmNoteTextInput?.value || '').trim();
+  if (!targetUid) {
+    showInlineAlert(elements.crmAlert, 'Bitte zuerst einen Kontakt auswählen.', true);
+    return;
+  }
+  if (!noteText) {
+    showInlineAlert(elements.crmAlert, 'Bitte zuerst einen Kommentar erfassen.', true);
+    return;
+  }
+
+  state.isSavingSettings = true;
+  try {
+    const { error } = await state.supabase.from('crm_notes').insert({
+      target_uid: targetUid,
+      note_text: noteText,
+    });
+    if (error) throw error;
+    if (elements.crmNoteTextInput) {
+      elements.crmNoteTextInput.value = '';
+    }
+    showInlineAlert(elements.crmAlert, 'Notiz gespeichert.', false);
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    showInlineAlert(elements.crmAlert, `Notiz konnte nicht gespeichert werden: ${error.message}`, true);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
 async function handleConfirmReport(reportId) {
   if (!reportId || state.isSavingReport) {
     return;
@@ -2999,6 +3212,72 @@ function renderHistoryActionsCell(entry) {
       <button class="button button-small button-danger" type="button" data-action="delete-history-entry" data-history-entry-id="${escapeAttribute(entry.id)}" ${state.isSavingConfirmation ? 'disabled' : ''}>Löschen</button>
     </div>
   `;
+}
+
+function renderCrmContactsTable() {
+  if (!elements.crmContactsTableBody) return;
+  const rows = [...state.crmContacts].sort((left, right) => `${left.last_name || ''} ${left.first_name || ''}`.localeCompare(`${right.last_name || ''} ${right.first_name || ''}`, 'de'));
+  if (!rows.length) {
+    elements.crmContactsTableBody.innerHTML = '<tr><td colspan="11">Noch keine Kontakte erfasst.</td></tr>';
+    return;
+  }
+
+  elements.crmContactsTableBody.innerHTML = rows.map((contact) => {
+    const categoryLabel = CRM_CATEGORY_LABELS[contact.category] || contact.category || '—';
+    const isSelected = String(contact.id) === String(state.selectedCrmContactId);
+    const latestNote = state.crmNotes.find((note) => String(note.target_uid) === String(contact.id));
+    return `<tr class="${isSelected ? 'row-selected' : ''}">
+      <td>${escapeHtml(categoryLabel)}</td>
+      <td>${escapeHtml(contact.company_name || '—')}</td>
+      <td>${escapeHtml(contact.first_name || '')}</td>
+      <td>${escapeHtml(contact.last_name || '')}</td>
+      <td>${escapeHtml(contact.street || '—')}</td>
+      <td>${escapeHtml(contact.city || '—')}</td>
+      <td>${escapeHtml(contact.postal_code || '—')}</td>
+      <td>${escapeHtml(contact.phone || '—')}</td>
+      <td>${escapeHtml(contact.email || '—')}</td>
+      <td>${escapeHtml((latestNote?.note_text || '').slice(0, 80) || '—')}</td>
+      <td>
+        <div class="table-row-actions">
+          <button class="button button-small button-secondary" type="button" data-action="select-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Öffnen</button>
+          <button class="button button-small button-secondary" type="button" data-action="edit-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Bearbeiten</button>
+          <button class="button button-small button-danger" type="button" data-action="delete-crm-contact" data-contact-id="${escapeAttribute(contact.id)}">Löschen</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCrmNotesPanel() {
+  if (!elements.crmNotesList || !elements.crmNotesHeader || !elements.crmNoteTargetUidInput) return;
+  const selectedContact = state.crmContacts.find((entry) => String(entry.id) === String(state.selectedCrmContactId));
+  if (!selectedContact) {
+    elements.crmNotesHeader.textContent = 'Kein Kontakt ausgewählt.';
+    elements.crmNoteTargetUidInput.value = '';
+    elements.crmNotesList.innerHTML = '<li class="subtle-text">Wähle einen Kontakt aus der Tabelle aus.</li>';
+    return;
+  }
+
+  const displayName = `${selectedContact.first_name || ''} ${selectedContact.last_name || ''}`.trim();
+  elements.crmNotesHeader.textContent = `Notizen für ${displayName || selectedContact.id}${selectedContact.company_name ? ` · ${selectedContact.company_name}` : ''}`;
+  elements.crmNoteTargetUidInput.value = selectedContact.id;
+
+  const notes = state.crmNotes
+    .filter((note) => String(note.target_uid) === String(selectedContact.id))
+    .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')));
+  if (!notes.length) {
+    elements.crmNotesList.innerHTML = '<li class="subtle-text">Noch keine Notiz vorhanden.</li>';
+    return;
+  }
+
+  elements.crmNotesList.innerHTML = notes.map((note) => `
+    <li class="status-item">
+      <div>
+        <strong>${escapeHtml(formatDateTime(note.created_at))}</strong>
+        <div>${escapeHtml(note.note_text || '')}</div>
+      </div>
+    </li>
+  `).join('');
 }
 
 function renderSettingsUsersTable() {

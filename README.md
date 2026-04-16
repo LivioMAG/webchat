@@ -5,6 +5,7 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
 - Login über Supabase Auth
 - zentrale Wochenrapport-Übersicht mit Wochenfilter
 - separate Seite für Ferien- und Absenzanträge
+- CRM-Seite mit Kontakten (5 Kategorien) und separaten Notizen über UID-Referenz
 - Vollzugriff auf die Web-Visualisierung nur für Profile mit `app_profiles.is_admin = true`
 - kombinierten PDF-Export pro Kalenderwoche inklusive fehlender Rapporte und Bildanhängen
 
