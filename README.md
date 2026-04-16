@@ -32,5 +32,10 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
   sehen und bearbeiten können.
 - Der PDF-Export nutzt `jsPDF` und `jspdf-autotable` direkt per CDN.
 - Wenn ein Browser bei geöffneten PDF-Dateien „PDF-Bearbeitung wird nicht unterstützt“ meldet, den Link „PDF herunterladen“ nutzen: dieser erzwingt den Datei-Download (statt Browser-Viewer), damit die Datei lokal in einer PDF-App (z. B. Adobe Acrobat) bearbeitet werden kann.
-
 - Anhänge werden auch dann korrekt verlinkt, wenn nur ein Storage-Pfad (ohne `publicUrl`) gespeichert ist; die Web-App erzeugt dafür automatisch die öffentliche URL aus dem Bucket.
+
+## SQL-Fehlerbehebung
+
+- Fehler wie `syntax error at or near "@@"` bedeuten fast immer, dass versehentlich Git-Diff-Zeilen in den SQL-Editor kopiert wurden (z. B. `@@ -52,53 +53,63 @@`, `+`, `-` am Zeilenanfang).
+- Im Supabase-SQL-Editor darf nur gültiges SQL ausgeführt werden. Entferne alle Diff-Marker und führe danach das bereinigte Skript erneut aus.
+- Verwende am besten direkt den Inhalt aus `supabase-schema.sql` (ohne Pull-Request-/Patch-Ansicht zu kopieren).

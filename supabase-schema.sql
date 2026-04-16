@@ -1,5 +1,11 @@
 create extension if not exists pgcrypto;
 
+-- IMPORTANT:
+-- Run this file as plain SQL in the Supabase SQL Editor.
+-- If you ever see `syntax error at or near "@@"`, the pasted text likely
+-- contains Git diff markers (e.g. `@@ ... @@`, lines starting with `+` or `-`).
+-- Remove those markers and execute only valid SQL statements.
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
