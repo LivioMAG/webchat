@@ -3280,7 +3280,7 @@ async function exportWeekPdf() {
 
       const imageAttachments = reports
         .flatMap((report) => Array.isArray(report.attachments) ? report.attachments : [])
-        .filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+        .filter((attachment) => isImageAttachment(attachment) && getAttachmentUrl(attachment));
       for (let index = 0; index < imageAttachments.length; index += 2) {
         pdf.addPage();
         await drawAttachmentGalleryPage(pdf, imageAttachments.slice(index, index + 2), {
@@ -3367,7 +3367,7 @@ async function exportHolidayConfirmationPdf(requestId) {
     drawHolidayConfirmationPage(pdf, { request, profile });
 
     const attachments = Array.isArray(request.attachments) ? request.attachments : [];
-    const imageAttachments = attachments.filter((attachment) => isImageAttachment(attachment) && (attachment.publicUrl || attachment.path));
+    const imageAttachments = attachments.filter((attachment) => isImageAttachment(attachment) && getAttachmentUrl(attachment));
     const otherAttachments = attachments.filter((attachment) => !isImageAttachment(attachment));
 
     if (otherAttachments.length) {
@@ -3635,7 +3635,7 @@ function drawHolidayAttachmentListPage(pdf, { attachments, request, profile }) {
   const body = attachments.map((attachment) => [
     attachment.name || 'Anhang',
     attachment.mimeType || 'Datei',
-    attachment.publicUrl || attachment.path || 'Kein Link verfügbar',
+    getAttachmentUrl(attachment) || 'Kein Link verfügbar',
   ]);
 
   pdf.autoTable({
@@ -3908,7 +3908,7 @@ async function drawAttachmentGalleryPage(pdf, attachments, { profileName, calend
   for (const [index, attachment] of attachments.entries()) {
     const slotY = 24 + index * (slotHeight + slotGap);
     try {
-      const dataUrl = await fileToDataUrl(attachment.publicUrl || attachment.path);
+      const dataUrl = await fileToDataUrl(getAttachmentUrl(attachment));
       const imageProps = pdf.getImageProperties(dataUrl);
       const scale = Math.min(slotWidth / imageProps.width, slotHeight / imageProps.height);
       const renderWidth = imageProps.width * scale;
@@ -4337,8 +4337,12 @@ function renderAttachmentLinks(attachments = []) {
 
   return `<div class="attachment-list">${attachments
     .map((attachment) => {
-      const url = attachment.publicUrl || '#';
+      const url = getAttachmentUrl(attachment);
       const name = escapeHtml(attachment.name || 'Anhang');
+      if (!url || url === '#') {
+        return `<span class="subtle-text">${name} (kein Download-Link)</span>`;
+      }
+
       const escapedUrl = escapeAttribute(url);
       const openLink = `<a href="${escapedUrl}" target="_blank" rel="noreferrer">${name}</a>`;
       if (!isPdfAttachment(attachment)) {
@@ -4641,6 +4645,22 @@ function getDateForWeekOffset(weekOffset, dayOffset) {
   const monday = new Date(`${currentRange.start}T00:00:00Z`);
   monday.setUTCDate(monday.getUTCDate() + weekOffset * 7 + dayOffset);
   return monday.toISOString().slice(0, 10);
+}
+
+function getAttachmentUrl(attachment) {
+  const publicUrl = String(attachment?.publicUrl || '').trim();
+  if (publicUrl) return publicUrl;
+
+  const path = String(attachment?.path || '').trim();
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+
+  if (!state.supabase) {
+    return path;
+  }
+
+  const { data } = state.supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+  return String(data?.publicUrl || '').trim() || path;
 }
 
 function isImageAttachment(attachment) {

@@ -32,3 +32,5 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
   sehen und bearbeiten können.
 - Der PDF-Export nutzt `jsPDF` und `jspdf-autotable` direkt per CDN.
 - Wenn ein Browser bei geöffneten PDF-Dateien „PDF-Bearbeitung wird nicht unterstützt“ meldet, den Link „PDF herunterladen“ nutzen: dieser erzwingt den Datei-Download (statt Browser-Viewer), damit die Datei lokal in einer PDF-App (z. B. Adobe Acrobat) bearbeitet werden kann.
+
+- Anhänge werden auch dann korrekt verlinkt, wenn nur ein Storage-Pfad (ohne `publicUrl`) gespeichert ist; die Web-App erzeugt dafür automatisch die öffentliche URL aus dem Bucket.
