@@ -39,3 +39,4 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
 - Fehler wie `syntax error at or near "@@"` bedeuten fast immer, dass versehentlich Git-Diff-Zeilen in den SQL-Editor kopiert wurden (z. B. `@@ -52,53 +53,63 @@`, `+`, `-` am Zeilenanfang).
 - Im Supabase-SQL-Editor darf nur gültiges SQL ausgeführt werden. Entferne alle Diff-Marker und führe danach das bereinigte Skript erneut aus.
 - Verwende am besten direkt den Inhalt aus `supabase-schema.sql` (ohne Pull-Request-/Patch-Ansicht zu kopieren).
+- Fehler wie `Could not find the table 'public.project_assignments' in the schema cache` weisen auf veraltete Abfragen hin. Die aktuelle App-Version nutzt diese Tabelle nicht mehr; führe `supabase-schema.sql` erneut aus und entferne alte Queries gegen `project_assignments`.
