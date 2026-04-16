@@ -80,6 +80,10 @@
               <span class="nav-tab-icon" aria-hidden="true">🔒</span>
               <span class="visually-hidden">Admin-Zugriff</span>
             </button>
+            <button class="nav-tab" data-page="settings" type="button" title="Einstellungen" aria-label="Einstellungen">
+              <span class="nav-tab-icon" aria-hidden="true">⚙️</span>
+              <span class="visually-hidden">Einstellungen</span>
+            </button>
           </nav>
 
           <div class="sidebar-footer">
@@ -477,6 +481,71 @@
                     Der PDF-Export erstellt ein kombiniertes Dokument pro Kalenderwoche und listet
                     zusätzlich fehlende Rapporte auf.
                   </p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section id="settingsPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Einstellungen</h3>
+                  <p>Benutzer aktivieren/deaktivieren und Feiertage zentral verwalten.</p>
+                </div>
+              </div>
+              <div class="settings-grid">
+                <article class="mini-card settings-card">
+                  <h4>Benutzerverwaltung</h4>
+                  <p class="subtle-text">
+                    Deaktivierte Benutzer werden in den Planungen und Filtern ausgeblendet,
+                    bleiben aber im System erhalten.
+                  </p>
+                  <div class="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>E-Mail</th>
+                          <th>Rolle</th>
+                          <th>Status</th>
+                          <th>Aktion</th>
+                        </tr>
+                      </thead>
+                      <tbody id="settingsUsersTableBody"></tbody>
+                    </table>
+                  </div>
+                </article>
+
+                <article class="mini-card settings-card">
+                  <h4>Feiertage</h4>
+                  <p class="subtle-text">
+                    Neue Feiertage tragen automatisch für alle aktiven Benutzer einen
+                    Feiertagseintrag ein (nur wenn noch kein Eintrag am Datum existiert).
+                  </p>
+                  <form id="holidayForm" class="settings-form">
+                    <label>
+                      <span>Datum</span>
+                      <input id="holidayDateInput" type="date" required />
+                    </label>
+                    <label>
+                      <span>Bezeichnung</span>
+                      <input id="holidayNameInput" type="text" maxlength="120" placeholder="z. B. Ostermontag" required />
+                    </label>
+                    <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
+                  </form>
+                  <div class="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Datum</th>
+                          <th>Bezeichnung</th>
+                          <th>Aktion</th>
+                        </tr>
+                      </thead>
+                      <tbody id="settingsHolidaysTableBody"></tbody>
+                    </table>
+                  </div>
                 </article>
               </div>
             </div>

@@ -16,6 +16,7 @@ create table if not exists public.app_profiles (
   full_name text not null,
   role_label text not null default 'Monteur',
   is_admin boolean not null default false,
+  is_active boolean not null default true,
   vacation_allowance_hours numeric(10,2) not null default 0,
   booked_vacation_hours numeric(10,2) not null default 0,
   carryover_overtime_hours numeric(10,2) not null default 0,
@@ -74,8 +75,18 @@ create table if not exists public.request_history (
   context text not null
 );
 
+create table if not exists public.platform_holidays (
+  id uuid primary key default gen_random_uuid(),
+  holiday_date date not null unique,
+  label text not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
 alter table public.app_profiles
 add column if not exists is_admin boolean not null default false;
+
+alter table public.app_profiles
+add column if not exists is_active boolean not null default true;
 
 alter table public.app_profiles
 add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;

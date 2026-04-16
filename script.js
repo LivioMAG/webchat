@@ -1,5 +1,6 @@
 const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
+const HOLIDAY_TABLE = 'platform_holidays';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
@@ -76,6 +77,9 @@ add column if not exists credited_hours numeric(10,2) not null default 0;
 alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
 
+alter table public.app_profiles
+add column if not exists is_active boolean not null default true;
+
 alter table public.weekly_reports
 add column if not exists project_name text;
 
@@ -107,6 +111,13 @@ as $$
       and is_admin = true
   );
 $$;
+
+create table if not exists public.platform_holidays (
+  id uuid primary key default gen_random_uuid(),
+  holiday_date date not null unique,
+  label text not null,
+  created_at timestamptz not null default timezone('utc', now())
+);
 
 create or replace function public.build_holiday_request_history_text(request_row public.holiday_requests)
 returns text
@@ -371,6 +382,7 @@ const demoProfiles = [
     full_name: 'Master Admin',
     role_label: 'Administration',
     is_admin: true,
+    is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
     carryover_overtime_hours: 0,
@@ -384,6 +396,7 @@ const demoProfiles = [
     full_name: 'Michael Gerber',
     role_label: 'Monteur',
     is_admin: false,
+    is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
     carryover_overtime_hours: 0,
@@ -397,6 +410,7 @@ const demoProfiles = [
     full_name: 'Sandra Bühler',
     role_label: 'Monteurin',
     is_admin: false,
+    is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
     carryover_overtime_hours: 0,
@@ -410,6 +424,7 @@ const demoProfiles = [
     full_name: 'Pascal Frei',
     role_label: 'Monteur',
     is_admin: false,
+    is_active: true,
   },
 ];
 
@@ -518,6 +533,7 @@ const demoHolidayRequests = [
 ];
 
 const demoRequestHistory = [];
+const demoPlatformHolidays = [];
 
 const state = {
   supabase: null,
@@ -531,6 +547,7 @@ const state = {
   dailyAssignments: [],
   holidayRequests: [],
   requestHistory: [],
+  platformHolidays: [],
   selectedWeek: getCurrentWeekValue(),
   currentPage: 'reports',
   projectSearchQuery: '',
@@ -561,6 +578,7 @@ const state = {
   isSavingAbsence: false,
   isSavingConfirmation: false,
   isSavingSaldo: false,
+  isSavingSettings: false,
   isLoadingOverlayVisible: false,
   loadingOverlayReason: '',
   loadingOverlayTimer: null,
@@ -673,6 +691,7 @@ function cacheElements() {
     projects: document.getElementById('projectsPage'),
     dispo: document.getElementById('dispoPage'),
     security: document.getElementById('securityPage'),
+    settings: document.getElementById('settingsPage'),
   };
   elements.projectForm = document.getElementById('projectForm');
   elements.projectIdInput = document.getElementById('projectIdInput');
@@ -703,6 +722,12 @@ function cacheElements() {
   elements.cancelDispoAssignButton = document.getElementById('cancelDispoAssignButton');
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
   elements.adminSqlPreview = document.getElementById('adminSqlPreview');
+  elements.settingsUsersTableBody = document.getElementById('settingsUsersTableBody');
+  elements.settingsHolidaysTableBody = document.getElementById('settingsHolidaysTableBody');
+  elements.holidayForm = document.getElementById('holidayForm');
+  elements.holidayDateInput = document.getElementById('holidayDateInput');
+  elements.holidayNameInput = document.getElementById('holidayNameInput');
+  elements.saveHolidayButton = document.getElementById('saveHolidayButton');
 }
 
 function bindEvents() {
@@ -783,6 +808,15 @@ function bindEvents() {
     elements.weekPicker.value = state.selectedWeek;
     await loadData();
   });
+  if (elements.settingsUsersTableBody) {
+    elements.settingsUsersTableBody.addEventListener('click', handleSettingsUsersTableClick);
+  }
+  if (elements.settingsHolidaysTableBody) {
+    elements.settingsHolidaysTableBody.addEventListener('click', handleSettingsHolidaysTableClick);
+  }
+  if (elements.holidayForm) {
+    elements.holidayForm.addEventListener('submit', handleHolidayFormSubmit);
+  }
   document.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('focus', handleWindowFocus);
   window.addEventListener('pageshow', handleWindowFocus);
@@ -1041,6 +1075,7 @@ function resetAppState() {
   state.dailyAssignments = [];
   state.holidayRequests = [];
   state.requestHistory = [];
+  state.platformHolidays = [];
   state.employeeFilterQuery = '';
   state.projectSearchQuery = '';
   state.editingProjectId = null;
@@ -1054,6 +1089,7 @@ function resetAppState() {
   state.isSavingReport = false;
   state.isSavingProject = false;
   state.isSavingDispo = false;
+  state.isSavingSettings = false;
   state.hasAdminAccess = false;
   state.isAdminStatusResolved = false;
   state.isLoadingData = false;
@@ -1114,6 +1150,7 @@ async function loadData() {
       state.dailyAssignments = [];
       state.holidayRequests = [];
       state.requestHistory = [];
+      state.platformHolidays = [];
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
       finishDataLoad(requestId);
       render();
@@ -1150,6 +1187,10 @@ async function loadData() {
       .from('projects')
       .select('*')
       .order('commission_number', { ascending: true });
+    const platformHolidaysQuery = state.supabase
+      .from(HOLIDAY_TABLE)
+      .select('*')
+      .order('holiday_date', { ascending: true });
     const weekRange = getWeekRange(state.selectedWeek);
     const roleAssignmentsQuery = state.supabase
       .from('project_assignments')
@@ -1168,6 +1209,7 @@ async function loadData() {
       { data: absences, error: absencesError },
       { data: requestHistory, error: requestHistoryError },
       { data: projects, error: projectsError },
+      { data: platformHolidays, error: platformHolidaysError },
       { data: roleAssignments, error: roleAssignmentsError },
       { data: dailyAssignments, error: dailyAssignmentsError },
     ] = await Promise.all([
@@ -1176,6 +1218,7 @@ async function loadData() {
       absencesQuery,
       requestHistoryQuery,
       projectsQuery,
+      platformHolidaysQuery,
       roleAssignmentsQuery,
       dailyAssignmentsQuery,
     ]);
@@ -1185,6 +1228,7 @@ async function loadData() {
     if (absencesError) throw absencesError;
     if (requestHistoryError) throw requestHistoryError;
     if (projectsError) throw projectsError;
+    if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
     if (roleAssignmentsError) throw roleAssignmentsError;
     if (dailyAssignmentsError) throw dailyAssignmentsError;
     if (!isActiveDataLoad(requestId)) {
@@ -1196,6 +1240,7 @@ async function loadData() {
     state.holidayRequests = absences ?? [];
     state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
+    state.platformHolidays = platformHolidays ?? [];
     state.roleAssignments = roleAssignments ?? [];
     state.dailyAssignments = dailyAssignments ?? [];
     syncEmployeeSelection();
@@ -1261,6 +1306,7 @@ async function loadDemoData() {
     state.dailyAssignments = [];
     state.holidayRequests = [];
     state.requestHistory = [];
+    state.platformHolidays = [];
     elements.dataTimestamp.textContent = 'Kein Zugriff – Demo-Profil hat is_admin = false';
     return;
   }
@@ -1283,6 +1329,7 @@ async function loadDemoData() {
   state.dailyAssignments = [];
   state.holidayRequests = [...demoHolidayRequests];
   state.requestHistory = [...demoRequestHistory];
+  state.platformHolidays = [...demoPlatformHolidays];
   syncEmployeeSelection();
   syncAbsenceSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
@@ -1332,6 +1379,8 @@ function render() {
   renderProjectForm();
   renderProjectsTable();
   renderDispoPlanner();
+  renderSettingsUsersTable();
+  renderSettingsHolidaysTable();
   renderLoadingOverlay();
 }
 
@@ -1402,6 +1451,7 @@ function renderPages() {
     projects: 'Projekte / Aufträge',
     dispo: 'Dispo / Wochenplanung',
     security: 'Admin-Zugriff',
+    settings: 'Einstellungen',
   };
 
   elements.pageTitle.textContent = pageTitles[state.currentPage];
@@ -1627,13 +1677,14 @@ function renderSaldoTable() {
     return;
   }
 
-  if (!state.profiles.length) {
+  const profiles = getReportableProfiles();
+  if (!profiles.length) {
     elements.saldoTableBody.innerHTML = '<tr><td colspan="11">Keine Profile gefunden.</td></tr>';
     return;
   }
 
   const currentIsoWeek = getCurrentIsoWeekNumber();
-  elements.saldoTableBody.innerHTML = state.profiles
+  elements.saldoTableBody.innerHTML = profiles
     .map((profile) => {
       const metrics = getProfileSaldoMetrics(profile, currentIsoWeek);
       return `
@@ -2090,6 +2141,97 @@ function handleSaldoTableClick(event) {
   handleSaveSaldoProfile(profileId);
 }
 
+async function handleSettingsUsersTableClick(event) {
+  const trigger = event.target.closest('[data-action="toggle-user-active"]');
+  if (!trigger || state.isSavingSettings) {
+    return;
+  }
+
+  const profileId = trigger.dataset.profileId;
+  const profile = state.profiles.find((item) => String(item.id) === String(profileId));
+  if (!profile) {
+    return;
+  }
+
+  const nextValue = profile.is_active === false;
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (demoProfile) demoProfile.is_active = nextValue;
+    } else {
+      const { error } = await state.supabase
+        .from('app_profiles')
+        .update({ is_active: nextValue })
+        .eq('id', profileId);
+      if (error) throw error;
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Benutzerstatus konnte nicht aktualisiert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleHolidayFormSubmit(event) {
+  event.preventDefault();
+  if (state.isSavingSettings) return;
+
+  const holidayDate = String(elements.holidayDateInput?.value || '').trim();
+  const label = String(elements.holidayNameInput?.value || '').trim();
+  if (!holidayDate || !label) {
+    alert('Bitte Datum und Bezeichnung erfassen.');
+    return;
+  }
+
+  state.isSavingSettings = true;
+  try {
+    await createPlatformHoliday(holidayDate, label);
+    if (elements.holidayForm) {
+      elements.holidayForm.reset();
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Feiertag konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleSettingsHolidaysTableClick(event) {
+  const trigger = event.target.closest('[data-action="delete-holiday"]');
+  if (!trigger || state.isSavingSettings) {
+    return;
+  }
+
+  const holidayId = trigger.dataset.holidayId;
+  if (!holidayId) return;
+  if (!confirm('Feiertag aus der Liste entfernen?')) return;
+
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const index = demoPlatformHolidays.findIndex((item) => String(item.id) === String(holidayId));
+      if (index >= 0) demoPlatformHolidays.splice(index, 1);
+    } else {
+      const { error } = await state.supabase.from(HOLIDAY_TABLE).delete().eq('id', holidayId);
+      if (error) throw error;
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Feiertag konnte nicht entfernt werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
 async function handleConfirmReport(reportId) {
   if (!reportId || state.isSavingReport) {
     return;
@@ -2484,6 +2626,92 @@ async function handleSaveSaldoProfile(profileId) {
   }
 }
 
+async function createPlatformHoliday(holidayDate, label) {
+  if (state.isDemoMode) {
+    const alreadyExists = demoPlatformHolidays.some((item) => item.holiday_date === holidayDate);
+    if (!alreadyExists) {
+      demoPlatformHolidays.push({ id: crypto.randomUUID(), holiday_date: holidayDate, label });
+    }
+    await createHolidayWeeklyReportsForDate(holidayDate, label);
+    return;
+  }
+
+  const upsertResult = await state.supabase
+    .from(HOLIDAY_TABLE)
+    .upsert({ holiday_date: holidayDate, label }, { onConflict: 'holiday_date' })
+    .select('*')
+    .maybeSingle();
+  if (upsertResult.error && !isMissingTableError(upsertResult.error, HOLIDAY_TABLE)) {
+    throw upsertResult.error;
+  }
+  await createHolidayWeeklyReportsForDate(holidayDate, label);
+}
+
+async function createHolidayWeeklyReportsForDate(holidayDate, label) {
+  const activeProfiles = getActiveProfiles();
+  if (!activeProfiles.length) {
+    return;
+  }
+
+  const yearKw = getIsoYearAndWeekFromDateString(holidayDate);
+  let existingReportProfileIds = new Set(
+    state.weeklyReports
+      .filter((report) => report.work_date === holidayDate)
+      .map((report) => report.profile_id),
+  );
+
+  if (!state.isDemoMode) {
+    const profileIds = activeProfiles.map((profile) => profile.id);
+    const { data: existingRows, error: existingRowsError } = await state.supabase
+      .from('weekly_reports')
+      .select('profile_id')
+      .eq('work_date', holidayDate)
+      .in('profile_id', profileIds);
+    if (existingRowsError) {
+      throw existingRowsError;
+    }
+    existingReportProfileIds = new Set((existingRows || []).map((row) => row.profile_id));
+  }
+
+  const reportRows = activeProfiles
+    .filter((profile) => !existingReportProfileIds.has(profile.id))
+    .map((profile) => ({
+      profile_id: profile.id,
+      work_date: holidayDate,
+      year: yearKw.year,
+      kw: yearKw.kw,
+      project_name: 'Feiertag',
+      commission_number: label || 'Feiertag',
+      abz_typ: 5,
+      start_time: '07:00',
+      end_time: '16:30',
+      lunch_break_minutes: 60,
+      additional_break_minutes: 30,
+      total_work_minutes: 480,
+      adjusted_work_minutes: 480,
+      expenses_amount: 0,
+      other_costs_amount: 0,
+      expense_note: '',
+      notes: `Automatisch aus Feiertag (${label || 'Feiertag'}) erstellt.`,
+      controll: '',
+      attachments: [],
+    }));
+
+  if (!reportRows.length) {
+    return;
+  }
+
+  if (state.isDemoMode) {
+    reportRows.forEach((row) => demoWeeklyReports.push({ id: crypto.randomUUID(), ...row }));
+    return;
+  }
+
+  const { error } = await state.supabase.from('weekly_reports').insert(reportRows);
+  if (error) {
+    throw error;
+  }
+}
+
 function updateDemoReport(reportId, updates) {
   const report = demoWeeklyReports.find((item) => item.id === reportId);
   if (!report) {
@@ -2593,6 +2821,11 @@ function isMissingRpcFunctionError(error, functionName) {
   return error?.code === 'PGRST202' || message.includes(`Could not find the function public.${functionName}`);
 }
 
+function isMissingTableError(error, tableName) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === 'PGRST205' || message.includes(`relation "${String(tableName || '').toLowerCase()}" does not exist`);
+}
+
 async function insertHolidayRequestHistoryEntry(request, context) {
   const { error } = await state.supabase.from('request_history').insert({
     profile_id: request.profile_id,
@@ -2691,11 +2924,57 @@ function renderHistoryActionsCell(entry) {
   `;
 }
 
+function renderSettingsUsersTable() {
+  if (!elements.settingsUsersTableBody) return;
+  if (!state.profiles.length) {
+    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="5">Keine Benutzer gefunden.</td></tr>';
+    return;
+  }
+
+  const sortedProfiles = [...state.profiles].sort((left, right) => `${left.full_name || ''}`.localeCompare(`${right.full_name || ''}`, 'de'));
+  elements.settingsUsersTableBody.innerHTML = sortedProfiles.map((profile) => {
+    const isActive = profile.is_active !== false;
+    const isOwnProfile = String(profile.id) === String(state.currentProfile?.id);
+    return `<tr>
+      <td>${escapeHtml(profile.full_name || '–')}</td>
+      <td>${escapeHtml(profile.email || '–')}</td>
+      <td>${escapeHtml(profile.role_label || '–')}</td>
+      <td><span class="pill ${isActive ? 'success' : 'warning'}">${isActive ? 'Aktiv' : 'Deaktiviert'}</span></td>
+      <td>
+        <button class="button button-small ${isActive ? 'button-danger' : 'button-secondary'}" type="button" data-action="toggle-user-active" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
+          ${isActive ? 'Deaktivieren' : 'Aktivieren'}
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSettingsHolidaysTable() {
+  if (!elements.settingsHolidaysTableBody) return;
+  const rows = [...state.platformHolidays].sort((a, b) => `${a.holiday_date || ''}`.localeCompare(`${b.holiday_date || ''}`));
+  if (!rows.length) {
+    elements.settingsHolidaysTableBody.innerHTML = '<tr><td colspan="3">Noch keine Feiertage erfasst.</td></tr>';
+    return;
+  }
+
+  elements.settingsHolidaysTableBody.innerHTML = rows.map((entry) => `
+    <tr>
+      <td>${escapeHtml(formatDate(entry.holiday_date))}</td>
+      <td>${escapeHtml(entry.label || 'Feiertag')}</td>
+      <td>
+        <button class="button button-small button-danger" type="button" data-action="delete-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+          Entfernen
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
 function renderProjectForm() {
   if (!elements.projectLeadSelect) return;
   const options = [`<option value="">Bitte wählen</option>`]
     .concat(
-      state.profiles.map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
+      getActiveProfiles().map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
     )
     .join('');
   elements.projectLeadSelect.innerHTML = options;
@@ -2735,7 +3014,8 @@ function renderDispoPlanner() {
   elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
   const dates = getWeekDateList(state.selectedWeek);
   elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-column" data-date="${escapeAttribute(date)}" title="Tag für alle setzen">+</button></div></th>`).join('')}</tr>`;
-  elements.dispoTableBody.innerHTML = state.profiles.map((profile) => {
+  const activeProfiles = getActiveProfiles();
+  elements.dispoTableBody.innerHTML = activeProfiles.map((profile) => {
     const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
     return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong><button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-row" data-profile-id="${escapeAttribute(profile.id)}" title="Woche für Mitarbeiter setzen">+</button></div></td>${cells}</tr>`;
   }).join('');
@@ -2990,7 +3270,7 @@ async function handleDispoTableClick(event) {
   if (button.dataset.action === 'bulk-dispo-column') {
     const date = button.dataset.date;
     openDispoAssignModal({
-      targets: state.profiles
+      targets: getActiveProfiles()
         .filter((profile) => !isWeeklyReportLocked(profile.id, date))
         .map((profile) => ({ profileId: profile.id, date })),
       label: `Ganzer Tag ${getWeekdayLabel(date)} (${formatDate(date)})`,
@@ -3378,7 +3658,7 @@ async function exportDispoPdf() {
       return;
     }
     const dates = getWeekDateList(state.selectedWeek);
-    const body = state.profiles.map((profile) => {
+    const body = getActiveProfiles().map((profile) => {
       const row = [profile.full_name || profile.email || 'Unbekannt'];
       for (const date of dates) {
         const entry = state.dailyAssignments.find((item) => item.profile_id === profile.id && item.assignment_date === date);
@@ -4381,11 +4661,15 @@ function getAvailableAbsenceProfileIds() {
 }
 
 function getReportableProfiles() {
-  return [...state.profiles];
+  return getActiveProfiles();
 }
 
 function getAbsenceFilterProfiles() {
   return getReportableProfiles();
+}
+
+function getActiveProfiles() {
+  return state.profiles.filter((profile) => profile.is_active !== false);
 }
 
 function getMatchingProfiles(profiles, query) {
@@ -4692,6 +4976,7 @@ function buildFallbackProfileFromUser(user) {
     full_name: email || 'Benutzer',
     role_label: 'Benutzer',
     is_admin: false,
+    is_active: true,
   };
 }
 
