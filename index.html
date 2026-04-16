@@ -60,10 +60,6 @@
               <span class="nav-tab-icon" aria-hidden="true">🏖️</span>
               <span class="visually-hidden">Ferien und Absenzen</span>
             </button>
-            <button class="nav-tab" data-page="confirmations" type="button" title="Bestätigungen" aria-label="Bestätigungen">
-              <span class="nav-tab-icon" aria-hidden="true">✅</span>
-              <span class="visually-hidden">Bestätigungen</span>
-            </button>
             <button class="nav-tab" data-page="saldo" type="button" title="Saldo" aria-label="Saldo">
               <span class="nav-tab-icon" aria-hidden="true">⚖️</span>
               <span class="visually-hidden">Saldo</span>
@@ -224,6 +220,15 @@
                     Absenzarten.
                   </p>
                 </div>
+                <button
+                  id="openConfirmationsModalButton"
+                  class="button button-secondary button-icon"
+                  type="button"
+                  aria-label="Bestätigte Absenzen anzeigen"
+                  title="Bestätigte Absenzen anzeigen"
+                >
+                  ✅
+                </button>
               </div>
               <div class="report-filter-panel">
                 <div class="report-filter-toolbar">
@@ -258,53 +263,6 @@
                     </tr>
                   </thead>
                   <tbody id="absencesTableBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-
-
-          <section id="confirmationsPage" class="page hidden">
-            <div class="panel table-panel">
-              <div class="section-heading">
-                <div>
-                  <h3>Bestätigungen</h3>
-                  <p>
-                    Historie aller bestätigten oder abgeschlossenen Gesuche aus
-                    <code>request_history</code>.
-                  </p>
-                </div>
-              </div>
-
-              <div class="report-filter-panel confirmation-filter-panel">
-                <div class="report-filter-toolbar">
-                  <label>
-                    <span>Ausgelöst von</span>
-                    <input id="confirmationDateFromInput" type="date" />
-                  </label>
-                  <label>
-                    <span>Ausgelöst bis</span>
-                    <input id="confirmationDateToInput" type="date" />
-                  </label>
-                  <div class="report-filter-actions">
-                    <button id="clearConfirmationDateFilterButton" class="button button-secondary" type="button">Filter zurücksetzen</button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Person</th>
-                      <th>Typ</th>
-                      <th>Von - Bis</th>
-                      <th>Bestätigt durch</th>
-                      <th>Ausgelöst am</th>
-                      <th>Aktionen</th>
-                    </tr>
-                  </thead>
-                  <tbody id="confirmationsTableBody"></tbody>
                 </table>
               </div>
             </div>
@@ -389,10 +347,15 @@
                 <table>
                   <thead>
                     <tr>
+                      <th>Tracknummer</th>
                       <th>Kommissionsnummer</th>
                       <th>Projektname</th>
+                      <th>Erstellt</th>
+                      <th>Geupdatet</th>
                       <th>Projektleiter</th>
+                      <th>PL User-ID</th>
                       <th>Bauleiter</th>
+                      <th>BL User-ID</th>
                       <th>Aktionen</th>
                     </tr>
                   </thead>
@@ -499,7 +462,7 @@
                   <h4>Benutzerverwaltung</h4>
                   <p class="subtle-text">
                     Deaktivierte Benutzer werden in den Planungen und Filtern ausgeblendet,
-                    bleiben aber im System erhalten.
+                    können aber wieder aktiviert oder vollständig entfernt werden.
                   </p>
                   <div class="table-wrapper">
                     <table>
@@ -508,6 +471,7 @@
                           <th>Name</th>
                           <th>E-Mail</th>
                           <th>Rolle</th>
+                          <th>Sollerlös (CHF)</th>
                           <th>Status</th>
                           <th>Aktion</th>
                         </tr>
@@ -694,6 +658,47 @@
               <button class="button button-primary" type="submit">Zuweisen</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div id="confirmationsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmationsModalTitle">
+        <div class="modal-backdrop" data-close-confirmations-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="confirmationsModalTitle">Bestätigte Absenzen</h3>
+              <p>Standardmässig werden nur aktuelle und zukünftige Einträge gezeigt.</p>
+            </div>
+            <button id="closeConfirmationsModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <div class="report-filter-panel confirmation-filter-panel">
+            <div class="report-filter-toolbar">
+              <label class="checkbox-inline">
+                <input id="includeConfirmationHistoryInput" type="checkbox" />
+                <span>Historie anzeigen</span>
+              </label>
+              <div class="report-filter-actions">
+                <button id="exportConfirmationsPdfButton" class="button button-secondary" type="button">Alle gefilterten als PDF</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Typ</th>
+                  <th>Von - Bis</th>
+                  <th>Bestätigt durch</th>
+                  <th>Ausgelöst am</th>
+                  <th>Aktionen</th>
+                </tr>
+              </thead>
+              <tbody id="confirmationsTableBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 

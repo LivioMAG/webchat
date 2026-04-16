@@ -29,6 +29,7 @@ create table if not exists public.app_profiles (
   reported_hours numeric(10,2) not null default 0,
   credited_hours numeric(10,2) not null default 0,
   weekly_hours numeric(10,2) not null default 40,
+  target_revenue numeric(12,2) not null default 0,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -111,6 +112,9 @@ add column if not exists credited_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
+
+alter table public.app_profiles
+add column if not exists target_revenue numeric(12,2) not null default 0;
 
 alter table public.weekly_reports
 add column if not exists controll text;
@@ -300,9 +304,17 @@ create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
   commission_number text not null,
   name text not null,
+  project_lead_profile_id uuid references public.app_profiles(id) on delete set null,
+  construction_lead_profile_id uuid references public.app_profiles(id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.projects
+add column if not exists project_lead_profile_id uuid references public.app_profiles(id) on delete set null;
+
+alter table public.projects
+add column if not exists construction_lead_profile_id uuid references public.app_profiles(id) on delete set null;
 
 create unique index if not exists projects_commission_number_idx
 on public.projects (commission_number);
@@ -401,6 +413,34 @@ begin
   );
 
   return deleted_request;
+end;
+$$;
+
+create or replace function public.purge_user_account(
+  p_profile_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth, storage
+as $$
+begin
+  if p_profile_id is null then
+    raise exception 'Profil-ID fehlt.';
+  end if;
+  if not public.is_admin_user() then
+    raise exception 'Nur Admin darf Benutzer restlos entfernen.';
+  end if;
+  if auth.uid() = p_profile_id then
+    raise exception 'Eigenes Profil kann nicht gelöscht werden.';
+  end if;
+
+  delete from storage.objects
+  where bucket_id = 'weekly-attachments'
+    and name like p_profile_id::text || '/%';
+
+  delete from auth.users
+  where id = p_profile_id;
 end;
 $$;
 
