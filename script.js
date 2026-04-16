@@ -3114,15 +3114,29 @@ function renderDispoPlanner() {
   elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedWeek);
   elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
   const dates = getWeekDateList(state.selectedWeek);
-  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span></div></th>`).join('')}</tr>`;
+  elements.dispoTableHead.innerHTML = `<tr><th>Mitarbeiter</th>${dates.map((date) => {
+    const isWeekend = isWeekendDate(date);
+    const hasEditableProfiles = getActiveProfiles().some((profile) => !isWeeklyReportLocked(profile.id, date));
+    const bulkAssignButton = !isWeekend && hasEditableProfiles
+      ? `<button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-column" data-date="${escapeAttribute(date)}" title="Ganzer Tag disponieren" aria-label="Ganzer Tag disponieren">＋</button>`
+      : '';
+    return `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span>${bulkAssignButton}</div></th>`;
+  }).join('')}</tr>`;
   const activeProfiles = getActiveProfiles();
   elements.dispoTableBody.innerHTML = activeProfiles.map((profile) => {
     const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
-    return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong></div></td>${cells}</tr>`;
+    const hasEditableWeekdays = dates.some((date) => !isWeekendDate(date) && !isWeeklyReportLocked(profile.id, date));
+    const bulkAssignRowButton = hasEditableWeekdays
+      ? `<button class="button button-secondary button-icon-only" type="button" data-action="bulk-dispo-row" data-profile-id="${escapeAttribute(profile.id)}" title="Woche für Mitarbeiter disponieren" aria-label="Woche für Mitarbeiter disponieren">＋</button>`
+      : '';
+    return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong>${bulkAssignRowButton}</div></td>${cells}</tr>`;
   }).join('');
 }
 
 function renderDispoCell(profileId, date) {
+  if (isWeekendDate(date)) {
+    return '<td><div class="dispo-plus-cell"><span class="subtle-text">–</span></div></td>';
+  }
   const weeklyReportItems = getWeeklyReportItems(profileId, date);
   if (weeklyReportItems.length) {
     return `<td><div class="dispo-cell dispo-cell-locked">
@@ -3132,7 +3146,7 @@ function renderDispoCell(profileId, date) {
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
   if (!items.length) {
-    return '<td><div class="dispo-plus-cell"><span class="subtle-text">–</span></div></td>';
+    return `<td><div class="dispo-plus-cell"><button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button></div></td>`;
   }
   return `<td><div class="dispo-cell">
     <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
