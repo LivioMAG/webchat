@@ -680,7 +680,6 @@ function cacheElements() {
   elements.projectNameInput = document.getElementById('projectNameInput');
   elements.projectLeadSelect = document.getElementById('projectLeadSelect');
   elements.constructionLeadSelect = document.getElementById('constructionLeadSelect');
-  elements.projectWorkersSelect = document.getElementById('projectWorkersSelect');
   elements.projectSearchInput = document.getElementById('projectSearchInput');
   elements.projectsTableBody = document.getElementById('projectsTableBody');
   elements.projectsAlert = document.getElementById('projectsAlert');
@@ -2701,29 +2700,24 @@ function renderProjectForm() {
     .join('');
   elements.projectLeadSelect.innerHTML = options;
   elements.constructionLeadSelect.innerHTML = options;
-  elements.projectWorkersSelect.innerHTML = state.profiles
-    .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
-    .join('');
 }
 
 function renderProjectsTable() {
   if (!elements.projectsTableBody) return;
   const rows = getFilteredProjects();
   if (!rows.length) {
-    elements.projectsTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Keine Projekte vorhanden.</td></tr>';
+    elements.projectsTableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Keine Projekte vorhanden.</td></tr>';
     return;
   }
   elements.projectsTableBody.innerHTML = rows.map((project) => {
     const assignments = getProjectRoleAssignments(project.id);
     const projectLead = getProfileById(assignments.projectLeadId)?.full_name || '—';
     const constructionLead = getProfileById(assignments.constructionLeadId)?.full_name || '—';
-    const workers = assignments.workerIds.map((id) => getProfileById(id)?.full_name).filter(Boolean).join(', ') || '—';
     return `<tr>
       <td>${escapeHtml(project.commission_number || '')}</td>
       <td>${escapeHtml(project.name || '')}</td>
       <td>${escapeHtml(projectLead)}</td>
       <td>${escapeHtml(constructionLead)}</td>
-      <td>${escapeHtml(workers)}</td>
       <td>
         <div class="table-row-actions">
           <button class="button button-small button-secondary" type="button" data-action="edit-project" data-project-id="${escapeAttribute(project.id)}">Bearbeiten</button>
@@ -2883,7 +2877,6 @@ function getProjectRoleAssignments(projectId) {
   return {
     projectLeadId: rows.find((item) => item.role === 'project_lead')?.profile_id || '',
     constructionLeadId: rows.find((item) => item.role === 'construction_lead')?.profile_id || '',
-    workerIds: rows.filter((item) => item.role === 'worker').map((item) => item.profile_id),
   };
 }
 
@@ -2898,7 +2891,6 @@ async function handleProjectSubmit(event) {
   const name = elements.projectNameInput.value.trim();
   const projectLeadId = elements.projectLeadSelect.value;
   const constructionLeadId = elements.constructionLeadSelect.value;
-  const workerIds = Array.from(elements.projectWorkersSelect.selectedOptions).map((option) => option.value);
   if (!commissionNumber || !name || !projectLeadId || !constructionLeadId) {
     showInlineAlert(elements.projectsAlert, 'Kommissionsnummer, Projektname, Projektleiter und Bauleiter sind Pflicht.', true);
     return;
@@ -2923,7 +2915,6 @@ async function handleProjectSubmit(event) {
     const assignmentRows = [
       { project_id: projectId, profile_id: projectLeadId, assignment_type: 'role', role: 'project_lead' },
       { project_id: projectId, profile_id: constructionLeadId, assignment_type: 'role', role: 'construction_lead' },
-      ...workerIds.map((profileId) => ({ project_id: projectId, profile_id: profileId, assignment_type: 'role', role: 'worker' })),
     ];
     const { error: assignError } = await state.supabase.from('project_assignments').insert(assignmentRows);
     if (assignError) throw assignError;
@@ -2940,7 +2931,6 @@ function resetProjectForm() {
   elements.projectNameInput.value = '';
   elements.projectLeadSelect.value = '';
   elements.constructionLeadSelect.value = '';
-  Array.from(elements.projectWorkersSelect.options).forEach((option) => { option.selected = false; });
 }
 
 async function handleProjectsTableClick(event) {
@@ -2958,7 +2948,6 @@ async function handleProjectsTableClick(event) {
     elements.projectNameInput.value = project.name || '';
     elements.projectLeadSelect.value = roles.projectLeadId;
     elements.constructionLeadSelect.value = roles.constructionLeadId;
-    Array.from(elements.projectWorkersSelect.options).forEach((option) => { option.selected = roles.workerIds.includes(option.value); });
     return;
   }
   if (action === 'delete-project') {
@@ -3964,29 +3953,31 @@ async function drawAttachmentGalleryPage(pdf, attachments, { profileName, calend
   const margin = 15;
   const slotGap = 8;
   const titleY = 18;
-  const availableHeight = pageHeight - 34 - margin;
-  const slotHeight = (availableHeight - slotGap) / 2;
-  const slotWidth = pageWidth - margin * 2;
+  const contentTopY = 24;
+  const slotCount = 2;
+  const slotWidth = (pageWidth - margin * 2 - slotGap) / slotCount;
+  const slotHeight = pageHeight - contentTopY - margin;
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(16);
   pdf.text(`Anhänge · ${profileName} · ${calendarWeek}`, margin, titleY);
 
   for (const [index, attachment] of attachments.entries()) {
-    const slotY = 24 + index * (slotHeight + slotGap);
+    const slotX = margin + index * (slotWidth + slotGap);
+    const slotY = contentTopY;
     try {
       const dataUrl = await fileToDataUrl(getAttachmentUrl(attachment));
       const imageProps = pdf.getImageProperties(dataUrl);
       const scale = Math.min(slotWidth / imageProps.width, slotHeight / imageProps.height);
       const renderWidth = imageProps.width * scale;
       const renderHeight = imageProps.height * scale;
-      const renderX = margin + (slotWidth - renderWidth) / 2;
+      const renderX = slotX + (slotWidth - renderWidth) / 2;
       const renderY = slotY + (slotHeight - renderHeight) / 2;
       pdf.addImage(dataUrl, imageProps.fileType || 'JPEG', renderX, renderY, renderWidth, renderHeight);
     } catch (error) {
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
-      pdf.text('Bild konnte nicht geladen werden.', margin, slotY + 10);
+      pdf.text('Bild konnte nicht geladen werden.', slotX, slotY + 10);
     }
   }
 }

@@ -346,7 +346,7 @@
               <div class="section-heading">
                 <div>
                   <h3>Projekte / Aufträge</h3>
-                  <p>Projekte verwalten und Rollen (Projektleiter, Bauleiter, Arbeiter) zuweisen.</p>
+                  <p>Projekte verwalten und Projektleiter/Bauleiter zuweisen.</p>
                 </div>
               </div>
               <div id="projectsAlert" class="alert hidden"></div>
@@ -369,11 +369,6 @@
                     <span>Bauleiter *</span>
                     <select id="constructionLeadSelect" required></select>
                   </label>
-                  <label class="projects-workers-select">
-                    <span>Arbeiter</span>
-                    <select id="projectWorkersSelect" multiple size="6"></select>
-                    <small class="subtle-text">Nur ausgewählte Arbeiter werden im Auftrag gespeichert (Mehrfachauswahl mit Ctrl/Cmd).</small>
-                  </label>
                 </div>
                 <div class="report-filter-actions">
                   <button id="saveProjectButton" class="button button-primary" type="submit">Projekt speichern</button>
@@ -394,7 +389,6 @@
                       <th>Projektname</th>
                       <th>Projektleiter</th>
                       <th>Bauleiter</th>
-                      <th>Arbeiter</th>
                       <th>Aktionen</th>
                     </tr>
                   </thead>
