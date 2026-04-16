@@ -8,6 +8,15 @@ const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
+const APP_ROLE_OPTIONS = ['Lehrling', 'Elektroinstallateur', 'Bauleiter', 'Projektleiter'];
+const SCHOOL_DAY_OPTIONS = [
+  { value: 1, label: 'Montag' },
+  { value: 2, label: 'Dienstag' },
+  { value: 3, label: 'Mittwoch' },
+  { value: 4, label: 'Donnerstag' },
+  { value: 5, label: 'Freitag' },
+];
+const SCHOOL_REPORT_NOTE_MARKER = 'Automatisch erstellter Berufsschultag';
 const CRM_CATEGORY_LABELS = {
   kunde: 'Kunde',
   lieferant: 'Lieferant',
@@ -89,6 +98,12 @@ alter table public.app_profiles
 add column if not exists target_revenue numeric(12,2) not null default 0;
 
 alter table public.app_profiles
+add column if not exists school_day_1 smallint;
+
+alter table public.app_profiles
+add column if not exists school_day_2 smallint;
+
+alter table public.app_profiles
 add column if not exists is_active boolean not null default true;
 
 alter table public.weekly_reports
@@ -111,6 +126,18 @@ add column if not exists project_lead_profile_id uuid references public.app_prof
 
 alter table public.projects
 add column if not exists construction_lead_profile_id uuid references public.app_profiles(id) on delete set null;
+
+alter table public.projects
+add column if not exists allow_expenses boolean not null default true;
+
+create table if not exists public.school_vacations (
+  id uuid primary key default gen_random_uuid(),
+  start_date date not null,
+  end_date date not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now()),
+  constraint school_vacations_range_check check (end_date >= start_date)
+);
 
 alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
@@ -571,6 +598,7 @@ const state = {
   holidayRequests: [],
   requestHistory: [],
   platformHolidays: [],
+  schoolVacations: [],
   crmContacts: [],
   crmNotes: [],
   selectedCrmContactId: null,
@@ -730,6 +758,7 @@ function cacheElements() {
   elements.projectNameInput = document.getElementById('projectNameInput');
   elements.projectLeadSelect = document.getElementById('projectLeadSelect');
   elements.constructionLeadSelect = document.getElementById('constructionLeadSelect');
+  elements.projectExpensesAllowedInput = document.getElementById('projectExpensesAllowedInput');
   elements.projectSearchInput = document.getElementById('projectSearchInput');
   elements.projectsTableBody = document.getElementById('projectsTableBody');
   elements.projectsAlert = document.getElementById('projectsAlert');
@@ -755,10 +784,14 @@ function cacheElements() {
   elements.adminSqlPreview = document.getElementById('adminSqlPreview');
   elements.settingsUsersTableBody = document.getElementById('settingsUsersTableBody');
   elements.settingsHolidaysTableBody = document.getElementById('settingsHolidaysTableBody');
+  elements.settingsSchoolVacationsTableBody = document.getElementById('settingsSchoolVacationsTableBody');
   elements.holidayForm = document.getElementById('holidayForm');
   elements.holidayDateInput = document.getElementById('holidayDateInput');
   elements.holidayNameInput = document.getElementById('holidayNameInput');
   elements.saveHolidayButton = document.getElementById('saveHolidayButton');
+  elements.schoolVacationForm = document.getElementById('schoolVacationForm');
+  elements.schoolVacationStartInput = document.getElementById('schoolVacationStartInput');
+  elements.schoolVacationEndInput = document.getElementById('schoolVacationEndInput');
   elements.crmAlert = document.getElementById('crmAlert');
   elements.crmSearchInput = document.getElementById('crmSearchInput');
   elements.crmCategoryFilterInput = document.getElementById('crmCategoryFilterInput');
@@ -876,12 +909,19 @@ function bindEvents() {
   });
   if (elements.settingsUsersTableBody) {
     elements.settingsUsersTableBody.addEventListener('click', handleSettingsUsersTableClick);
+    elements.settingsUsersTableBody.addEventListener('change', handleSettingsUsersTableChange);
   }
   if (elements.settingsHolidaysTableBody) {
     elements.settingsHolidaysTableBody.addEventListener('click', handleSettingsHolidaysTableClick);
   }
   if (elements.holidayForm) {
     elements.holidayForm.addEventListener('submit', handleHolidayFormSubmit);
+  }
+  if (elements.settingsSchoolVacationsTableBody) {
+    elements.settingsSchoolVacationsTableBody.addEventListener('click', handleSettingsSchoolVacationsTableClick);
+  }
+  if (elements.schoolVacationForm) {
+    elements.schoolVacationForm.addEventListener('submit', handleSchoolVacationFormSubmit);
   }
   if (elements.crmContactForm) {
     elements.crmContactForm.addEventListener('submit', handleCrmContactSubmit);
@@ -1176,6 +1216,7 @@ function resetAppState() {
   state.holidayRequests = [];
   state.requestHistory = [];
   state.platformHolidays = [];
+  state.schoolVacations = [];
   state.crmContacts = [];
   state.crmNotes = [];
   state.selectedCrmContactId = null;
@@ -1254,6 +1295,7 @@ async function loadData() {
       state.holidayRequests = [];
       state.requestHistory = [];
       state.platformHolidays = [];
+      state.schoolVacations = [];
       state.crmContacts = [];
       state.crmNotes = [];
       state.selectedCrmContactId = null;
@@ -1304,6 +1346,10 @@ async function loadData() {
       .from(HOLIDAY_TABLE)
       .select('*')
       .order('holiday_date', { ascending: true });
+    const schoolVacationsQuery = state.supabase
+      .from('school_vacations')
+      .select('*')
+      .order('start_date', { ascending: true });
     const crmContactsQuery = state.supabase
       .from('crm_contacts')
       .select('*')
@@ -1323,6 +1369,7 @@ async function loadData() {
       { data: projects, error: projectsError },
       { data: dailyAssignments, error: dailyAssignmentsError },
       { data: platformHolidays, error: platformHolidaysError },
+      { data: schoolVacations, error: schoolVacationsError },
       { data: crmContacts, error: crmContactsError },
       { data: crmNotes, error: crmNotesError },
     ] = await Promise.all([
@@ -1333,6 +1380,7 @@ async function loadData() {
       projectsQuery,
       dailyAssignmentsQuery,
       platformHolidaysQuery,
+      schoolVacationsQuery,
       crmContactsQuery,
       crmNotesQuery,
     ]);
@@ -1344,6 +1392,7 @@ async function loadData() {
     if (projectsError) throw projectsError;
     if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) throw dailyAssignmentsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
+    if (schoolVacationsError && !isMissingTableError(schoolVacationsError, 'school_vacations')) throw schoolVacationsError;
     if (crmContactsError && !isMissingTableError(crmContactsError, 'crm_contacts')) throw crmContactsError;
     if (crmNotesError && !isMissingTableError(crmNotesError, NOTES_TABLE)) throw crmNotesError;
     if (!isActiveDataLoad(requestId)) {
@@ -1357,6 +1406,7 @@ async function loadData() {
     state.projects = projects ?? [];
     state.dailyAssignments = dailyAssignments ?? [];
     state.platformHolidays = platformHolidays ?? [];
+    state.schoolVacations = schoolVacations ?? [];
     state.crmContacts = crmContacts ?? [];
     state.crmNotes = crmNotes ?? [];
     if (state.selectedCrmContactId && !state.crmContacts.some((item) => String(item.id) === String(state.selectedCrmContactId))) {
@@ -1427,6 +1477,7 @@ async function loadDemoData() {
     state.holidayRequests = [];
     state.requestHistory = [];
     state.platformHolidays = [];
+    state.schoolVacations = [];
     elements.dataTimestamp.textContent = 'Kein Zugriff – Demo-Profil hat is_admin = false';
     return;
   }
@@ -1450,6 +1501,7 @@ async function loadDemoData() {
   state.holidayRequests = [...demoHolidayRequests];
   state.requestHistory = [...demoRequestHistory];
   state.platformHolidays = [...demoPlatformHolidays];
+  state.schoolVacations = [];
   state.crmContacts = [];
   state.crmNotes = [];
   state.selectedCrmContactId = null;
@@ -1504,6 +1556,7 @@ function render() {
   renderDispoPlanner();
   renderSettingsUsersTable();
   renderSettingsHolidaysTable();
+  renderSettingsSchoolVacationsTable();
   renderCrmContactsTable();
   renderCrmContactDetail();
   renderCrmNotesPanel();
@@ -2282,6 +2335,11 @@ async function handleSettingsUsersTableClick(event) {
   }
 
   const action = trigger.dataset.action;
+  if (action === 'save-role-config') {
+    await handleSaveRoleConfig(profileId);
+    return;
+  }
+
   if (action === 'save-target-revenue') {
     await handleSaveTargetRevenue(profileId);
     return;
@@ -2311,6 +2369,71 @@ async function handleSettingsUsersTableClick(event) {
   } catch (error) {
     console.error(error);
     alert(`Benutzerstatus konnte nicht aktualisiert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+function handleSettingsUsersTableChange(event) {
+  const select = event.target.closest('select[data-school-days-input]');
+  if (!select) return;
+  const selectedValues = Array.from(select.selectedOptions)
+    .map((option) => Number(option.value))
+    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5);
+  if (selectedValues.length <= 2) return;
+  const lastSelected = selectedValues[selectedValues.length - 1];
+  Array.from(select.options).forEach((option) => {
+    const numeric = Number(option.value);
+    option.selected = numeric === selectedValues[0] || numeric === lastSelected;
+  });
+  alert('Für Lehrlinge können maximal zwei Schultage gespeichert werden.');
+}
+
+function getSelectedSchoolDays(profileId) {
+  const select = document.querySelector(`select[data-school-days-input="${profileId}"]`);
+  if (!select) return [];
+  return Array.from(select.selectedOptions)
+    .map((option) => Number(option.value))
+    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5)
+    .slice(0, 2)
+    .sort((a, b) => a - b);
+}
+
+async function handleSaveRoleConfig(profileId) {
+  const roleSelect = document.querySelector(`select[data-role-label-input="${profileId}"]`);
+  const roleLabel = String(roleSelect?.value || '').trim();
+  if (!roleLabel) {
+    alert('Bitte eine gültige Rolle auswählen.');
+    return;
+  }
+  const schoolDays = getSelectedSchoolDays(profileId);
+  if (roleLabel === 'Lehrling' && !schoolDays.length) {
+    alert('Für Lehrlinge muss mindestens ein Schultag ausgewählt werden.');
+    return;
+  }
+  const updates = {
+    role_label: roleLabel,
+    school_day_1: roleLabel === 'Lehrling' ? (schoolDays[0] || null) : null,
+    school_day_2: roleLabel === 'Lehrling' ? (schoolDays[1] || null) : null,
+  };
+
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (demoProfile) Object.assign(demoProfile, updates);
+    } else {
+      const { error } = await state.supabase.from('app_profiles').update(updates).eq('id', profileId);
+      if (error) throw error;
+    }
+    const localProfile = state.profiles.find((item) => String(item.id) === String(profileId));
+    if (localProfile) Object.assign(localProfile, updates);
+    await synchronizeApprenticeSchoolReportsForYear(profileId, new Date().getUTCFullYear());
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Rolle konnte nicht gespeichert werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
@@ -2428,6 +2551,66 @@ async function handleSettingsHolidaysTableClick(event) {
   } catch (error) {
     console.error(error);
     alert(`Feiertag konnte nicht entfernt werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleSchoolVacationFormSubmit(event) {
+  event.preventDefault();
+  if (state.isSavingSettings) return;
+  const startDate = String(elements.schoolVacationStartInput?.value || '').trim();
+  const endDate = String(elements.schoolVacationEndInput?.value || '').trim();
+  if (!startDate || !endDate) {
+    alert('Bitte Start- und Enddatum erfassen.');
+    return;
+  }
+  if (endDate < startDate) {
+    alert('Das Enddatum muss am oder nach dem Startdatum liegen.');
+    return;
+  }
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      state.schoolVacations.push({ id: crypto.randomUUID(), start_date: startDate, end_date: endDate });
+    } else {
+      const { error } = await state.supabase.from('school_vacations').insert({ start_date: startDate, end_date: endDate });
+      if (error) throw error;
+    }
+    await synchronizeAllApprenticeSchoolReportsForYear(new Date().getUTCFullYear());
+    if (elements.schoolVacationForm) {
+      elements.schoolVacationForm.reset();
+    }
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Ferienzeit konnte nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+async function handleSettingsSchoolVacationsTableClick(event) {
+  const trigger = event.target.closest('[data-action="delete-school-vacation"]');
+  if (!trigger || state.isSavingSettings) return;
+  const vacationId = trigger.dataset.schoolVacationId;
+  if (!vacationId) return;
+  if (!confirm('Ferienzeit entfernen?')) return;
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      state.schoolVacations = state.schoolVacations.filter((item) => String(item.id) !== String(vacationId));
+    } else {
+      const { error } = await state.supabase.from('school_vacations').delete().eq('id', vacationId);
+      if (error) throw error;
+    }
+    await synchronizeAllApprenticeSchoolReportsForYear(new Date().getUTCFullYear());
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Ferienzeit konnte nicht entfernt werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
@@ -3053,6 +3236,111 @@ async function createHolidayWeeklyReportsForDate(holidayDate, label) {
   }
 }
 
+async function synchronizeAllApprenticeSchoolReportsForYear(year) {
+  const apprentices = state.profiles.filter((profile) => String(profile.role_label || '').trim() === 'Lehrling');
+  for (const apprentice of apprentices) {
+    // eslint-disable-next-line no-await-in-loop
+    await synchronizeApprenticeSchoolReportsForYear(apprentice.id, year);
+  }
+}
+
+async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
+  const profile = state.profiles.find((item) => String(item.id) === String(profileId))
+    || demoProfiles.find((item) => String(item.id) === String(profileId));
+  if (!profile) return;
+
+  const schoolDays = [Number(profile.school_day_1), Number(profile.school_day_2)]
+    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5);
+  const isApprentice = String(profile.role_label || '') === 'Lehrling';
+  const desiredDates = new Set();
+  if (isApprentice && schoolDays.length) {
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    const cursor = new Date(`${startDate}T00:00:00Z`);
+    const stop = new Date(`${endDate}T00:00:00Z`);
+    while (cursor <= stop) {
+      const isoDate = cursor.toISOString().slice(0, 10);
+      const weekday = getWeekdayIndex(isoDate) + 1;
+      if (schoolDays.includes(weekday) && !isDateInSchoolVacation(isoDate)) {
+        desiredDates.add(isoDate);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  let profileReports = [];
+  if (state.isDemoMode) {
+    profileReports = demoWeeklyReports.filter((report) => report.profile_id === profileId && Number(getIsoYearAndWeekFromDateString(report.work_date).year) === year);
+  } else {
+    const { data, error } = await state.supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('profile_id', profileId)
+      .eq('year', year);
+    if (error) throw error;
+    profileReports = data || [];
+  }
+
+  const autoSchoolReports = profileReports.filter(isAutoSchoolReport);
+  const manualReportDates = new Set(profileReports.filter((report) => !isAutoSchoolReport(report)).map((report) => report.work_date));
+  const existingAutoDates = new Set(autoSchoolReports.map((report) => report.work_date));
+  const datesToInsert = [...desiredDates].filter((date) => !manualReportDates.has(date) && !existingAutoDates.has(date));
+  const reportsToDeleteIds = autoSchoolReports.filter((report) => !desiredDates.has(report.work_date)).map((report) => report.id);
+
+  if (datesToInsert.length) {
+    const rows = datesToInsert.map((workDate) => {
+      const isoWeek = getIsoYearAndWeekFromDateString(workDate);
+      return {
+        profile_id: profileId,
+        work_date: workDate,
+        year: isoWeek.year,
+        kw: isoWeek.kw,
+        project_name: 'Berufsschule',
+        commission_number: 'Berufsschule',
+        abz_typ: 7,
+        start_time: '07:00',
+        end_time: '16:30',
+        lunch_break_minutes: 60,
+        additional_break_minutes: 30,
+        total_work_minutes: 480,
+        adjusted_work_minutes: 480,
+        expenses_amount: 0,
+        other_costs_amount: 0,
+        expense_note: '',
+        notes: SCHOOL_REPORT_NOTE_MARKER,
+        controll: '',
+        attachments: [],
+      };
+    });
+    if (state.isDemoMode) {
+      rows.forEach((row) => demoWeeklyReports.push({ id: crypto.randomUUID(), ...row }));
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').insert(rows);
+      if (error) throw error;
+    }
+  }
+
+  if (reportsToDeleteIds.length) {
+    if (state.isDemoMode) {
+      for (const reportId of reportsToDeleteIds) {
+        const index = demoWeeklyReports.findIndex((item) => String(item.id) === String(reportId));
+        if (index >= 0) demoWeeklyReports.splice(index, 1);
+      }
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').delete().in('id', reportsToDeleteIds);
+      if (error) throw error;
+    }
+  }
+}
+
+function isAutoSchoolReport(report) {
+  return Number(report?.abz_typ) === 7 && String(report?.notes || '').includes(SCHOOL_REPORT_NOTE_MARKER);
+}
+
+function isDateInSchoolVacation(date) {
+  return state.schoolVacations.some((range) => date >= String(range.start_date || '') && date <= String(range.end_date || ''));
+}
+
 function updateDemoReport(reportId, updates) {
   const report = demoWeeklyReports.find((item) => item.id === reportId);
   if (!report) {
@@ -3426,7 +3714,7 @@ function getFilteredCrmContacts() {
 function renderSettingsUsersTable() {
   if (!elements.settingsUsersTableBody) return;
   if (!state.profiles.length) {
-    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="6">Keine Benutzer gefunden.</td></tr>';
+    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="7">Keine Benutzer gefunden.</td></tr>';
     return;
   }
 
@@ -3434,10 +3722,25 @@ function renderSettingsUsersTable() {
   elements.settingsUsersTableBody.innerHTML = sortedProfiles.map((profile) => {
     const isActive = profile.is_active !== false;
     const isOwnProfile = String(profile.id) === String(state.currentProfile?.id);
+    const roleOptions = APP_ROLE_OPTIONS.includes(String(profile.role_label || ''))
+      ? APP_ROLE_OPTIONS
+      : [...APP_ROLE_OPTIONS, String(profile.role_label || 'Benutzer')];
     return `<tr>
       <td>${escapeHtml(profile.full_name || '–')}</td>
       <td>${escapeHtml(profile.email || '–')}</td>
-      <td>${escapeHtml(profile.role_label || '–')}</td>
+      <td>
+        <select data-role-label-input="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+          ${roleOptions.map((role) => `<option value="${escapeAttribute(role)}" ${String(profile.role_label || '') === role ? 'selected' : ''}>${escapeHtml(role)}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select data-school-days-input="${escapeAttribute(profile.id)}" multiple size="5" ${state.isSavingSettings ? 'disabled' : ''}>
+          ${SCHOOL_DAY_OPTIONS.map((option) => {
+            const selected = [Number(profile.school_day_1), Number(profile.school_day_2)].includes(option.value);
+            return `<option value="${option.value}" ${selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`;
+          }).join('')}
+        </select>
+      </td>
       <td>
         <div class="table-row-actions">
           <input
@@ -3455,6 +3758,9 @@ function renderSettingsUsersTable() {
       <td><span class="pill ${isActive ? 'success' : 'warning'}">${isActive ? 'Aktiv' : 'Deaktiviert'}</span></td>
       <td>
         <div class="table-row-actions">
+          <button class="button button-small button-secondary" type="button" data-action="save-role-config" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+            Rolle speichern
+          </button>
           <button class="button button-small ${isActive ? 'button-danger' : 'button-secondary'}" type="button" data-action="toggle-user-active" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
             ${isActive ? 'Deaktivieren' : 'Aktivieren'}
           </button>
@@ -3488,6 +3794,26 @@ function renderSettingsHolidaysTable() {
   `).join('');
 }
 
+function renderSettingsSchoolVacationsTable() {
+  if (!elements.settingsSchoolVacationsTableBody) return;
+  const rows = [...state.schoolVacations].sort((a, b) => `${a.start_date || ''}`.localeCompare(`${b.start_date || ''}`));
+  if (!rows.length) {
+    elements.settingsSchoolVacationsTableBody.innerHTML = '<tr><td colspan="3">Noch keine Ferienzeiten erfasst.</td></tr>';
+    return;
+  }
+  elements.settingsSchoolVacationsTableBody.innerHTML = rows.map((entry) => `
+    <tr>
+      <td>${escapeHtml(formatDate(entry.start_date))}</td>
+      <td>${escapeHtml(formatDate(entry.end_date))}</td>
+      <td>
+        <button class="button button-small button-danger" type="button" data-action="delete-school-vacation" data-school-vacation-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+          Entfernen
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
 function renderProjectForm() {
   if (!elements.projectLeadSelect) return;
   const options = [`<option value="">Bitte wählen</option>`]
@@ -3503,7 +3829,7 @@ function renderProjectsTable() {
   if (!elements.projectsTableBody) return;
   const rows = getFilteredProjects();
   if (!rows.length) {
-    elements.projectsTableBody.innerHTML = '<tr><td colspan="10" class="empty-state">Keine Projekte vorhanden.</td></tr>';
+    elements.projectsTableBody.innerHTML = '<tr><td colspan="11" class="empty-state">Keine Projekte vorhanden.</td></tr>';
     return;
   }
   elements.projectsTableBody.innerHTML = rows.map((project) => {
@@ -3520,6 +3846,7 @@ function renderProjectsTable() {
       <td>${escapeHtml(assignments.projectLeadId || '—')}</td>
       <td>${escapeHtml(constructionLead)}</td>
       <td>${escapeHtml(assignments.constructionLeadId || '—')}</td>
+      <td><span class="pill ${project.allow_expenses === false ? 'warning' : 'success'}">${project.allow_expenses === false ? 'Nein' : 'Ja'}</span></td>
       <td>
         <div class="table-row-actions">
           <button class="button button-small button-secondary" type="button" data-action="edit-project" data-project-id="${escapeAttribute(project.id)}">Bearbeiten</button>
@@ -3618,7 +3945,7 @@ function normalizeDispoTimeValue(value, fallback) {
 
 function isAbsenceDispoItem(label) {
   const normalized = normalizeSearchValue(label || '');
-  return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'absenz'].some((term) => normalized.includes(term));
+  return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'berufsschule', 'absenz'].some((term) => normalized.includes(term));
 }
 
 function upsertLocalDailyAssignment(entry) {
@@ -3705,6 +4032,7 @@ async function handleProjectSubmit(event) {
   const name = elements.projectNameInput.value.trim();
   const projectLeadId = elements.projectLeadSelect.value;
   const constructionLeadId = elements.constructionLeadSelect.value;
+  const allowExpenses = elements.projectExpensesAllowedInput?.checked !== false;
   if (!commissionNumber || !name || !projectLeadId || !constructionLeadId) {
     showInlineAlert(elements.projectsAlert, 'Kommissionsnummer, Projektname, Projektleiter und Bauleiter sind Pflicht.', true);
     return;
@@ -3719,6 +4047,7 @@ async function handleProjectSubmit(event) {
       name,
       project_lead_profile_id: projectLeadId,
       construction_lead_profile_id: constructionLeadId,
+      allow_expenses: allowExpenses,
     };
     let projectId = state.editingProjectId;
     if (projectId) {
@@ -3742,6 +4071,9 @@ function resetProjectForm() {
   elements.projectNameInput.value = '';
   elements.projectLeadSelect.value = '';
   elements.constructionLeadSelect.value = '';
+  if (elements.projectExpensesAllowedInput) {
+    elements.projectExpensesAllowedInput.checked = true;
+  }
 }
 
 async function handleProjectsTableClick(event) {
@@ -3759,6 +4091,9 @@ async function handleProjectsTableClick(event) {
     elements.projectNameInput.value = project.name || '';
     elements.projectLeadSelect.value = roles.projectLeadId;
     elements.constructionLeadSelect.value = roles.constructionLeadId;
+    if (elements.projectExpensesAllowedInput) {
+      elements.projectExpensesAllowedInput.checked = project.allow_expenses !== false;
+    }
     return;
   }
   if (action === 'delete-project') {
