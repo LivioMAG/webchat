@@ -407,15 +407,22 @@
                     dokumentieren.
                   </p>
                 </div>
+                <button id="openCrmCreateModalButton" class="button button-primary button-icon" type="button" title="Neuen Kontakt erstellen" aria-label="Neuen Kontakt erstellen">
+                  +
+                </button>
               </div>
               <div id="crmAlert" class="alert hidden"></div>
 
-              <form id="crmContactForm" class="settings-form">
-                <input id="crmContactIdInput" type="hidden" />
-                <div class="crm-form-grid">
+              <div id="crmContactListView">
+                <div class="report-filter-toolbar crm-filter-toolbar">
+                  <label>
+                    <span>Suche</span>
+                    <input id="crmSearchInput" type="search" placeholder="Nach Firma oder Vor-/Nachname suchen" />
+                  </label>
                   <label>
                     <span>Kategorie</span>
-                    <select id="crmCategoryInput" required>
+                    <select id="crmCategoryFilterInput">
+                      <option value="">Alle Kategorien</option>
                       <option value="kunde">Kunde</option>
                       <option value="lieferant">Lieferant</option>
                       <option value="elektroplaner">Elektroplaner</option>
@@ -423,85 +430,49 @@
                       <option value="unternehmer">Unternehmer</option>
                     </select>
                   </label>
-                  <label>
-                    <span>Firma (optional)</span>
-                    <input id="crmCompanyInput" type="text" maxlength="180" placeholder="Muster AG" />
-                  </label>
-                  <label>
-                    <span>Vorname</span>
-                    <input id="crmFirstNameInput" type="text" maxlength="120" required />
-                  </label>
-                  <label>
-                    <span>Nachname</span>
-                    <input id="crmLastNameInput" type="text" maxlength="120" required />
-                  </label>
-                  <label>
-                    <span>Strasse</span>
-                    <input id="crmStreetInput" type="text" maxlength="180" />
-                  </label>
-                  <label>
-                    <span>Ort</span>
-                    <input id="crmCityInput" type="text" maxlength="120" />
-                  </label>
-                  <label>
-                    <span>Postleitzahl</span>
-                    <input id="crmPostalCodeInput" type="text" maxlength="20" />
-                  </label>
-                  <label>
-                    <span>Telefon</span>
-                    <input id="crmPhoneInput" type="text" maxlength="50" />
-                  </label>
-                  <label>
-                    <span>E-Mail</span>
-                    <input id="crmEmailInput" type="email" maxlength="180" />
-                  </label>
                 </div>
-                <div class="table-row-actions">
-                  <button id="saveCrmContactButton" class="button button-primary" type="submit">Kontakt speichern</button>
-                  <button id="resetCrmContactFormButton" class="button button-secondary" type="button">Zurücksetzen</button>
-                </div>
-              </form>
 
-              <div class="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Kategorie</th>
-                      <th>Firma</th>
-                      <th>Vorname</th>
-                      <th>Nachname</th>
-                      <th>Strasse</th>
-                      <th>Ort</th>
-                      <th>PLZ</th>
-                      <th>Telefon</th>
-                      <th>E-Mail</th>
-                      <th>Notiz</th>
-                      <th>Aktion</th>
-                    </tr>
-                  </thead>
-                  <tbody id="crmContactsTableBody"></tbody>
-                </table>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Firma</th>
+                        <th>Vorname</th>
+                        <th>Nachname</th>
+                        <th>Telefon</th>
+                        <th>E-Mail</th>
+                        <th>Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody id="crmContactsTableBody"></tbody>
+                  </table>
+                </div>
               </div>
 
-              <article class="mini-card crm-notes-card">
-                <h4>Notizen</h4>
-                <p class="subtle-text">
-                  Für den ausgewählten Kontakt wird immer die neuste Notiz oben angezeigt.
-                  Notizen werden in der Tabelle <code>notes</code> gespeichert und über die UID
-                  des Haupteintrags verknüpft. Für CRM-Einträge wird der <code>note_type</code>
-                  automatisch auf <code>crm</code> gesetzt.
-                </p>
-                <div id="crmNotesHeader" class="subtle-text">Kein Kontakt ausgewählt.</div>
-                <form id="crmNoteForm" class="settings-form">
-                  <input id="crmNoteTargetUidInput" type="hidden" />
-                  <label>
-                    <span>Kommentar</span>
-                    <textarea id="crmNoteTextInput" rows="3" placeholder="Kommentar hinzufügen..." required></textarea>
-                  </label>
-                  <button id="saveCrmNoteButton" class="button button-secondary" type="submit">Notiz speichern</button>
-                </form>
-                <ul id="crmNotesList" class="status-list"></ul>
-              </article>
+              <div id="crmContactDetailView" class="hidden">
+                <div class="table-row-actions">
+                  <button id="backToCrmListButton" class="button button-secondary" type="button">← Zur Liste</button>
+                </div>
+                <div class="crm-detail-layout">
+                  <article class="mini-card">
+                    <h4>Kontaktinformationen</h4>
+                    <div id="crmContactDetailInfo" class="crm-detail-info"></div>
+                  </article>
+                  <article class="mini-card crm-notes-card">
+                    <h4>Notizen</h4>
+                    <div id="crmNotesHeader" class="subtle-text">Kein Kontakt ausgewählt.</div>
+                    <form id="crmNoteForm" class="settings-form">
+                      <input id="crmNoteTargetUidInput" type="hidden" />
+                      <label>
+                        <span>Kommentar</span>
+                        <textarea id="crmNoteTextInput" rows="3" placeholder="Kommentar hinzufügen..." required></textarea>
+                      </label>
+                      <button id="saveCrmNoteButton" class="button button-secondary" type="submit">Notiz speichern</button>
+                    </form>
+                    <ul id="crmNotesList" class="status-list"></ul>
+                  </article>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -755,6 +726,70 @@
               <tbody id="confirmationsTableBody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div id="crmContactModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="crmContactModalTitle">
+        <div class="modal-backdrop" data-close-crm-contact-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading">
+            <div>
+              <h3 id="crmContactModalTitle">CRM Kontakt</h3>
+              <p>Neuen Kontakt erfassen oder bestehenden Kontakt bearbeiten.</p>
+            </div>
+          </div>
+          <form id="crmContactForm" class="settings-form">
+            <input id="crmContactIdInput" type="hidden" />
+            <div class="crm-form-grid">
+              <label>
+                <span>Kategorie</span>
+                <select id="crmCategoryInput" required>
+                  <option value="kunde">Kunde</option>
+                  <option value="lieferant">Lieferant</option>
+                  <option value="elektroplaner">Elektroplaner</option>
+                  <option value="subunternehmer">Subunternehmer</option>
+                  <option value="unternehmer">Unternehmer</option>
+                </select>
+              </label>
+              <label>
+                <span>Firma (optional)</span>
+                <input id="crmCompanyInput" type="text" maxlength="180" placeholder="Muster AG" />
+              </label>
+              <label>
+                <span>Vorname</span>
+                <input id="crmFirstNameInput" type="text" maxlength="120" required />
+              </label>
+              <label>
+                <span>Nachname</span>
+                <input id="crmLastNameInput" type="text" maxlength="120" required />
+              </label>
+              <label>
+                <span>Strasse</span>
+                <input id="crmStreetInput" type="text" maxlength="180" />
+              </label>
+              <label>
+                <span>Ort</span>
+                <input id="crmCityInput" type="text" maxlength="120" />
+              </label>
+              <label>
+                <span>Postleitzahl</span>
+                <input id="crmPostalCodeInput" type="text" maxlength="20" />
+              </label>
+              <label>
+                <span>Telefon</span>
+                <input id="crmPhoneInput" type="text" maxlength="50" />
+              </label>
+              <label>
+                <span>E-Mail</span>
+                <input id="crmEmailInput" type="email" maxlength="180" />
+              </label>
+            </div>
+            <div class="modal-actions">
+              <button id="saveCrmContactButton" class="button button-primary" type="submit">Kontakt speichern</button>
+              <button id="resetCrmContactFormButton" class="button button-secondary" type="button">Zurücksetzen</button>
+              <button id="closeCrmContactModalButton" class="button button-secondary" type="button">Schliessen</button>
+            </div>
+          </form>
         </div>
       </div>
 
