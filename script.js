@@ -611,14 +611,18 @@ const state = {
   isSavingProject: false,
   isSavingDispo: false,
   dispoAssignContext: null,
+  dispoAllowMultiplePerDay: false,
+  selectedProjectId: null,
   employeeFilterQuery: '',
   selectedEmployeeIds: [],
   employeeSelectionInitialized: false,
   employeeSelectionTouched: false,
+  showControlledReports: false,
   absenceFilterQuery: '',
   selectedAbsenceEmployeeIds: [],
   absenceSelectionInitialized: false,
   absenceSelectionTouched: false,
+  showControlledAbsences: false,
   includeConfirmationHistory: false,
   isConfirmationsModalOpen: false,
   reportsPage: 1,
@@ -707,11 +711,13 @@ function cacheElements() {
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
   elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.showControlledReportsInput = document.getElementById('showControlledReportsInput');
   elements.selectedAbsenceEmployeesSummary = document.getElementById('selectedAbsenceEmployeesSummary');
   elements.absenceFilterInput = document.getElementById('absenceFilterInput');
   elements.absenceFilterList = document.getElementById('absenceFilterList');
   elements.selectAllAbsenceEmployeesButton = document.getElementById('selectAllAbsenceEmployeesButton');
   elements.clearAbsenceSelectionButton = document.getElementById('clearAbsenceSelectionButton');
+  elements.showControlledAbsencesInput = document.getElementById('showControlledAbsencesInput');
   elements.openConfirmationsModalButton = document.getElementById('openConfirmationsModalButton');
   elements.confirmationsModal = document.getElementById('confirmationsModal');
   elements.closeConfirmationsModalButton = document.getElementById('closeConfirmationsModalButton');
@@ -748,6 +754,7 @@ function cacheElements() {
     absences: document.getElementById('absencesPage'),
     saldo: document.getElementById('saldoPage'),
     projects: document.getElementById('projectsPage'),
+    projectDetail: document.getElementById('projectDetailPage'),
     dispo: document.getElementById('dispoPage'),
     crm: document.getElementById('crmPage'),
     settings: document.getElementById('settingsPage'),
@@ -762,7 +769,12 @@ function cacheElements() {
   elements.projectSearchInput = document.getElementById('projectSearchInput');
   elements.projectsTableBody = document.getElementById('projectsTableBody');
   elements.projectsAlert = document.getElementById('projectsAlert');
+  elements.openProjectModalButton = document.getElementById('openProjectModalButton');
   elements.resetProjectFormButton = document.getElementById('resetProjectFormButton');
+  elements.projectModal = document.getElementById('projectModal');
+  elements.closeProjectModalButton = document.getElementById('closeProjectModalButton');
+  elements.backToProjectsButton = document.getElementById('backToProjectsButton');
+  elements.projectDetailTitle = document.getElementById('projectDetailTitle');
   elements.dispoAlert = document.getElementById('dispoAlert');
   elements.dispoPreviousWeekButton = document.getElementById('dispoPreviousWeekButton');
   elements.dispoNextWeekButton = document.getElementById('dispoNextWeekButton');
@@ -771,6 +783,7 @@ function cacheElements() {
   elements.dispoTableHead = document.getElementById('dispoTableHead');
   elements.dispoTableBody = document.getElementById('dispoTableBody');
   elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
+  elements.dispoMultiEntryInput = document.getElementById('dispoMultiEntryInput');
   elements.dispoAssignModal = document.getElementById('dispoAssignModal');
   elements.dispoAssignForm = document.getElementById('dispoAssignForm');
   elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
@@ -846,10 +859,12 @@ function bindEvents() {
   elements.employeeFilterInput.addEventListener('input', handleEmployeeFilterInput);
   elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
+  elements.showControlledReportsInput.addEventListener('change', handleShowControlledReportsToggle);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
   elements.absenceFilterInput.addEventListener('input', handleAbsenceFilterInput);
   elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
   elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
+  elements.showControlledAbsencesInput.addEventListener('change', handleShowControlledAbsencesToggle);
   elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
   elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
   elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
@@ -881,9 +896,18 @@ function bindEvents() {
   elements.projectSearchInput.addEventListener('input', handleProjectSearchInput);
   elements.projectsTableBody.addEventListener('click', handleProjectsTableClick);
   elements.resetProjectFormButton.addEventListener('click', resetProjectForm);
+  elements.openProjectModalButton.addEventListener('click', () => openProjectModal());
+  elements.closeProjectModalButton.addEventListener('click', closeProjectModal);
+  elements.projectModal.addEventListener('click', (event) => {
+    if (event.target?.dataset?.closeProjectModal === 'true') {
+      closeProjectModal();
+    }
+  });
+  elements.backToProjectsButton.addEventListener('click', () => setCurrentPage('projects'));
   elements.dispoTableBody.addEventListener('click', handleDispoTableClick);
   elements.dispoTableHead.addEventListener('click', handleDispoTableClick);
   elements.dispoExportPdfButton.addEventListener('click', exportDispoPdf);
+  elements.dispoMultiEntryInput.addEventListener('change', handleDispoMultiEntryToggle);
   elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
   elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
   elements.cancelDispoAssignButton.addEventListener('click', closeDispoAssignModal);
@@ -1226,7 +1250,15 @@ function resetAppState() {
   state.selectedEmployeeIds = [];
   state.employeeSelectionInitialized = false;
   state.employeeSelectionTouched = false;
+  state.showControlledReports = false;
+  state.absenceFilterQuery = '';
+  state.selectedAbsenceEmployeeIds = [];
+  state.absenceSelectionInitialized = false;
+  state.absenceSelectionTouched = false;
+  state.showControlledAbsences = false;
   state.reportsPage = 1;
+  state.selectedProjectId = null;
+  state.dispoAllowMultiplePerDay = false;
   state.includeConfirmationHistory = false;
   state.isConfirmationsModalOpen = false;
   state.editingReportId = null;
@@ -1627,6 +1659,7 @@ function renderPages() {
     absences: 'Ferien & Absenzen',
     saldo: 'Saldo',
     projects: 'Projekte / Aufträge',
+    projectDetail: 'Projekt-Detail',
     dispo: 'Dispo / Wochenplanung',
     crm: 'CRM',
     settings: 'Einstellungen',
@@ -1668,6 +1701,9 @@ function renderReportStats() {
 
 function renderEmployeeFilters() {
   elements.employeeFilterInput.value = state.employeeFilterQuery;
+  if (elements.showControlledReportsInput) {
+    elements.showControlledReportsInput.checked = state.showControlledReports;
+  }
   const profiles = getReportableProfiles();
   const visibleProfiles = getMatchingProfiles(profiles, state.employeeFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
 
@@ -1692,6 +1728,9 @@ function renderEmployeeFilters() {
 
 function renderAbsenceFilters() {
   elements.absenceFilterInput.value = state.absenceFilterQuery;
+  if (elements.showControlledAbsencesInput) {
+    elements.showControlledAbsencesInput.checked = state.showControlledAbsences;
+  }
   const profiles = getAbsenceFilterProfiles();
   const visibleProfiles = getMatchingProfiles(profiles, state.absenceFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
 
@@ -1791,8 +1830,8 @@ function renderAbsenceTable() {
           <td>${formatDate(request.end_date)}</td>
           <td>${escapeHtml(request.notes || '–')}</td>
           <td>${renderAttachmentLinks(request.attachments)}</td>
-          <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL')}</td>
-          <td>${renderHolidayApprovalCell(request, 'controll_gl', 'GL')}</td>
+          <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL', true)}</td>
+          <td>${renderHolidayApprovalCell(request, 'controll_gl', 'GL', false)}</td>
         </tr>
       `;
     })
@@ -1938,6 +1977,21 @@ function handleAbsenceFilterInput(event) {
   renderAbsenceFilters();
 }
 
+function handleShowControlledReportsToggle() {
+  state.showControlledReports = Boolean(elements.showControlledReportsInput?.checked);
+  state.reportsPage = 1;
+  renderReportsTable();
+}
+
+function handleShowControlledAbsencesToggle() {
+  state.showControlledAbsences = Boolean(elements.showControlledAbsencesInput?.checked);
+  renderAbsenceTable();
+}
+
+function handleDispoMultiEntryToggle() {
+  state.dispoAllowMultiplePerDay = Boolean(elements.dispoMultiEntryInput?.checked);
+}
+
 function handleConfirmationHistoryToggle() {
   state.includeConfirmationHistory = Boolean(elements.includeConfirmationHistoryInput?.checked);
   renderConfirmationsTable();
@@ -2056,11 +2110,12 @@ function syncAbsenceSelection() {
 
 function getFilteredReports() {
   if (!state.selectedEmployeeIds.length && !state.employeeSelectionTouched) {
-    return [...state.weeklyReports];
+    return [...state.weeklyReports].filter((report) => state.showControlledReports || !String(report.controll || '').trim());
   }
 
   const selectedIds = new Set(state.selectedEmployeeIds);
-  return state.weeklyReports.filter((report) => selectedIds.has(report.profile_id));
+  return state.weeklyReports.filter((report) => selectedIds.has(report.profile_id))
+    .filter((report) => state.showControlledReports || !String(report.controll || '').trim());
 }
 
 function getSortedFilteredReports() {
@@ -2335,13 +2390,8 @@ async function handleSettingsUsersTableClick(event) {
   }
 
   const action = trigger.dataset.action;
-  if (action === 'save-role-config') {
-    await handleSaveRoleConfig(profileId);
-    return;
-  }
-
-  if (action === 'save-target-revenue') {
-    await handleSaveTargetRevenue(profileId);
+  if (action === 'save-user-settings') {
+    await handleSaveUserSettings(profileId);
     return;
   }
 
@@ -2376,46 +2426,50 @@ async function handleSettingsUsersTableClick(event) {
 }
 
 function handleSettingsUsersTableChange(event) {
-  const select = event.target.closest('select[data-school-days-input]');
-  if (!select) return;
-  const selectedValues = Array.from(select.selectedOptions)
-    .map((option) => Number(option.value))
-    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5);
-  if (selectedValues.length <= 2) return;
-  const lastSelected = selectedValues[selectedValues.length - 1];
-  Array.from(select.options).forEach((option) => {
-    const numeric = Number(option.value);
-    option.selected = numeric === selectedValues[0] || numeric === lastSelected;
-  });
-  alert('Für Lehrlinge können maximal zwei Schultage gespeichert werden.');
+  const roleSelect = event.target.closest('select[data-role-label-input]');
+  if (!roleSelect) return;
+  const profileId = roleSelect.dataset.roleLabelInput;
+  const schoolDaySelect = document.querySelector(`select[data-school-day-input="${profileId}"]`);
+  if (!schoolDaySelect) return;
+  const isApprentice = String(roleSelect.value || '').trim() === 'Lehrling';
+  schoolDaySelect.disabled = state.isSavingSettings || !isApprentice;
+  if (!isApprentice) {
+    schoolDaySelect.value = '';
+  }
 }
 
-function getSelectedSchoolDays(profileId) {
-  const select = document.querySelector(`select[data-school-days-input="${profileId}"]`);
-  if (!select) return [];
-  return Array.from(select.selectedOptions)
-    .map((option) => Number(option.value))
-    .filter((value) => Number.isInteger(value) && value >= 1 && value <= 5)
-    .slice(0, 2)
-    .sort((a, b) => a - b);
+function getSelectedSchoolDay(profileId) {
+  const select = document.querySelector(`select[data-school-day-input="${profileId}"]`);
+  const value = Number(select?.value);
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    return null;
+  }
+  return value;
 }
 
-async function handleSaveRoleConfig(profileId) {
+async function handleSaveUserSettings(profileId) {
   const roleSelect = document.querySelector(`select[data-role-label-input="${profileId}"]`);
   const roleLabel = String(roleSelect?.value || '').trim();
+  const targetInput = document.querySelector(`[data-target-revenue-input="${profileId}"]`);
   if (!roleLabel) {
     alert('Bitte eine gültige Rolle auswählen.');
     return;
   }
-  const schoolDays = getSelectedSchoolDays(profileId);
-  if (roleLabel === 'Lehrling' && !schoolDays.length) {
+  const schoolDay = getSelectedSchoolDay(profileId);
+  if (roleLabel === 'Lehrling' && !schoolDay) {
     alert('Für Lehrlinge muss mindestens ein Schultag ausgewählt werden.');
+    return;
+  }
+  const parsedTargetRevenue = Number(String(targetInput?.value || '').replace(',', '.'));
+  if (!Number.isFinite(parsedTargetRevenue) || parsedTargetRevenue < 0) {
+    alert('Bitte einen gültigen Sollerlös (CHF) >= 0 eingeben.');
     return;
   }
   const updates = {
     role_label: roleLabel,
-    school_day_1: roleLabel === 'Lehrling' ? (schoolDays[0] || null) : null,
-    school_day_2: roleLabel === 'Lehrling' ? (schoolDays[1] || null) : null,
+    target_revenue: parsedTargetRevenue,
+    school_day_1: roleLabel === 'Lehrling' ? schoolDay : null,
+    school_day_2: null,
   };
 
   state.isSavingSettings = true;
@@ -2433,37 +2487,7 @@ async function handleSaveRoleConfig(profileId) {
     await loadData();
   } catch (error) {
     console.error(error);
-    alert(`Rolle konnte nicht gespeichert werden: ${error.message}`);
-  } finally {
-    state.isSavingSettings = false;
-    render();
-  }
-}
-
-async function handleSaveTargetRevenue(profileId) {
-  const input = document.querySelector(`[data-target-revenue-input="${profileId}"]`);
-  const parsedValue = Number(String(input?.value || '').replace(',', '.'));
-  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
-    alert('Bitte einen gültigen Sollerlös (CHF) >= 0 eingeben.');
-    return;
-  }
-
-  state.isSavingSettings = true;
-  try {
-    if (state.isDemoMode) {
-      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
-      if (demoProfile) demoProfile.target_revenue = parsedValue;
-    } else {
-      const { error } = await state.supabase
-        .from('app_profiles')
-        .update({ target_revenue: parsedValue })
-        .eq('id', profileId);
-      if (error) throw error;
-    }
-    await loadData();
-  } catch (error) {
-    console.error(error);
-    alert(`Sollerlös konnte nicht gespeichert werden: ${error.message}`);
+    alert(`Benutzereinstellungen konnten nicht gespeichert werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
@@ -2979,25 +3003,23 @@ async function handleAdjustedMinutesSubmit(event) {
 
   const adjustedMinutes = Math.max(0, Number(elements.adjustedMinutesInput.value || 0));
   const wasConfirmed = Boolean(String(report.controll || '').trim());
-  const previousDelta = getReportBookingDelta(report, 1);
   const updates = buildAdjustedMinutesUpdatePayload(report, adjustedMinutes);
+  if (wasConfirmed) {
+    updates.controll = '';
+  }
   state.isSavingReport = true;
 
   try {
     if (state.isDemoMode) {
       updateDemoReport(reportId, updates);
       if (wasConfirmed) {
-        const updatedReport = { ...report, ...updates };
-        const nextDelta = getReportBookingDelta(updatedReport, 1);
-        applyDemoBookingDeltaDifference(report.profile_id, previousDelta, nextDelta);
+        applyDemoReportBookingDelta(report, -1);
       }
     } else {
       const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
       if (error) throw error;
       if (wasConfirmed) {
-        const updatedReport = { ...report, ...updates };
-        const nextDelta = getReportBookingDelta(updatedReport, 1);
-        await applyProfileBookingDeltaDifference(report.profile_id, previousDelta, nextDelta);
+        await applyProfileBookingDelta(report.profile_id, getReportBookingDelta(report, -1));
       }
     }
 
@@ -3021,7 +3043,6 @@ async function handleReportEditSubmit(event) {
   const reportId = state.editingReportId;
   const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
   const wasConfirmed = Boolean(String(existingReport?.controll || '').trim());
-  const previousDelta = getReportBookingDelta(existingReport, 1);
   const updates = {
     work_date: elements.editWorkDate.value,
     ...getIsoYearAndWeekFromDateString(elements.editWorkDate.value),
@@ -3034,21 +3055,22 @@ async function handleReportEditSubmit(event) {
     notes: elements.editNotes.value.trim(),
     expense_note: elements.editExpenseNote.value.trim(),
   };
+  if (wasConfirmed) {
+    updates.controll = '';
+  }
 
   state.isSavingReport = true;
   try {
     if (state.isDemoMode) {
       updateDemoReport(reportId, updates);
       if (wasConfirmed && existingReport) {
-        const nextDelta = getReportBookingDelta({ ...existingReport, ...updates }, 1);
-        applyDemoBookingDeltaDifference(existingReport.profile_id, previousDelta, nextDelta);
+        applyDemoReportBookingDelta(existingReport, -1);
       }
     } else {
       const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
       if (error) throw error;
       if (wasConfirmed && existingReport) {
-        const nextDelta = getReportBookingDelta({ ...existingReport, ...updates }, 1);
-        await applyProfileBookingDeltaDifference(existingReport.profile_id, previousDelta, nextDelta);
+        await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, -1));
       }
     }
 
@@ -3523,16 +3545,16 @@ function renderControllCell(report) {
   return `<button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Bestätigen</button>`;
 }
 
-function renderHolidayApprovalCell(request, fieldName, roleLabel) {
+function renderHolidayApprovalCell(request, fieldName, roleLabel, showRejectButton = false) {
   const approvalValue = String(request?.[fieldName] || '').trim();
   if (approvalValue) {
-    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong>${!isHolidayRequestFullyApproved(request) ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}</div>`;
+    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong>${showRejectButton && !isHolidayRequestFullyApproved(request) ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}</div>`;
   }
 
   return `
     <div class="status-stack compact">
       <button class="button button-small button-success" type="button" data-action="confirm-absence-${escapeAttribute(roleLabel.toLowerCase())}" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Bestätigung ${escapeHtml(roleLabel)}</button>
-      <button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>
+      ${showRejectButton ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}
     </div>
   `;
 }
@@ -3722,6 +3744,7 @@ function renderSettingsUsersTable() {
   elements.settingsUsersTableBody.innerHTML = sortedProfiles.map((profile) => {
     const isActive = profile.is_active !== false;
     const isOwnProfile = String(profile.id) === String(state.currentProfile?.id);
+    const isApprentice = String(profile.role_label || '') === 'Lehrling';
     const roleOptions = APP_ROLE_OPTIONS.includes(String(profile.role_label || ''))
       ? APP_ROLE_OPTIONS
       : [...APP_ROLE_OPTIONS, String(profile.role_label || 'Benutzer')];
@@ -3734,38 +3757,30 @@ function renderSettingsUsersTable() {
         </select>
       </td>
       <td>
-        <select data-school-days-input="${escapeAttribute(profile.id)}" multiple size="5" ${state.isSavingSettings ? 'disabled' : ''}>
+        <select data-school-day-input="${escapeAttribute(profile.id)}" ${state.isSavingSettings || !isApprentice ? 'disabled' : ''}>
+          <option value="">–</option>
           ${SCHOOL_DAY_OPTIONS.map((option) => {
-            const selected = [Number(profile.school_day_1), Number(profile.school_day_2)].includes(option.value);
+            const selected = Number(profile.school_day_1) === option.value;
             return `<option value="${option.value}" ${selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`;
           }).join('')}
         </select>
       </td>
       <td>
-        <div class="table-row-actions">
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value="${escapeAttribute(Number(profile.target_revenue || 0).toFixed(2))}"
-            data-target-revenue-input="${escapeAttribute(profile.id)}"
-          />
-          <button class="button button-small button-secondary" type="button" data-action="save-target-revenue" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
-            Speichern
-          </button>
-        </div>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value="${escapeAttribute(Number(profile.target_revenue || 0).toFixed(2))}"
+          data-target-revenue-input="${escapeAttribute(profile.id)}"
+          ${state.isSavingSettings ? 'disabled' : ''}
+        />
       </td>
       <td><span class="pill ${isActive ? 'success' : 'warning'}">${isActive ? 'Aktiv' : 'Deaktiviert'}</span></td>
       <td>
         <div class="table-row-actions">
-          <button class="button button-small button-secondary" type="button" data-action="save-role-config" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
-            Rolle speichern
-          </button>
+          ${isActive ? `<button class="button button-small button-primary" type="button" data-action="save-user-settings" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Speichern</button>` : `<button class="button button-small button-danger" type="button" data-action="purge-user-account" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>Restlos löschen</button>`}
           <button class="button button-small ${isActive ? 'button-danger' : 'button-secondary'}" type="button" data-action="toggle-user-active" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
             ${isActive ? 'Deaktivieren' : 'Aktivieren'}
-          </button>
-          <button class="button button-small button-danger" type="button" data-action="purge-user-account" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings || isOwnProfile ? 'disabled' : ''}>
-            Restlos löschen
           </button>
         </div>
       </td>
@@ -3829,23 +3844,18 @@ function renderProjectsTable() {
   if (!elements.projectsTableBody) return;
   const rows = getFilteredProjects();
   if (!rows.length) {
-    elements.projectsTableBody.innerHTML = '<tr><td colspan="11" class="empty-state">Keine Projekte vorhanden.</td></tr>';
+    elements.projectsTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Keine Projekte vorhanden.</td></tr>';
     return;
   }
   elements.projectsTableBody.innerHTML = rows.map((project) => {
     const assignments = getProjectRoleAssignments(project.id);
     const projectLead = getProfileById(assignments.projectLeadId)?.full_name || '—';
     const constructionLead = getProfileById(assignments.constructionLeadId)?.full_name || '—';
-    return `<tr>
-      <td>${escapeHtml(project.id || '')}</td>
+    return `<tr class="project-row-clickable" data-action="open-project-detail" data-project-id="${escapeAttribute(project.id)}">
       <td>${escapeHtml(project.commission_number || '')}</td>
       <td>${escapeHtml(project.name || '')}</td>
-      <td>${escapeHtml(formatDateTime(project.created_at))}</td>
-      <td>${escapeHtml(formatDateTime(project.updated_at))}</td>
       <td>${escapeHtml(projectLead)}</td>
-      <td>${escapeHtml(assignments.projectLeadId || '—')}</td>
       <td>${escapeHtml(constructionLead)}</td>
-      <td>${escapeHtml(assignments.constructionLeadId || '—')}</td>
       <td><span class="pill ${project.allow_expenses === false ? 'warning' : 'success'}">${project.allow_expenses === false ? 'Nein' : 'Ja'}</span></td>
       <td>
         <div class="table-row-actions">
@@ -3859,6 +3869,9 @@ function renderProjectsTable() {
 
 function renderDispoPlanner() {
   if (!elements.dispoTableBody) return;
+  if (elements.dispoMultiEntryInput) {
+    elements.dispoMultiEntryInput.checked = state.dispoAllowMultiplePerDay;
+  }
   const weekRange = getWeekRange(state.selectedWeek);
   elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedWeek);
   elements.dispoWeekDateRange.textContent = `${formatDate(weekRange.start)} – ${formatDate(weekRange.end)}`;
@@ -4059,6 +4072,7 @@ async function handleProjectSubmit(event) {
       projectId = data.id;
     }
     resetProjectForm();
+    closeProjectModal();
     showInlineAlert(elements.projectsAlert, 'Projekt erfolgreich gespeichert.', false);
     await loadData();
   });
@@ -4078,7 +4092,13 @@ function resetProjectForm() {
 
 async function handleProjectsTableClick(event) {
   const button = event.target.closest('button[data-action]');
-  if (!button) return;
+  if (!button) {
+    const row = event.target.closest('tr[data-action="open-project-detail"]');
+    if (row && !event.target.closest('a, button, input, select, textarea')) {
+      openProjectDetail(row.dataset.projectId);
+    }
+    return;
+  }
   const action = button.dataset.action;
   const projectId = button.dataset.projectId;
   if (action === 'edit-project') {
@@ -4094,6 +4114,7 @@ async function handleProjectsTableClick(event) {
     if (elements.projectExpensesAllowedInput) {
       elements.projectExpensesAllowedInput.checked = project.allow_expenses !== false;
     }
+    openProjectModal();
     return;
   }
   if (action === 'delete-project') {
@@ -4106,6 +4127,26 @@ async function handleProjectsTableClick(event) {
     showInlineAlert(elements.projectsAlert, 'Projekt gelöscht.', false);
     await loadData();
   }
+}
+
+function openProjectModal() {
+  if (!elements.projectModal) return;
+  elements.projectModal.classList.remove('hidden');
+}
+
+function closeProjectModal() {
+  if (!elements.projectModal) return;
+  elements.projectModal.classList.add('hidden');
+}
+
+function openProjectDetail(projectId) {
+  const project = state.projects.find((item) => String(item.id) === String(projectId));
+  if (!project) return;
+  state.selectedProjectId = project.id;
+  if (elements.projectDetailTitle) {
+    elements.projectDetailTitle.textContent = `${project.commission_number || ''} ${project.name || ''}`.trim() || 'Projekt';
+  }
+  setCurrentPage('projectDetail');
 }
 
 async function handleDispoTableClick(event) {
@@ -4375,7 +4416,7 @@ async function handleDispoAssignSubmit(event) {
     showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
     return;
   }
-  const mode = 'append';
+  const mode = state.dispoAllowMultiplePerDay ? 'append' : 'replace';
   const errorMessages = [];
   for (const target of targets) {
     const result = await saveDispoAssignment({ profileId: target.profileId, date: target.date, items: [item], mode, suppressReload: true, silent: true, source: 'manual' });
@@ -4410,6 +4451,10 @@ function handleGlobalKeydown(event) {
   }
   if (elements.dispoAssignModal && !elements.dispoAssignModal.classList.contains('hidden')) {
     closeDispoAssignModal();
+    return;
+  }
+  if (elements.projectModal && !elements.projectModal.classList.contains('hidden')) {
+    closeProjectModal();
     return;
   }
   if (elements.confirmationsModal && !elements.confirmationsModal.classList.contains('hidden')) {
@@ -5543,6 +5588,10 @@ function getFilteredHolidayRequests() {
   const selectedIds = new Set(state.selectedAbsenceEmployeeIds);
   return [...state.holidayRequests]
     .filter((request) => selectedIds.has(request.profile_id))
+    .filter((request) => {
+      if (state.showControlledAbsences) return true;
+      return !isHolidayRequestFullyApproved(request);
+    })
     .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
 }
 
