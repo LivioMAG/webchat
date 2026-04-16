@@ -4344,7 +4344,8 @@ function renderAttachmentLinks(attachments = []) {
       if (!isPdfAttachment(attachment)) {
         return openLink;
       }
-      return `${openLink} <a href="${escapedUrl}" download="${escapeAttribute(attachment.name || 'anhang.pdf')}" rel="noreferrer">(PDF herunterladen)</a>`;
+      const downloadUrl = buildForcedDownloadUrl(url, attachment.name || 'anhang.pdf');
+      return `${openLink} <a href="${escapeAttribute(downloadUrl)}" rel="noreferrer">(PDF herunterladen)</a>`;
     })
     .join('')}</div>`;
 }
@@ -4650,6 +4651,19 @@ function isPdfAttachment(attachment) {
   const mimeType = String(attachment?.mimeType || '').toLowerCase();
   const name = String(attachment?.name || '').toLowerCase();
   return mimeType === 'application/pdf' || name.endsWith('.pdf');
+}
+
+function buildForcedDownloadUrl(url, fileName) {
+  if (!url || url === '#') return '#';
+  try {
+    const downloadUrl = new URL(url, window.location.href);
+    if (!downloadUrl.searchParams.has('download')) {
+      downloadUrl.searchParams.set('download', fileName || 'anhang.pdf');
+    }
+    return downloadUrl.toString();
+  } catch {
+    return url;
+  }
 }
 
 async function fileToDataUrl(url) {
