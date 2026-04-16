@@ -4338,7 +4338,13 @@ function renderAttachmentLinks(attachments = []) {
   return `<div class="attachment-list">${attachments
     .map((attachment) => {
       const url = attachment.publicUrl || '#';
-      return `<a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">${escapeHtml(attachment.name || 'Anhang')}</a>`;
+      const name = escapeHtml(attachment.name || 'Anhang');
+      const escapedUrl = escapeAttribute(url);
+      const openLink = `<a href="${escapedUrl}" target="_blank" rel="noreferrer">${name}</a>`;
+      if (!isPdfAttachment(attachment)) {
+        return openLink;
+      }
+      return `${openLink} <a href="${escapedUrl}" download="${escapeAttribute(attachment.name || 'anhang.pdf')}" rel="noreferrer">(PDF herunterladen)</a>`;
     })
     .join('')}</div>`;
 }
@@ -4638,6 +4644,12 @@ function getDateForWeekOffset(weekOffset, dayOffset) {
 
 function isImageAttachment(attachment) {
   return String(attachment.mimeType || '').startsWith('image/');
+}
+
+function isPdfAttachment(attachment) {
+  const mimeType = String(attachment?.mimeType || '').toLowerCase();
+  const name = String(attachment?.name || '').toLowerCase();
+  return mimeType === 'application/pdf' || name.endsWith('.pdf');
 }
 
 async function fileToDataUrl(url) {

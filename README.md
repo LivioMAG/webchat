@@ -31,3 +31,4 @@ Statische Desktop-Webplattform mit HTML, CSS und JavaScript für:
   ausgeführt werden, damit Profile mit `is_admin = true` die Daten im Frontend vollständig
   sehen und bearbeiten können.
 - Der PDF-Export nutzt `jsPDF` und `jspdf-autotable` direkt per CDN.
+- Wenn ein Browser bei geöffneten PDF-Dateien „PDF-Bearbeitung wird nicht unterstützt“ meldet, die Datei über den neuen „PDF herunterladen“-Link speichern und in einer lokalen PDF-App (z. B. Adobe Acrobat) bearbeiten.
