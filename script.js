@@ -1236,6 +1236,7 @@ async function loadData() {
     }
 
     const { year: selectedYear, kw: selectedKw } = getYearAndWeekFromWeekValue(state.selectedWeek);
+    const selectedWeekRange = getWeekRange(state.selectedWeek);
     const reportsQuery = state.supabase
       .from('weekly_reports')
       .select('*')
@@ -1259,6 +1260,12 @@ async function loadData() {
       .from('projects')
       .select('*')
       .order('commission_number', { ascending: true });
+    const dailyAssignmentsQuery = state.supabase
+      .from('daily_assignments')
+      .select('*')
+      .gte('assignment_date', selectedWeekRange.start)
+      .lte('assignment_date', selectedWeekRange.end)
+      .order('assignment_date', { ascending: true });
     const platformHolidaysQuery = state.supabase
       .from(HOLIDAY_TABLE)
       .select('*')
@@ -1279,6 +1286,7 @@ async function loadData() {
       { data: absences, error: absencesError },
       { data: requestHistory, error: requestHistoryError },
       { data: projects, error: projectsError },
+      { data: dailyAssignments, error: dailyAssignmentsError },
       { data: platformHolidays, error: platformHolidaysError },
       { data: crmContacts, error: crmContactsError },
       { data: crmNotes, error: crmNotesError },
@@ -1288,6 +1296,7 @@ async function loadData() {
       absencesQuery,
       requestHistoryQuery,
       projectsQuery,
+      dailyAssignmentsQuery,
       platformHolidaysQuery,
       crmContactsQuery,
       crmNotesQuery,
@@ -1298,6 +1307,7 @@ async function loadData() {
     if (absencesError) throw absencesError;
     if (requestHistoryError) throw requestHistoryError;
     if (projectsError) throw projectsError;
+    if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) throw dailyAssignmentsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
     if (crmContactsError && !isMissingTableError(crmContactsError, 'crm_contacts')) throw crmContactsError;
     if (crmNotesError && !isMissingTableError(crmNotesError, 'crm_notes')) throw crmNotesError;
@@ -1310,6 +1320,7 @@ async function loadData() {
     state.holidayRequests = absences ?? [];
     state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
+    state.dailyAssignments = dailyAssignments ?? [];
     state.platformHolidays = platformHolidays ?? [];
     state.crmContacts = crmContacts ?? [];
     state.crmNotes = crmNotes ?? [];
@@ -1317,7 +1328,6 @@ async function loadData() {
       state.selectedCrmContactId = null;
     }
     state.roleAssignments = [];
-    state.dailyAssignments = [];
     syncEmployeeSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
@@ -3695,12 +3705,23 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
   const mergedItems = [...baseItems, ...items].filter((item) => item?.label);
   if (!mergedItems.length) {
+    if (!state.isDemoMode && state.supabase) {
+      const deleteQuery = state.supabase
+        .from('daily_assignments')
+        .delete()
+        .eq('profile_id', profileId)
+        .eq('assignment_date', date);
+      const { error: deleteError } = await deleteQuery;
+      if (deleteError && !isMissingTableError(deleteError, 'daily_assignments')) {
+        if (!silent) showInlineAlert(elements.dispoAlert, `Dispo konnte nicht gelöscht werden: ${deleteError.message}`, true);
+        return { saved: false, error: deleteError.message };
+      }
+    }
     removeLocalDailyAssignment(profileId, date);
     if (!silent || !suppressReload) renderDispoPlanner();
     return { saved: true, error: null };
   }
-  const entry = {
-    id: existingEntry?.id || `local-${profileId}-${date}`,
+  const payload = {
     profile_id: profileId,
     assignment_date: date,
     project_id: null,
@@ -3708,6 +3729,22 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
     source,
     assignment_type: 'daily',
   };
+  let entry = {
+    id: existingEntry?.id || `local-${profileId}-${date}`,
+    ...payload,
+  };
+  if (!state.isDemoMode && state.supabase) {
+    const { data: savedEntry, error: upsertError } = await state.supabase
+      .from('daily_assignments')
+      .upsert(payload, { onConflict: 'profile_id,assignment_date' })
+      .select()
+      .single();
+    if (upsertError) {
+      if (!silent) showInlineAlert(elements.dispoAlert, `Beim Speichern ist ein Fehler aufgetreten: ${upsertError.message}`, true);
+      return { saved: false, error: upsertError.message };
+    }
+    entry = savedEntry || entry;
+  }
   upsertLocalDailyAssignment(entry);
   if (!silent || !suppressReload) renderDispoPlanner();
   if (!silent) showInlineAlert(elements.dispoAlert, 'Dispo gespeichert.', false);
