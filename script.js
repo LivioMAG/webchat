@@ -531,6 +531,7 @@ const state = {
   tabHiddenAt: 0,
   loadRecoveryTimer: null,
   lastResumeRefreshAt: 0,
+  pendingDataReload: false,
 };
 
 const elements = {};
@@ -1021,6 +1022,7 @@ function resetAppState() {
   state.loadStartedAt = 0;
   state.tabHiddenAt = 0;
   state.lastResumeRefreshAt = 0;
+  state.pendingDataReload = false;
   clearLoadRecoveryTimer();
   closeReportEditModal();
   closeAdjustedMinutesModal();
@@ -1032,6 +1034,13 @@ async function loadData() {
     render();
     return;
   }
+
+  if (state.isLoadingData) {
+    state.pendingDataReload = true;
+    return;
+  }
+
+  state.pendingDataReload = false;
 
   const shouldResolveAdminStatus = !state.currentProfile || state.currentProfile.id !== state.user.id;
   if (shouldResolveAdminStatus) {
@@ -1069,6 +1078,12 @@ async function loadData() {
       elements.dataTimestamp.textContent = 'Kein Zugriff – is_admin ist für dieses Profil nicht aktiviert';
       finishDataLoad(requestId);
       render();
+      if (state.pendingDataReload) {
+        state.pendingDataReload = false;
+        loadData().catch((error) => {
+          console.error(error);
+        });
+      }
       return;
     }
 
@@ -1149,6 +1164,12 @@ async function loadData() {
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
     finishDataLoad(requestId);
     render();
+    if (state.pendingDataReload) {
+      state.pendingDataReload = false;
+      loadData().catch((error) => {
+        console.error(error);
+      });
+    }
   } catch (error) {
     if (!finishDataLoad(requestId)) {
       return;
@@ -1158,6 +1179,12 @@ async function loadData() {
     elements.dataTimestamp.textContent = hint || 'Daten konnten nicht geladen werden';
     render();
     alert(`Daten konnten nicht geladen werden: ${error.message}${hint ? `\n\nHinweis: ${hint}` : ''}`);
+    if (state.pendingDataReload) {
+      state.pendingDataReload = false;
+      loadData().catch((nextError) => {
+        console.error(nextError);
+      });
+    }
   }
 }
 
