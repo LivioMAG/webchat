@@ -89,11 +89,13 @@ create table if not exists public.daily_assignments (
   project_id uuid references public.projects(id) on delete set null,
   label text not null,
   source text not null default 'manual',
-  assignment_type text not null default 'daily',
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   constraint daily_assignments_unique_profile_day unique (profile_id, assignment_date)
 );
+
+alter table public.daily_assignments
+drop column if exists assignment_type;
 
 create table if not exists public.platform_holidays (
   id uuid primary key default gen_random_uuid(),
@@ -338,12 +340,24 @@ create table if not exists public.crm_contacts (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
-create table if not exists public.crm_notes (
+do $$
+begin
+  if to_regclass('public.notes') is null and to_regclass('public.crm_notes') is not null then
+    alter table public.crm_notes rename to notes;
+  end if;
+end;
+$$;
+
+create table if not exists public.notes (
   id uuid primary key default gen_random_uuid(),
   target_uid uuid not null,
+  note_type text not null default 'crm',
   note_text text not null,
   created_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.notes
+add column if not exists note_type text not null default 'crm';
 
 alter table public.projects
 add column if not exists project_lead_profile_id uuid references public.app_profiles(id) on delete set null;
@@ -355,6 +369,7 @@ create unique index if not exists projects_commission_number_idx
 on public.projects (commission_number);
 
 drop table if exists public.project_assignments cascade;
+drop table if exists public.bot_profiles cascade;
 
 drop trigger if exists projects_set_updated_at on public.projects;
 create trigger projects_set_updated_at
@@ -363,7 +378,7 @@ for each row execute function public.set_updated_at();
 
 alter table public.projects enable row level security;
 alter table public.crm_contacts enable row level security;
-alter table public.crm_notes enable row level security;
+alter table public.notes enable row level security;
 
 drop policy if exists "projects own or admin" on public.projects;
 create policy "projects own or admin"
@@ -381,9 +396,9 @@ to authenticated
 using (public.is_admin_user())
 with check (public.is_admin_user());
 
-drop policy if exists "crm_notes admin access" on public.crm_notes;
-create policy "crm_notes admin access"
-on public.crm_notes
+drop policy if exists "notes admin access" on public.notes;
+create policy "notes admin access"
+on public.notes
 for all
 to authenticated
 using (public.is_admin_user())
@@ -459,7 +474,7 @@ create index if not exists holiday_requests_profile_dates_idx on public.holiday_
 create index if not exists request_history_profile_created_at_idx on public.request_history (profile_id, created_at desc);
 create index if not exists daily_assignments_profile_date_idx on public.daily_assignments (profile_id, assignment_date);
 create index if not exists crm_contacts_last_name_idx on public.crm_contacts (last_name, first_name);
-create index if not exists crm_notes_target_uid_created_at_idx on public.crm_notes (target_uid, created_at desc);
+create index if not exists notes_target_uid_created_at_idx on public.notes (target_uid, created_at desc);
 
 drop trigger if exists set_updated_at_app_profiles on public.app_profiles;
 create trigger set_updated_at_app_profiles

@@ -1,10 +1,11 @@
 const STORAGE_BUCKET = 'weekly-attachments';
 const CONFIG_PATH = './supabase-config.json';
 const HOLIDAY_TABLE = 'platform_holidays';
+const NOTES_TABLE = 'notes';
+const CRM_NOTE_TYPE = 'crm';
 const WEEKDAY_LABELS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
-const DISPO_SPECIAL_OPTIONS = ['Diverses', 'Ferien', 'Feiertag', 'Militär', 'Krankheit', 'Unfall'];
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
 const CRM_CATEGORY_LABELS = {
@@ -1276,8 +1277,9 @@ async function loadData() {
       .order('last_name', { ascending: true })
       .order('first_name', { ascending: true });
     const crmNotesQuery = state.supabase
-      .from('crm_notes')
+      .from(NOTES_TABLE)
       .select('*')
+      .eq('note_type', CRM_NOTE_TYPE)
       .order('created_at', { ascending: false })
       .limit(1000);
     const [
@@ -1310,7 +1312,7 @@ async function loadData() {
     if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) throw dailyAssignmentsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
     if (crmContactsError && !isMissingTableError(crmContactsError, 'crm_contacts')) throw crmContactsError;
-    if (crmNotesError && !isMissingTableError(crmNotesError, 'crm_notes')) throw crmNotesError;
+    if (crmNotesError && !isMissingTableError(crmNotesError, NOTES_TABLE)) throw crmNotesError;
     if (!isActiveDataLoad(requestId)) {
       return;
     }
@@ -2507,8 +2509,9 @@ async function handleCrmNoteSubmit(event) {
 
   state.isSavingSettings = true;
   try {
-    const { error } = await state.supabase.from('crm_notes').insert({
+    const { error } = await state.supabase.from(NOTES_TABLE).insert({
       target_uid: targetUid,
+      note_type: CRM_NOTE_TYPE,
       note_text: noteText,
     });
     if (error) throw error;
@@ -3724,11 +3727,15 @@ async function saveDispoAssignment({ profileId, date, items = [], source = 'manu
   const payload = {
     profile_id: profileId,
     assignment_date: date,
-    project_id: null,
+    project_id: mergedItems.find((item) => item?.project_id)?.project_id || null,
     label: serializeDispoItems(mergedItems),
     source,
-    assignment_type: 'daily',
   };
+  if (!payload.project_id) {
+    const message = 'Dispo braucht ein gültiges Projekt (project_id).';
+    if (!silent) showInlineAlert(elements.dispoAlert, message, true);
+    return { saved: false, error: message };
+  }
   let entry = {
     id: existingEntry?.id || `local-${profileId}-${date}`,
     ...payload,
@@ -3776,10 +3783,9 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
       ...(existing || { id: `pending-${key}` }),
       profile_id: profileId,
       assignment_date: date,
-      project_id: null,
+      project_id: computed.items?.[0]?.project_id || null,
       label: computedSerialized,
       source: 'weekly_report',
-      assignment_type: 'daily',
     };
     byKey.set(key, nextEntry);
     if (existing) {
@@ -3794,31 +3800,21 @@ async function mergeWeeklyReportsIntoDispo(dailyAssignments) {
 
 function mapWeeklyReportToDispoEntry(profileId, date, reports) {
   if (!reports?.length) return null;
-  if (reports.length >= 2) {
-    if (state.hasAdminAccess) return { items: [{ type: 'special', project_id: null, label: 'Diverses' }] };
-    const first = reports[0];
-    return { items: [mapReportToDispoItem(first)] };
-  }
-  const report = reports[0];
-  return { items: [mapReportToDispoItem(report)] };
+  const mappedItems = reports
+    .map((report) => mapReportToDispoItem(report))
+    .filter(Boolean);
+  if (!mappedItems.length) return null;
+  return { items: [mappedItems[0]] };
 }
 
 function mapReportToDispoItem(report) {
   const projectId = resolveProjectIdFromReport(report);
-  if (projectId) {
-    const project = state.projects.find((item) => item.id === projectId);
-    return {
-      type: 'project',
-      project_id: projectId,
-      label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim(),
-      start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
-      end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
-    };
-  }
+  if (!projectId) return null;
+  const project = state.projects.find((item) => item.id === projectId);
   return {
-    type: 'special',
-    project_id: null,
-    label: report.project_name || report.commission_number || report.notes || 'Diverses',
+    type: 'project',
+    project_id: projectId,
+    label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim(),
     start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
     end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
   };
@@ -3876,12 +3872,12 @@ function openDispoAssignModal({ targets, label }) {
     return leftLabel.localeCompare(rightLabel, 'de');
   });
   elements.dispoAssignProjectsList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Projekte</th><th>Auswahl</th></tr></thead><tbody>${sortedProjects.map((project, index) => `<tr><td>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</td><td><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /></td></tr>`).join('')}</tbody></table>`;
-  elements.dispoAssignSpecialList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Schnellauswahl</th><th>Auswahl</th></tr></thead><tbody>${DISPO_SPECIAL_OPTIONS.map((labelText) => `<tr><td>${escapeHtml(labelText)}</td><td><input type="radio" name="dispoAssignChoice" value="special:${escapeAttribute(labelText)}" /></td></tr>`).join('')}</tbody></table>`;
+  elements.dispoAssignSpecialList.innerHTML = '<p class="subtle-text">Nur Projekt-Zuweisungen verfügbar.</p>';
   elements.dispoAssignStartTime.value = DISPO_DEFAULT_START_TIME;
   elements.dispoAssignEndTime.value = DISPO_DEFAULT_END_TIME;
   if (!state.projects.length) {
-    const firstSpecial = elements.dispoAssignSpecialList.querySelector('input[type="radio"]');
-    if (firstSpecial) firstSpecial.checked = true;
+    showInlineAlert(elements.dispoAlert, 'Keine Projekte vorhanden. Bitte zuerst ein Projekt erfassen.', true);
+    return;
   }
   elements.dispoAssignModal.classList.remove('hidden');
 }
@@ -3902,13 +3898,15 @@ async function handleDispoAssignSubmit(event) {
     return;
   }
   const [type, rawValue] = checked.value.split(':');
+  if (type !== 'project') {
+    showInlineAlert(elements.dispoAlert, 'Nur Projekt-Zuweisungen sind erlaubt.', true);
+    return;
+  }
   const startTime = normalizeDispoTimeValue(elements.dispoAssignStartTime?.value, DISPO_DEFAULT_START_TIME);
   const endTime = normalizeDispoTimeValue(elements.dispoAssignEndTime?.value, DISPO_DEFAULT_END_TIME);
   const selectedProject = state.projects.find((project) => String(project.id) === String(rawValue));
-  const item = type === 'project'
-    ? { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim(), start_time: startTime, end_time: endTime }
-    : { type: 'special', project_id: null, label: rawValue, start_time: startTime, end_time: endTime };
-  if (type === 'project' && !item.label) {
+  const item = { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim(), start_time: startTime, end_time: endTime };
+  if (!item.label) {
     showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
     return;
   }
