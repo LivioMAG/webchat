@@ -32,6 +32,7 @@ create table if not exists public.app_profiles (
   target_revenue numeric(12,2) not null default 0,
   school_day_1 smallint,
   school_day_2 smallint,
+  block_schedule jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -148,6 +149,9 @@ add column if not exists school_day_1 smallint;
 
 alter table public.app_profiles
 add column if not exists school_day_2 smallint;
+
+alter table public.app_profiles
+add column if not exists block_schedule jsonb not null default '[]'::jsonb;
 
 alter table public.weekly_reports
 add column if not exists controll text;
