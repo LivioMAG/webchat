@@ -70,6 +70,7 @@ const ABSENCE_CATEGORY_CONFIG = [
   { typeCode: 6, label: 'ÜK' },
   { typeCode: 7, label: 'Berufsschule' },
 ];
+const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7]);
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
@@ -646,6 +647,7 @@ const state = {
   isSavingConfirmation: false,
   isSavingSaldo: false,
   isSavingSettings: false,
+  editingHolidayId: null,
   isLoadingOverlayVisible: false,
   loadingOverlayReason: '',
   loadingOverlayTimer: null,
@@ -2576,32 +2578,249 @@ async function handleHolidayFormSubmit(event) {
 }
 
 async function handleSettingsHolidaysTableClick(event) {
-  const trigger = event.target.closest('[data-action="delete-holiday"]');
+  const trigger = event.target.closest('[data-action]');
   if (!trigger || state.isSavingSettings) {
     return;
   }
 
   const holidayId = trigger.dataset.holidayId;
   if (!holidayId) return;
-  if (!confirm('Feiertag aus der Liste entfernen?')) return;
+  const action = String(trigger.dataset.action || '').trim();
 
-  state.isSavingSettings = true;
-  try {
-    if (state.isDemoMode) {
-      const index = demoPlatformHolidays.findIndex((item) => String(item.id) === String(holidayId));
-      if (index >= 0) demoPlatformHolidays.splice(index, 1);
-    } else {
-      const { error } = await state.supabase.from(HOLIDAY_TABLE).delete().eq('id', holidayId);
-      if (error) throw error;
-    }
-    await loadData();
-  } catch (error) {
-    console.error(error);
-    alert(`Feiertag konnte nicht entfernt werden: ${error.message}`);
-  } finally {
-    state.isSavingSettings = false;
+  if (action === 'start-edit-holiday') {
+    state.editingHolidayId = holidayId;
     render();
+    return;
   }
+
+  if (action === 'cancel-edit-holiday') {
+    state.editingHolidayId = null;
+    render();
+    return;
+  }
+
+  if (action === 'save-edit-holiday') {
+    const row = trigger.closest('tr');
+    const select = row?.querySelector('[data-holiday-paid-select]');
+    const isPaid = String(select?.value || 'true') !== 'false';
+    state.isSavingSettings = true;
+    try {
+      await updatePlatformHolidayCompensation(holidayId, isPaid);
+      state.editingHolidayId = null;
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      alert(`Feiertag konnte nicht aktualisiert werden: ${error.message}`);
+    } finally {
+      state.isSavingSettings = false;
+      render();
+    }
+    return;
+  }
+
+  if (action === 'delete-holiday') {
+    if (!confirm('Feiertag aus der Liste entfernen?')) return;
+    state.isSavingSettings = true;
+    try {
+      await deletePlatformHoliday(holidayId);
+      state.editingHolidayId = null;
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      alert(`Feiertag konnte nicht entfernt werden: ${error.message}`);
+    } finally {
+      state.isSavingSettings = false;
+      render();
+    }
+  }
+}
+
+async function deleteHolidayWeeklyReportsForDate(holidayDate) {
+  if (state.isDemoMode) {
+    for (let index = demoWeeklyReports.length - 1; index >= 0; index -= 1) {
+      const report = demoWeeklyReports[index];
+      if (String(report.work_date) === String(holidayDate) && Number(report.abz_typ) === 5) {
+        demoWeeklyReports.splice(index, 1);
+      }
+    }
+    return;
+  }
+
+  const { error } = await state.supabase
+    .from('weekly_reports')
+    .delete()
+    .eq('work_date', holidayDate)
+    .eq('abz_typ', 5);
+  if (error) throw error;
+}
+
+async function deletePlatformHoliday(holidayId) {
+  const holiday = state.platformHolidays.find((item) => String(item.id) === String(holidayId));
+  if (!holiday) {
+    throw new Error('Feiertag nicht gefunden.');
+  }
+
+  if (state.isDemoMode) {
+    const index = demoPlatformHolidays.findIndex((item) => String(item.id) === String(holidayId));
+    if (index >= 0) demoPlatformHolidays.splice(index, 1);
+  } else {
+    const { error } = await state.supabase.from(HOLIDAY_TABLE).delete().eq('id', holidayId);
+    if (error) throw error;
+  }
+
+  await deleteHolidayWeeklyReportsForDate(holiday.holiday_date);
+}
+
+async function updatePlatformHolidayCompensation(holidayId, isPaid) {
+  const holiday = state.platformHolidays.find((item) => String(item.id) === String(holidayId));
+  if (!holiday) {
+    throw new Error('Feiertag nicht gefunden.');
+  }
+
+  if (state.isDemoMode) {
+    const entry = demoPlatformHolidays.find((item) => String(item.id) === String(holidayId));
+    if (entry) {
+      entry.is_paid = isPaid;
+    }
+    demoWeeklyReports.forEach((report) => {
+      if (String(report.work_date) === String(holiday.holiday_date) && Number(report.abz_typ) === 5) {
+        report.total_work_minutes = isPaid ? 480 : 0;
+        report.adjusted_work_minutes = isPaid ? 480 : 0;
+        report.notes = `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`;
+      }
+    });
+    return;
+  }
+
+  const { error: holidayError } = await state.supabase.from(HOLIDAY_TABLE).update({ is_paid: isPaid }).eq('id', holidayId);
+  if (holidayError) throw holidayError;
+
+  const { error: reportError } = await state.supabase
+    .from('weekly_reports')
+    .update({
+      total_work_minutes: isPaid ? 480 : 0,
+      adjusted_work_minutes: isPaid ? 480 : 0,
+      notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`,
+    })
+    .eq('work_date', holiday.holiday_date)
+    .eq('abz_typ', 5);
+  if (reportError) throw reportError;
+}
+
+function isAbsenceTypeCode(value) {
+  return ABSENCE_TYPE_CODES.has(Number(value));
+}
+
+function buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid = true) {
+  const yearKw = getIsoYearAndWeekFromDateString(holidayDate);
+  return {
+    profile_id: profileId,
+    work_date: holidayDate,
+    year: yearKw.year,
+    kw: yearKw.kw,
+    project_name: 'Feiertag',
+    commission_number: label || 'Feiertag',
+    abz_typ: 5,
+    start_time: '07:00',
+    end_time: '16:30',
+    lunch_break_minutes: 60,
+    additional_break_minutes: 30,
+    total_work_minutes: isPaid ? 480 : 0,
+    adjusted_work_minutes: isPaid ? 480 : 0,
+    expenses_amount: 0,
+    other_costs_amount: 0,
+    expense_note: '',
+    notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${label || 'Feiertag'}) erstellt.`,
+    controll: '',
+    attachments: [],
+  };
+}
+
+function groupReportsByProfile(reports) {
+  return reports.reduce((map, report) => {
+    const profileKey = String(report.profile_id);
+    if (!map.has(profileKey)) {
+      map.set(profileKey, []);
+    }
+    map.get(profileKey).push(report);
+    return map;
+  }, new Map());
+}
+
+async function loadReportsForHolidayDate(holidayDate, profileIds) {
+  if (state.isDemoMode) {
+    return demoWeeklyReports.filter((report) => String(report.work_date) === String(holidayDate) && profileIds.includes(report.profile_id));
+  }
+
+  const { data, error } = await state.supabase
+    .from('weekly_reports')
+    .select('*')
+    .eq('work_date', holidayDate)
+    .in('profile_id', profileIds);
+  if (error) throw error;
+  return data || [];
+}
+
+async function replaceWithHolidayWeeklyReport(profileId, holidayDate, label, isPaid, reportsToDelete) {
+  if (state.isDemoMode) {
+    if (reportsToDelete.length) {
+      const reportIds = new Set(reportsToDelete.map((report) => String(report.id)));
+      for (let index = demoWeeklyReports.length - 1; index >= 0; index -= 1) {
+        if (reportIds.has(String(demoWeeklyReports[index].id))) {
+          demoWeeklyReports.splice(index, 1);
+        }
+      }
+    }
+    demoWeeklyReports.push({ id: crypto.randomUUID(), ...buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid) });
+    return;
+  }
+
+  if (reportsToDelete.length) {
+    const { error: deleteError } = await state.supabase.from('weekly_reports').delete().in('id', reportsToDelete.map((report) => report.id));
+    if (deleteError) throw deleteError;
+  }
+
+  const { error: insertError } = await state.supabase.from('weekly_reports').insert(buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid));
+  if (insertError) throw insertError;
+}
+
+async function createHolidayWeeklyReportsForDate(holidayDate, label, isPaid = true) {
+  const activeProfiles = getActiveProfiles();
+  if (!activeProfiles.length) {
+    return;
+  }
+
+  const profileIds = activeProfiles.map((profile) => profile.id);
+  const existingRows = await loadReportsForHolidayDate(holidayDate, profileIds);
+  const reportsByProfile = groupReportsByProfile(existingRows);
+
+  for (const profile of activeProfiles) {
+    const reportsForProfile = reportsByProfile.get(String(profile.id)) || [];
+    const absenceReportsForDate = reportsForProfile.filter((report) => isAbsenceTypeCode(report.abz_typ));
+    // eslint-disable-next-line no-await-in-loop
+    await replaceWithHolidayWeeklyReport(profile.id, holidayDate, label, isPaid, absenceReportsForDate);
+  }
+}
+
+async function createPlatformHoliday(holidayDate, label, isPaid = true) {
+  if (state.isDemoMode) {
+    const alreadyExists = demoPlatformHolidays.some((item) => item.holiday_date === holidayDate);
+    if (!alreadyExists) {
+      demoPlatformHolidays.push({ id: crypto.randomUUID(), holiday_date: holidayDate, label, is_paid: isPaid });
+    }
+    await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
+    return;
+  }
+
+  const upsertResult = await state.supabase
+    .from(HOLIDAY_TABLE)
+    .upsert({ holiday_date: holidayDate, label, is_paid: isPaid }, { onConflict: 'holiday_date' })
+    .select('*')
+    .maybeSingle();
+  if (upsertResult.error && !isMissingTableError(upsertResult.error, HOLIDAY_TABLE)) {
+    throw upsertResult.error;
+  }
+  await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
 }
 
 async function handleSchoolVacationFormSubmit(event) {
@@ -3211,92 +3430,6 @@ async function handleSaveSaldoProfile(profileId) {
   }
 }
 
-async function createPlatformHoliday(holidayDate, label, isPaid = true) {
-  if (state.isDemoMode) {
-    const alreadyExists = demoPlatformHolidays.some((item) => item.holiday_date === holidayDate);
-    if (!alreadyExists) {
-      demoPlatformHolidays.push({ id: crypto.randomUUID(), holiday_date: holidayDate, label, is_paid: isPaid });
-    }
-    await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
-    return;
-  }
-
-  const upsertResult = await state.supabase
-    .from(HOLIDAY_TABLE)
-    .upsert({ holiday_date: holidayDate, label, is_paid: isPaid }, { onConflict: 'holiday_date' })
-    .select('*')
-    .maybeSingle();
-  if (upsertResult.error && !isMissingTableError(upsertResult.error, HOLIDAY_TABLE)) {
-    throw upsertResult.error;
-  }
-  await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
-}
-
-async function createHolidayWeeklyReportsForDate(holidayDate, label, isPaid = true) {
-  const activeProfiles = getActiveProfiles();
-  if (!activeProfiles.length) {
-    return;
-  }
-
-  const yearKw = getIsoYearAndWeekFromDateString(holidayDate);
-  let existingReportProfileIds = new Set(
-    state.weeklyReports
-      .filter((report) => report.work_date === holidayDate)
-      .map((report) => report.profile_id),
-  );
-
-  if (!state.isDemoMode) {
-    const profileIds = activeProfiles.map((profile) => profile.id);
-    const { data: existingRows, error: existingRowsError } = await state.supabase
-      .from('weekly_reports')
-      .select('profile_id')
-      .eq('work_date', holidayDate)
-      .in('profile_id', profileIds);
-    if (existingRowsError) {
-      throw existingRowsError;
-    }
-    existingReportProfileIds = new Set((existingRows || []).map((row) => row.profile_id));
-  }
-
-  const reportRows = activeProfiles
-    .filter((profile) => !existingReportProfileIds.has(profile.id))
-    .map((profile) => ({
-      profile_id: profile.id,
-      work_date: holidayDate,
-      year: yearKw.year,
-      kw: yearKw.kw,
-      project_name: 'Feiertag',
-      commission_number: label || 'Feiertag',
-      abz_typ: 5,
-      start_time: '07:00',
-      end_time: '16:30',
-      lunch_break_minutes: 60,
-      additional_break_minutes: 30,
-      total_work_minutes: isPaid ? 480 : 0,
-      adjusted_work_minutes: isPaid ? 480 : 0,
-      expenses_amount: 0,
-      other_costs_amount: 0,
-      expense_note: '',
-      notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${label || 'Feiertag'}) erstellt.`,
-      controll: '',
-      attachments: [],
-    }));
-
-  if (!reportRows.length) {
-    return;
-  }
-
-  if (state.isDemoMode) {
-    reportRows.forEach((row) => demoWeeklyReports.push({ id: crypto.randomUUID(), ...row }));
-    return;
-  }
-
-  const { error } = await state.supabase.from('weekly_reports').insert(reportRows);
-  if (error) {
-    throw error;
-  }
-}
-
 async function synchronizeAllApprenticeSchoolReportsForYear(year) {
   const apprentices = state.profiles.filter((profile) => String(profile.role_label || '').trim() === 'Lehrling');
   for (const apprentice of apprentices) {
@@ -3345,7 +3478,15 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
   const autoSchoolReports = profileReports.filter(isAutoSchoolReport);
   const manualReportDates = new Set(profileReports.filter((report) => !isAutoSchoolReport(report)).map((report) => report.work_date));
   const existingAutoDates = new Set(autoSchoolReports.map((report) => report.work_date));
-  const datesToInsert = [...desiredDates].filter((date) => !manualReportDates.has(date) && !existingAutoDates.has(date));
+  const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
+  profileReports.forEach((report) => {
+    if (Number(report.abz_typ) === 5 && report.work_date) {
+      holidayDates.add(String(report.work_date));
+    }
+  });
+  const datesToInsert = [...desiredDates].filter(
+    (date) => !manualReportDates.has(date) && !existingAutoDates.has(date) && !holidayDates.has(date),
+  );
   const reportsToDeleteIds = autoSchoolReports.filter((report) => !desiredDates.has(report.work_date)).map((report) => report.id);
 
   if (datesToInsert.length) {
@@ -3841,18 +3982,34 @@ function renderSettingsHolidaysTable() {
     return;
   }
 
-  elements.settingsHolidaysTableBody.innerHTML = rows.map((entry) => `
-    <tr>
-      <td>${escapeHtml(formatDate(entry.holiday_date))}</td>
-      <td>${escapeHtml(entry.label || 'Feiertag')}</td>
-      <td>${entry.is_paid === false ? 'Unbezahlt' : 'Bezahlt'}</td>
-      <td>
-        <button class="button button-small button-danger" type="button" data-action="delete-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
-          Entfernen
-        </button>
-      </td>
-    </tr>
-  `).join('');
+  elements.settingsHolidaysTableBody.innerHTML = rows.map((entry) => {
+    const isEditing = String(state.editingHolidayId) === String(entry.id);
+    return `
+      <tr>
+        <td>${escapeHtml(formatDate(entry.holiday_date))}</td>
+        <td>${escapeHtml(entry.label || 'Feiertag')}</td>
+        <td>
+          ${isEditing ? `
+            <select data-holiday-paid-select="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
+              <option value="true" ${entry.is_paid === false ? '' : 'selected'}>Bezahlt</option>
+              <option value="false" ${entry.is_paid === false ? 'selected' : ''}>Unbezahlt</option>
+            </select>
+          ` : (entry.is_paid === false ? 'Unbezahlt' : 'Bezahlt')}
+        </td>
+        <td>
+          <div class="table-row-actions">
+            ${isEditing ? `
+              <button class="button button-small button-primary" type="button" data-action="save-edit-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Speichern</button>
+              <button class="button button-small button-secondary" type="button" data-action="cancel-edit-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Abbrechen</button>
+            ` : `
+              <button class="button button-small button-secondary" type="button" data-action="start-edit-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Bearbeiten</button>
+              <button class="button button-small button-danger" type="button" data-action="delete-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Entfernen</button>
+            `}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderSettingsSchoolVacationsTable() {
@@ -5350,12 +5507,22 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
   }
 
   if (state.isDemoMode) {
+    const holidayDates = new Set(
+      demoWeeklyReports
+        .filter((report) => String(report.profile_id) === String(request.profile_id) && Number(report.abz_typ) === 5)
+        .map((report) => String(report.work_date)),
+    );
+    state.platformHolidays.forEach((entry) => holidayDates.add(String(entry.holiday_date || '')));
+    const daysWithoutHoliday = days.filter((workDate) => !holidayDates.has(String(workDate)));
+    if (!daysWithoutHoliday.length) {
+      return;
+    }
     const existingDates = new Set(
       demoWeeklyReports
         .filter((report) => String(report.profile_id) === String(request.profile_id))
         .map((report) => report.work_date),
     );
-    days.forEach((workDate) => {
+    daysWithoutHoliday.forEach((workDate) => {
       if (existingDates.has(workDate)) {
         return;
       }
@@ -5366,14 +5533,24 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
 
   const { data: existingReports, error: existingReportsError } = await state.supabase
     .from('weekly_reports')
-    .select('work_date')
+    .select('work_date, abz_typ')
     .eq('profile_id', request.profile_id)
     .in('work_date', days);
   if (existingReportsError) {
     throw existingReportsError;
   }
+  const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
+  (existingReports || []).forEach((report) => {
+    if (Number(report.abz_typ) === 5 && report.work_date) {
+      holidayDates.add(String(report.work_date));
+    }
+  });
+  const daysWithoutHoliday = days.filter((workDate) => !holidayDates.has(String(workDate)));
+  if (!daysWithoutHoliday.length) {
+    return;
+  }
   const existingDates = new Set((existingReports ?? []).map((report) => report.work_date));
-  const rowsToInsert = days
+  const rowsToInsert = daysWithoutHoliday
     .filter((workDate) => !existingDates.has(workDate))
     .map((workDate) => buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode));
   if (!rowsToInsert.length) {
