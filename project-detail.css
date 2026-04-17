@@ -260,6 +260,56 @@ body {
   align-items: center;
 }
 
+.flow-thread {
+  margin-top: 6px;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  padding-top: 10px;
+}
+
+.flow-thread-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.flow-list {
+  display: grid;
+  gap: 10px;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.flow-entry {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+
+.flow-entry-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(17, 17, 17, 0.72);
+}
+
+.flow-entry-author {
+  font-weight: 700;
+  color: #111;
+}
+
+.flow-entry-message {
+  margin: 6px 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.flow-entry-attachments {
+  font-size: 12px;
+}
+
 .button {
   border: 1px solid rgba(17, 17, 17, 0.2);
   border-radius: 10px;
