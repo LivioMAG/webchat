@@ -12,9 +12,6 @@ const NOTE_PREVIEW_LENGTH = 60;
 const NOTE_FLOW_FALLBACK_NAME = 'Unbekannt';
 const NOTE_CATEGORY_INFO = 'information';
 const NOTE_CATEGORY_TASK = 'aufgabe';
-const NOTE_DISCO_STATUS_OPEN = 'open';
-const NOTE_DISCO_STATUS_PLANNED = 'in_disco';
-const NOTE_DISCO_STATUS_DONE = 'done';
 
 const state = {
   supabase: null,
@@ -378,9 +375,6 @@ async function handleSaveNote(event) {
         recipient_uid: recipientUid || null,
         note_category: noteCategory,
         visible_from_date: visibleFromDate,
-        disco_status: NOTE_DISCO_STATUS_OPEN,
-        disco_scheduled_for: null,
-        disco_done_at: null,
         requires_response: false,
         note_ranking: 2,
         attachments: newAttachments,
@@ -492,19 +486,10 @@ function getVisibleNotes() {
     const isRecipient = recipientUid === me;
     const isSender = senderUid === me;
     if (!isRecipient && !isSender) return false;
-
-    if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TASK
-      && String(note.disco_status || NOTE_DISCO_STATUS_OPEN) === NOTE_DISCO_STATUS_DONE) {
-      return false;
-    }
-
     if (state.showHiddenNotes) return true;
 
     const visibilityDate = toDateOnly(note.visible_from_date);
     if (visibilityDate) return today >= visibilityDate;
-
-    const dispoDate = toDateOnly(note.disco_scheduled_for);
-    if (dispoDate) return today >= dispoDate;
     return true;
   });
 }
@@ -785,7 +770,7 @@ function renderDiscoPlanner() {
         <div class="disco-card-list">
           ${entries.map((entry) => {
             const note = state.notes.find((item) => String(item.id) === String(entry.note_id));
-            return note ? renderDiscoTaskCard(note, { showDoneButton: true }) : '';
+            return note ? renderDiscoTaskCard(note) : '';
           }).join('')}
         </div>
       </td>`;
@@ -803,13 +788,13 @@ function renderDiscoBacklogTasks(tasks) {
     elements.discoOpenTasksList.innerHTML = '<p class="subtle-text">Keine offenen Aufgaben.</p>';
     return;
   }
-  elements.discoOpenTasksList.innerHTML = tasks.map((note) => renderDiscoTaskCard(note, { showDoneButton: false })).join('');
+  elements.discoOpenTasksList.innerHTML = tasks.map((note) => renderDiscoTaskCard(note)).join('');
 }
 
 function getOpenTaskNotes() {
   return state.notes.filter((note) => {
     if (normalizeCategory(note.note_category) !== NOTE_CATEGORY_TASK) return false;
-    return String(note.disco_status || NOTE_DISCO_STATUS_OPEN) !== NOTE_DISCO_STATUS_DONE;
+    return true;
   });
 }
 
@@ -826,16 +811,12 @@ function groupDiscoEntriesByCell() {
   return grouped;
 }
 
-function renderDiscoTaskCard(note, options = {}) {
-  const { showDoneButton = false } = options;
+function renderDiscoTaskCard(note) {
   const flow = getNoteFlow(note);
   const latestEntry = flow[flow.length - 1] || null;
   const text = String(latestEntry?.message || note.note_text || 'Aufgabe');
   return `<article class="disco-task-card" draggable="true" data-note-id="${escapeAttribute(note.id)}">
     <strong>${escapeHtml(buildTitleFromText(text))}</strong>
-    ${showDoneButton
-    ? `<button class="button button-secondary compact disco-done-button" type="button" data-action="mark-task-done" data-note-id="${escapeAttribute(note.id)}">Erledigt</button>`
-    : ''}
   </article>`;
 }
 
@@ -892,11 +873,6 @@ async function handleDiscoTableClick(event) {
     await removeDiscoLayer(layerId);
     return;
   }
-  const button = event.target.closest('button[data-action="mark-task-done"]');
-  if (!button) return;
-  const noteId = String(button.dataset.noteId || '').trim();
-  if (!noteId) return;
-  await markTaskDone(noteId);
 }
 
 async function removeDiscoLayer(layerId) {
@@ -930,9 +906,7 @@ async function removeDiscoLayer(layerId) {
         .from(NOTES_TABLE)
         .update({
           recipient_uid: null,
-          disco_status: NOTE_DISCO_STATUS_OPEN,
-          disco_scheduled_for: null,
-          disco_done_at: null,
+          visible_from_date: null,
         })
         .in('id', noteIdsToReset)
         .eq('target_uid', state.projectId)
@@ -943,23 +917,6 @@ async function removeDiscoLayer(layerId) {
     await loadData();
   } catch (error) {
     showAlert(`Layer konnte nicht entfernt werden: ${error.message}`, true);
-  }
-}
-
-async function markTaskDone(noteId) {
-  try {
-    const { error: deleteError } = await state.supabase.from(DISCO_ENTRIES_TABLE).delete().eq('project_id', state.projectId).eq('note_id', noteId);
-    if (deleteError) throw deleteError;
-    const now = new Date().toISOString();
-    const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
-      recipient_uid: null,
-      disco_status: NOTE_DISCO_STATUS_DONE,
-      disco_done_at: now,
-    }).eq('id', noteId);
-    if (noteError) throw noteError;
-    await loadData();
-  } catch (error) {
-    showAlert(`Aufgabe konnte nicht abgeschlossen werden: ${error.message}`, true);
   }
 }
 
@@ -988,9 +945,7 @@ async function assignTaskToLayer(noteId, layerId, dateKey) {
     if (insertError) throw insertError;
     const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
       recipient_uid: recipientUid,
-      disco_status: NOTE_DISCO_STATUS_PLANNED,
-      disco_scheduled_for: dateKey,
-      disco_done_at: null,
+      visible_from_date: dateKey,
     }).eq('id', noteId);
     if (noteError) throw noteError;
     await loadData();
@@ -1005,9 +960,7 @@ async function moveTaskToBacklog(noteId) {
     if (deleteError) throw deleteError;
     const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
       recipient_uid: null,
-      disco_status: NOTE_DISCO_STATUS_OPEN,
-      disco_scheduled_for: null,
-      disco_done_at: null,
+      visible_from_date: null,
     }).eq('id', noteId);
     if (noteError) throw noteError;
     await loadData();

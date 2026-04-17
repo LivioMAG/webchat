@@ -382,9 +382,6 @@ create table if not exists public.notes (
   sender_uid uuid not null references public.app_profiles(id) on delete restrict,
   recipient_uid uuid references public.app_profiles(id) on delete set null,
   note_category text not null default 'information',
-  disco_status text not null default 'open' check (disco_status in ('open', 'in_disco', 'done')),
-  disco_scheduled_for date,
-  disco_done_at timestamptz,
   requires_response boolean not null default false,
   visible_from_date date,
   note_ranking smallint not null default 2 check (note_ranking between 1 and 3),
@@ -406,15 +403,6 @@ add column if not exists recipient_uid uuid references public.app_profiles(id) o
 
 alter table public.notes
 add column if not exists note_category text not null default 'information';
-
-alter table public.notes
-add column if not exists disco_status text not null default 'open';
-
-alter table public.notes
-add column if not exists disco_scheduled_for date;
-
-alter table public.notes
-add column if not exists disco_done_at timestamptz;
 
 alter table public.notes
 add column if not exists requires_response boolean not null default false;
@@ -464,18 +452,19 @@ begin
 end;
 $$;
 
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'notes_disco_status_check'
-      and conrelid = 'public.notes'::regclass
-  ) then
-    alter table public.notes
-      add constraint notes_disco_status_check check (disco_status in ('open', 'in_disco', 'done'));
-  end if;
-end;
-$$;
+alter table public.notes
+drop constraint if exists notes_disco_status_check;
+
+drop index if exists public.notes_disco_status_idx;
+
+alter table public.notes
+drop column if exists disco_status;
+
+alter table public.notes
+drop column if exists disco_scheduled_for;
+
+alter table public.notes
+drop column if exists disco_done_at;
 
 create table if not exists public.project_disco_layers (
   id uuid primary key default gen_random_uuid(),
@@ -656,7 +645,6 @@ create index if not exists request_history_profile_created_at_idx on public.requ
 create index if not exists daily_assignments_profile_date_idx on public.daily_assignments (profile_id, assignment_date);
 create index if not exists crm_contacts_last_name_idx on public.crm_contacts (last_name, first_name);
 create index if not exists notes_target_uid_created_at_idx on public.notes (target_uid, created_at desc);
-create index if not exists notes_disco_status_idx on public.notes (target_uid, disco_status, disco_scheduled_for);
 create index if not exists project_disco_layers_project_week_idx on public.project_disco_layers (project_id, week_start_date, sort_order);
 create index if not exists project_disco_entries_project_note_idx on public.project_disco_entries (project_id, note_id);
 
