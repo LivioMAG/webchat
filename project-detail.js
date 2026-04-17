@@ -801,7 +801,7 @@ function renderDiscoPlanner() {
         </div>
       </td>`;
     }).join('');
-    return `<tr><th>${escapeHtml(name)}</th>${cells}</tr>`;
+    return `<tr><th><div class="disco-layer-header"><span>${escapeHtml(name)}</span><button class="button button-danger compact" type="button" data-action="remove-disco-layer" data-layer-id="${escapeAttribute(layer.id)}" title="Layer entfernen" aria-label="Layer entfernen">Layer entfernen</button></div></th>${cells}</tr>`;
   }).join('');
 
   elements.discoTableBody.innerHTML = layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`;
@@ -896,11 +896,65 @@ async function handleDiscoDrop(event) {
 }
 
 async function handleDiscoTableClick(event) {
+  const removeLayerButton = event.target.closest('button[data-action="remove-disco-layer"]');
+  if (removeLayerButton) {
+    const layerId = String(removeLayerButton.dataset.layerId || '').trim();
+    if (!layerId) return;
+    await removeDiscoLayer(layerId);
+    return;
+  }
   const button = event.target.closest('button[data-action="mark-task-done"]');
   if (!button) return;
   const noteId = String(button.dataset.noteId || '').trim();
   if (!noteId) return;
   await markTaskDone(noteId);
+}
+
+async function removeDiscoLayer(layerId) {
+  const layer = state.discoLayers.find((item) => String(item.id) === String(layerId));
+  if (!layer) return;
+  const profileId = String(layer.profile_uid || '');
+  const layerName = resolveProfileName(profileId) || profileId || 'diesen Layer';
+  const shouldDelete = window.confirm(`Möchtest du ${layerName} wirklich aus dieser Woche entfernen? Zugeordnete Aufgaben landen wieder im Pool.`);
+  if (!shouldDelete) return;
+
+  const layerEntries = state.discoEntries.filter((entry) => String(entry.layer_id) === String(layerId));
+  const noteIdsFromLayer = [...new Set(layerEntries.map((entry) => String(entry.note_id || '')).filter(Boolean))];
+  const remainingPlannedNoteIds = new Set(
+    state.discoEntries
+      .filter((entry) => String(entry.layer_id) !== String(layerId))
+      .map((entry) => String(entry.note_id || ''))
+      .filter(Boolean),
+  );
+  const noteIdsToReset = noteIdsFromLayer.filter((noteId) => !remainingPlannedNoteIds.has(noteId));
+
+  try {
+    const { error: deleteError } = await state.supabase
+      .from(DISCO_LAYERS_TABLE)
+      .delete()
+      .eq('id', layerId)
+      .eq('project_id', state.projectId);
+    if (deleteError) throw deleteError;
+
+    if (noteIdsToReset.length) {
+      const { error: noteError } = await state.supabase
+        .from(NOTES_TABLE)
+        .update({
+          recipient_uid: null,
+          disco_status: NOTE_DISCO_STATUS_OPEN,
+          disco_scheduled_for: null,
+          disco_done_at: null,
+        })
+        .in('id', noteIdsToReset)
+        .eq('target_uid', state.projectId)
+        .eq('note_type', PROJECT_NOTE_TYPE);
+      if (noteError) throw noteError;
+    }
+
+    await loadData();
+  } catch (error) {
+    showAlert(`Layer konnte nicht entfernt werden: ${error.message}`, true);
+  }
 }
 
 async function markTaskDone(noteId) {
@@ -932,12 +986,15 @@ async function assignTaskToLayer(noteId, layerId, dateKey) {
       const { error: deleteError } = await state.supabase.from(DISCO_ENTRIES_TABLE).delete().in('id', deleteIds);
       if (deleteError) throw deleteError;
     }
+    const nextSortOrder = state.discoEntries.length
+      ? Math.max(...state.discoEntries.map((entry) => Number(entry.sort_order || 0))) + 1
+      : 1;
     const { error: insertError } = await state.supabase.from(DISCO_ENTRIES_TABLE).insert({
       project_id: state.projectId,
       note_id: noteId,
       layer_id: layerId,
       plan_date: dateKey,
-      sort_order: Date.now(),
+      sort_order: nextSortOrder,
     });
     if (insertError) throw insertError;
     const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
