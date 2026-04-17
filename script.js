@@ -83,6 +83,8 @@ const ABSENCE_CATEGORY_CONFIG = [
 ];
 const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
+const BLOCK_SCHEDULE_SCHEMA_HINT =
+  "Die Datenbankspalte 'app_profiles.block_schedule' fehlt. Bitte das aktuelle Supabase-Schema (ALTER TABLE app_profiles ADD COLUMN block_schedule ...) ausführen und danach die Seite neu laden.";
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.holiday_requests
@@ -2626,6 +2628,12 @@ function closeBlockDayModal() {
   if (elements.blockDayForm) elements.blockDayForm.reset();
 }
 
+function isMissingBlockScheduleColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  if (!message) return false;
+  return message.includes("'block_schedule'") && message.includes("'app_profiles'") && message.includes('schema cache');
+}
+
 async function handleBlockDayFormSubmit(event) {
   event.preventDefault();
   if (state.isSavingSettings) return;
@@ -2661,7 +2669,10 @@ async function handleBlockDayFormSubmit(event) {
     await loadData();
   } catch (error) {
     console.error(error);
-    alert(`Blocktage konnten nicht gespeichert werden: ${error.message}`);
+    const errorMessage = isMissingBlockScheduleColumnError(error)
+      ? BLOCK_SCHEDULE_SCHEMA_HINT
+      : error.message;
+    alert(`Blocktage konnten nicht gespeichert werden: ${errorMessage}`);
   } finally {
     state.isSavingSettings = false;
     render();
