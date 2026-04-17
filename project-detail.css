@@ -104,6 +104,12 @@ body {
   align-items: center;
 }
 
+.dashboard-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .disco-week-row {
   justify-content: center;
 }
@@ -277,6 +283,15 @@ body {
 
 .note-icon:hover {
   background: #fffde7;
+}
+
+.note-icon[data-category='titel'] {
+  background: #eef4ff;
+  border-style: dashed;
+}
+
+.note-icon[data-category='titel']:hover {
+  background: #e6efff;
 }
 
 .note-icon.dragging {
@@ -471,6 +486,12 @@ body {
 .button.compact {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.button.icon-only {
+  min-width: 36px;
+  padding: 6px;
+  text-align: center;
 }
 
 .button-danger {
