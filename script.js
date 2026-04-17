@@ -4317,11 +4317,13 @@ function renderDispoCell(profileId, date) {
   }
   const blockItems = getBlockDayDispoItems(profileId, date);
   const hasFullDayBlock = blockItems.some((item) => item.mode === 'full');
+  const isLocked = isWeeklyReportLocked(profileId, date);
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
-  const items = getDispoItemsForEntry(entry);
-  const addButton = hasFullDayBlock
-    ? ''
-    : `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`;
+  const assignmentItems = getDispoItemsForEntry(entry);
+  const items = assignmentItems.length ? assignmentItems : (isLocked ? getWeeklyReportItems(profileId, date) : []);
+  const addButton = (!hasFullDayBlock && !isLocked)
+    ? `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`
+    : '';
   const blockTagBadges = blockItems.length
     ? `<div class="dispo-items">${blockItems.map((item) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span></div>`).join('')}</div>`
     : '';
@@ -4333,23 +4335,26 @@ function renderDispoCell(profileId, date) {
   }
   return `<td><div class="dispo-cell">
     ${blockTagBadges}
-    <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
+    <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry?.id, index, !isLocked)).join('')}</div>
     ${state.dispoAllowMultiplePerDay && addButton ? `<div class="dispo-add-row">${addButton}</div>` : ''}
   </div></td>`;
 }
 
-function renderDispoItemCard(item, assignmentId, index) {
+function renderDispoItemCard(item, assignmentId, index, allowDelete = true) {
   const themeClass = getDispoCardThemeClass(item?.label);
   const lineLabel = getDispoItemLineLabel(item);
   const timeLabel = getDispoItemTimeLabel(item);
+  const actions = allowDelete && assignmentId
+    ? `<div class="dispo-item-actions">
+      <button class="button button-icon-only dispo-delete-button" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(assignmentId)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">✕</button>
+    </div>`
+    : '';
   return `<article class="dispo-item-card ${themeClass}">
     <div class="dispo-item-text">
       <span>${escapeHtml(lineLabel)}</span>
       ${timeLabel ? `<small class="dispo-item-time">${escapeHtml(timeLabel)}</small>` : ''}
     </div>
-    <div class="dispo-item-actions">
-      <button class="button button-icon-only dispo-delete-button" type="button" data-action="remove-dispo-item" data-assignment-id="${escapeAttribute(assignmentId)}" data-item-index="${escapeAttribute(index)}" title="Eintrag löschen">✕</button>
-    </div>
+    ${actions}
   </article>`;
 }
 
