@@ -2593,7 +2593,6 @@ async function handleSaveUserSettings(profileId) {
     const localProfile = state.profiles.find((item) => String(item.id) === String(profileId));
     if (localProfile) Object.assign(localProfile, updates);
     await synchronizeApprenticeSchoolReportsForYear(profileId, new Date().getUTCFullYear());
-    await synchronizeBlockDayReportsForYear(profileId, new Date().getUTCFullYear());
     await loadData();
   } catch (error) {
     console.error(error);
@@ -3692,27 +3691,6 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
 }
 
 async function synchronizeBlockDayReportsForYear(profileId, year) {
-  const profile = state.profiles.find((item) => String(item.id) === String(profileId))
-    || demoProfiles.find((item) => String(item.id) === String(profileId));
-  if (!profile) return;
-  const schedule = parseBlockSchedule(profile);
-  const desiredEntries = [];
-  if (schedule.length) {
-    const startDate = `${year}-01-01`;
-    const endDate = `${year}-12-31`;
-    const cursor = new Date(`${startDate}T00:00:00Z`);
-    const stop = new Date(`${endDate}T00:00:00Z`);
-    while (cursor <= stop) {
-      const isoDate = cursor.toISOString().slice(0, 10);
-      const weekday = getWeekdayIndex(isoDate) + 1;
-      schedule.forEach((entry) => {
-        if (entry.weekday === weekday) {
-          desiredEntries.push({ date: isoDate, mode: entry.mode });
-        }
-      });
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-    }
-  }
   let profileReports = [];
   if (state.isDemoMode) {
     profileReports = demoWeeklyReports.filter((report) => report.profile_id === profileId && Number(getIsoYearAndWeekFromDateString(report.work_date).year) === year);
@@ -3726,28 +3704,7 @@ async function synchronizeBlockDayReportsForYear(profileId, year) {
     profileReports = data || [];
   }
 
-  const existingAutoBlockReports = profileReports.filter(isAutoBlockDayReport);
-  const existingKeyToId = new Map(existingAutoBlockReports.map((report) => [`${report.work_date}:${getBlockDayModeFromReport(report)}`, report.id]));
-  const desiredKeySet = new Set(desiredEntries.map((entry) => `${entry.date}:${entry.mode}`));
-  const rowsToInsert = desiredEntries.filter((entry) => !existingKeyToId.has(`${entry.date}:${entry.mode}`));
-  const reportIdsToDelete = existingAutoBlockReports
-    .filter((report) => !desiredKeySet.has(`${report.work_date}:${getBlockDayModeFromReport(report)}`))
-    .map((report) => report.id);
-  const blockerDates = new Set(desiredEntries.map((entry) => entry.date));
-  const conflictingAbsenceIds = profileReports
-    .filter((report) => blockerDates.has(String(report.work_date)) && Number(report.abz_typ) !== BLOCK_DAY_TYPE_CODE && isAbsenceTypeCode(report.abz_typ))
-    .map((report) => report.id);
-  const idsToDelete = [...new Set([...reportIdsToDelete, ...conflictingAbsenceIds])];
-
-  if (rowsToInsert.length) {
-    const rows = rowsToInsert.map((entry) => buildBlockDayWeeklyReport(profileId, entry.date, entry.mode));
-    if (state.isDemoMode) {
-      rows.forEach((row) => demoWeeklyReports.push({ id: crypto.randomUUID(), ...row }));
-    } else {
-      const { error } = await state.supabase.from('weekly_reports').insert(rows);
-      if (error) throw error;
-    }
-  }
+  const idsToDelete = profileReports.filter((report) => isAutoBlockDayReport(report)).map((report) => report.id);
   if (idsToDelete.length) {
     if (state.isDemoMode) {
       for (const reportId of idsToDelete) {
@@ -3759,32 +3716,6 @@ async function synchronizeBlockDayReportsForYear(profileId, year) {
       if (error) throw error;
     }
   }
-}
-
-function buildBlockDayWeeklyReport(profileId, workDate, mode) {
-  const timeConfig = BLOCK_DAY_MODE_OPTIONS[mode] || BLOCK_DAY_MODE_OPTIONS.full;
-  const isoWeek = getIsoYearAndWeekFromDateString(workDate);
-  return {
-    profile_id: profileId,
-    work_date: workDate,
-    year: isoWeek.year,
-    kw: isoWeek.kw,
-    project_name: `Blocktag (${timeConfig.label})`,
-    commission_number: 'Blocktag',
-    abz_typ: BLOCK_DAY_TYPE_CODE,
-    start_time: timeConfig.start,
-    end_time: timeConfig.end,
-    lunch_break_minutes: timeConfig.lunch,
-    additional_break_minutes: timeConfig.additional,
-    total_work_minutes: timeConfig.minutes,
-    adjusted_work_minutes: timeConfig.minutes,
-    expenses_amount: 0,
-    other_costs_amount: 0,
-    expense_note: '',
-    notes: `${BLOCK_DAY_REPORT_NOTE_MARKER} (${mode}).`,
-    controll: '',
-    attachments: [],
-  };
 }
 
 function getBlockDayModeFromReport(report) {
@@ -4373,21 +4304,26 @@ function renderDispoCell(profileId, date) {
   if (isWeekendDate(date)) {
     return '<td><div class="dispo-plus-cell"><span class="subtle-text">–</span></div></td>';
   }
-  const weeklyReportItems = getWeeklyReportItems(profileId, date);
-  if (weeklyReportItems.length) {
-    return `<td><div class="dispo-cell dispo-cell-locked">
-      <div class="dispo-items">${weeklyReportItems.map((item) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span></div>`).join('')}</div>
-    </div></td>`;
-  }
+  const blockItems = getBlockDayDispoItems(profileId, date);
+  const hasFullDayBlock = blockItems.some((item) => item.mode === 'full');
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const items = getDispoItemsForEntry(entry);
-  const addButton = `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`;
+  const addButton = hasFullDayBlock
+    ? ''
+    : `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`;
+  const blockTagBadges = blockItems.length
+    ? `<div class="dispo-items">${blockItems.map((item) => `<div class="dispo-item-row"><span class="dispo-item-text">${escapeHtml(item.label)}</span></div>`).join('')}</div>`
+    : '';
   if (!items.length) {
-    return `<td><div class="dispo-plus-cell">${addButton}</div></td>`;
+    if (!addButton) {
+      return `<td><div class="dispo-cell dispo-cell-locked">${blockTagBadges}</div></td>`;
+    }
+    return `<td><div class="dispo-plus-cell">${blockTagBadges}${addButton}</div></td>`;
   }
   return `<td><div class="dispo-cell">
+    ${blockTagBadges}
     <div class="dispo-items">${items.map((item, index) => renderDispoItemCard(item, entry.id, index)).join('')}</div>
-    ${state.dispoAllowMultiplePerDay ? `<div class="dispo-add-row">${addButton}</div>` : ''}
+    ${state.dispoAllowMultiplePerDay && addButton ? `<div class="dispo-add-row">${addButton}</div>` : ''}
   </div></td>`;
 }
 
@@ -4435,6 +4371,47 @@ function normalizeDispoTimeValue(value, fallback) {
 function isAbsenceDispoItem(label) {
   const normalized = normalizeSearchValue(label || '');
   return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'berufsschule', 'blocktag', 'absenz'].some((term) => normalized.includes(term));
+}
+
+function getBlockDayDispoItems(profileId, date) {
+  const profile = getProfileById(profileId);
+  const schedule = parseBlockSchedule(profile);
+  if (!schedule.length) return [];
+  const weekday = getWeekdayIndex(date) + 1;
+  return schedule
+    .filter((entry) => entry.weekday === weekday)
+    .map((entry) => ({
+      mode: entry.mode,
+      start_time: BLOCK_DAY_MODE_OPTIONS[entry.mode]?.start || BLOCK_DAY_MODE_OPTIONS.full.start,
+      end_time: BLOCK_DAY_MODE_OPTIONS[entry.mode]?.end || BLOCK_DAY_MODE_OPTIONS.full.end,
+      label: `Blocktag (${BLOCK_DAY_MODE_OPTIONS[entry.mode]?.label || 'Ganzer Tag'})`,
+    }));
+}
+
+function toDispoMinutes(timeValue, fallback) {
+  const value = normalizeDispoTimeValue(timeValue, fallback);
+  const [hh, mm] = value.split(':').map((part) => Number(part));
+  return (hh * 60) + mm;
+}
+
+function hasBlockDayOverlap(profileId, date, items = []) {
+  const blockItems = getBlockDayDispoItems(profileId, date);
+  if (!blockItems.length || !items.length) return false;
+  return items.some((item) => {
+    const itemStart = toDispoMinutes(item.start_time, DISPO_DEFAULT_START_TIME);
+    const itemEnd = toDispoMinutes(item.end_time, DISPO_DEFAULT_END_TIME);
+    if (itemEnd <= itemStart) return true;
+    return blockItems.some((block) => {
+      const blockStart = toDispoMinutes(block.start_time, BLOCK_DAY_MODE_OPTIONS.full.start);
+      const blockEnd = toDispoMinutes(block.end_time, BLOCK_DAY_MODE_OPTIONS.full.end);
+      return itemStart < blockEnd && itemEnd > blockStart;
+    });
+  });
+}
+
+function isPastDispoDate(date) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  return String(date || '') < todayIso;
 }
 
 function upsertLocalDailyAssignment(entry) {
@@ -4640,7 +4617,7 @@ async function handleDispoTableClick(event) {
   if (!button) return;
   if (button.dataset.action === 'assign-dispo') {
     if (isWeeklyReportLocked(button.dataset.profileId, button.dataset.date)) {
-      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+      showInlineAlert(elements.dispoAlert, 'Vergangene Tage können in der Dispo nicht mehr bearbeitet werden.', true);
       return;
     }
     openDispoAssignModal({
@@ -4674,7 +4651,7 @@ async function handleDispoTableClick(event) {
     const entry = state.dailyAssignments.find((item) => String(item.id) === String(button.dataset.assignmentId));
     if (!entry) return;
     if (isWeeklyReportLocked(entry.profile_id, entry.assignment_date)) {
-      showInlineAlert(elements.dispoAlert, 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.', true);
+      showInlineAlert(elements.dispoAlert, 'Vergangene Tage können in der Dispo nicht mehr bearbeitet werden.', true);
       return;
     }
     const index = Number(button.dataset.itemIndex);
@@ -4692,13 +4669,18 @@ async function handleDispoTableClick(event) {
 
 async function saveDispoAssignment({ profileId, date, items = [], source = 'manual', suppressReload = false, silent = false, mode = 'replace' }) {
   if (isWeeklyReportLocked(profileId, date)) {
-    const message = 'Für diesen Tag gibt es einen Wochenrapport. Die Dispo ist gesperrt.';
+    const message = 'Vergangene Tage können in der Dispo nicht mehr bearbeitet werden.';
     if (!silent) showInlineAlert(elements.dispoAlert, message, true);
     return { saved: false, error: message };
   }
   const existingEntry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const baseItems = mode === 'append' ? getDispoItemsForEntry(existingEntry) : [];
   const mergedItems = [...baseItems, ...items].filter((item) => item?.label);
+  if (hasBlockDayOverlap(profileId, date, mergedItems)) {
+    const message = 'Die Dispo-Zeit überschneidet sich mit einem Blocktag.';
+    if (!silent) showInlineAlert(elements.dispoAlert, message, true);
+    return { saved: false, error: message };
+  }
   if (!mergedItems.length) {
     if (!state.isDemoMode && state.supabase) {
       const deleteQuery = state.supabase
@@ -4831,7 +4813,7 @@ function getWeeklyReportItems(profileId, date) {
 }
 
 function isWeeklyReportLocked(profileId, date) {
-  return getWeeklyReportItems(profileId, date).length > 0;
+  return isPastDispoDate(date);
 }
 
 function getWeekDateList(weekValue) {
@@ -4853,7 +4835,7 @@ function isWeekendDate(date) {
 function openDispoAssignModal({ targets, label }) {
   const editableTargets = (targets || []).filter((target) => !isWeeklyReportLocked(target.profileId, target.date));
   if (!editableTargets.length) {
-    showInlineAlert(elements.dispoAlert, 'Für die Auswahl gibt es bereits Wochenrapporte. Keine Dispo-Bearbeitung möglich.', true);
+    showInlineAlert(elements.dispoAlert, 'Vergangene Tage können in der Dispo nicht mehr bearbeitet werden.', true);
     return;
   }
   state.dispoAssignContext = { targets: editableTargets };
