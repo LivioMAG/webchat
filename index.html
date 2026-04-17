@@ -456,6 +456,7 @@
                           <th>E-Mail</th>
                           <th>Rolle</th>
                           <th>Schultag</th>
+                          <th>Blocktag</th>
                           <th>Sollerlös (CHF)</th>
                           <th>Status</th>
                           <th>Aktion</th>
@@ -769,6 +770,42 @@
               <tbody id="confirmationsTableBody"></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div id="blockDayModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="blockDayTitle">
+        <div class="modal-backdrop" data-close-block-day-modal="true"></div>
+        <div class="modal-card panel modal-card-compact">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="blockDayTitle">Blocktage verwalten</h3>
+              <p>Wiederkehrende Sperren pro Wochentag (ganzer/halber Tag) für ein Kalenderjahr.</p>
+            </div>
+            <button id="closeBlockDayModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <form id="blockDayForm" class="report-edit-form">
+            <input id="blockDayProfileIdInput" type="hidden" />
+            <label>
+              <span>Kalenderjahr</span>
+              <input id="blockDayYearInput" type="number" min="2000" max="2100" required />
+            </label>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Tag</th>
+                    <th>Blockierung</th>
+                  </tr>
+                </thead>
+                <tbody id="blockDayOptionsBody"></tbody>
+              </table>
+            </div>
+            <div class="modal-actions">
+              <button id="cancelBlockDayButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button class="button button-primary" type="submit">Fertig</button>
+            </div>
+          </form>
         </div>
       </div>
 

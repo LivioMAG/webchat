@@ -714,6 +714,17 @@ tbody tr:hover {
   flex-wrap: wrap;
 }
 
+.stacked-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.block-day-mode-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .button-small {
   padding: 8px 12px;
   border-radius: 12px;

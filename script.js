@@ -20,6 +20,13 @@ const SCHOOL_DAY_OPTIONS = [
   { value: 5, label: 'Freitag' },
 ];
 const SCHOOL_REPORT_NOTE_MARKER = 'Automatisch erstellter Berufsschultag';
+const BLOCK_DAY_REPORT_NOTE_MARKER = 'Automatisch erstellter Blocktag';
+const BLOCK_DAY_TYPE_CODE = 8;
+const BLOCK_DAY_MODE_OPTIONS = {
+  full: { label: 'Ganzer Tag', start: '07:00', end: '16:30', lunch: 60, additional: 30, minutes: 480 },
+  am: { label: 'Vormittag', start: '07:00', end: '12:00', lunch: 0, additional: 0, minutes: 300 },
+  pm: { label: 'Nachmittag', start: '13:00', end: '16:30', lunch: 0, additional: 0, minutes: 210 },
+};
 const CRM_CATEGORY_LABELS = {
   kunde: 'Kunde',
   lieferant: 'Lieferant',
@@ -38,6 +45,7 @@ const HOLIDAY_TYPE_LABELS = {
   unfall: 'Unfall',
   krankheit: 'Krankheit',
   feiertag: 'Feiertag',
+  blocktag: 'Blocktag',
 };
 const ABSENCE_TYPE_CODE_LABELS = {
   1: 'Ferien',
@@ -47,6 +55,7 @@ const ABSENCE_TYPE_CODE_LABELS = {
   5: 'Feiertag',
   6: 'ÜK',
   7: 'Berufsschule',
+  8: 'Blocktag',
 };
 const HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE = {
   ferien: 1,
@@ -60,6 +69,7 @@ const HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE = {
   uk: 6,
   'ük': 6,
   berufsschule: 7,
+  blocktag: 8,
 };
 const ABSENCE_CATEGORY_CONFIG = [
   { typeCode: 1, label: 'Ferien' },
@@ -69,8 +79,9 @@ const ABSENCE_CATEGORY_CONFIG = [
   { typeCode: 5, label: 'Feiertag' },
   { typeCode: 6, label: 'ÜK' },
   { typeCode: 7, label: 'Berufsschule' },
+  { typeCode: 8, label: 'Blocktag' },
 ];
-const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7]);
+const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
@@ -109,6 +120,9 @@ add column if not exists school_day_1 smallint;
 
 alter table public.app_profiles
 add column if not exists school_day_2 smallint;
+
+alter table public.app_profiles
+add column if not exists block_schedule jsonb not null default '[]'::jsonb;
 
 alter table public.app_profiles
 add column if not exists is_active boolean not null default true;
@@ -817,6 +831,13 @@ function cacheElements() {
   elements.schoolVacationForm = document.getElementById('schoolVacationForm');
   elements.schoolVacationStartInput = document.getElementById('schoolVacationStartInput');
   elements.schoolVacationEndInput = document.getElementById('schoolVacationEndInput');
+  elements.blockDayModal = document.getElementById('blockDayModal');
+  elements.blockDayForm = document.getElementById('blockDayForm');
+  elements.blockDayProfileIdInput = document.getElementById('blockDayProfileIdInput');
+  elements.blockDayYearInput = document.getElementById('blockDayYearInput');
+  elements.blockDayOptionsBody = document.getElementById('blockDayOptionsBody');
+  elements.closeBlockDayModalButton = document.getElementById('closeBlockDayModalButton');
+  elements.cancelBlockDayButton = document.getElementById('cancelBlockDayButton');
   elements.crmAlert = document.getElementById('crmAlert');
   elements.crmSearchInput = document.getElementById('crmSearchInput');
   elements.crmCategoryFilterInput = document.getElementById('crmCategoryFilterInput');
@@ -958,6 +979,22 @@ function bindEvents() {
   }
   if (elements.schoolVacationForm) {
     elements.schoolVacationForm.addEventListener('submit', handleSchoolVacationFormSubmit);
+  }
+  if (elements.blockDayForm) {
+    elements.blockDayForm.addEventListener('submit', handleBlockDayFormSubmit);
+  }
+  if (elements.closeBlockDayModalButton) {
+    elements.closeBlockDayModalButton.addEventListener('click', closeBlockDayModal);
+  }
+  if (elements.cancelBlockDayButton) {
+    elements.cancelBlockDayButton.addEventListener('click', closeBlockDayModal);
+  }
+  if (elements.blockDayModal) {
+    elements.blockDayModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeBlockDayModal === 'true') {
+        closeBlockDayModal();
+      }
+    });
   }
   if (elements.crmContactForm) {
     elements.crmContactForm.addEventListener('submit', handleCrmContactSubmit);
@@ -2424,6 +2461,11 @@ async function handleSettingsUsersTableClick(event) {
     return;
   }
 
+  if (action === 'edit-block-days') {
+    openBlockDayModal(profile);
+    return;
+  }
+
   if (action !== 'toggle-user-active') return;
 
   const nextValue = profile.is_active === false;
@@ -2455,8 +2497,12 @@ function handleSettingsUsersTableChange(event) {
   const profileId = roleSelect.dataset.roleLabelInput;
   const schoolDaySelect = document.querySelector(`select[data-school-day-input="${profileId}"]`);
   if (!schoolDaySelect) return;
+  const blockSettingsButton = document.querySelector(`button[data-block-days-input="${profileId}"]`);
   const isApprentice = String(roleSelect.value || '').trim() === 'Lehrling';
   schoolDaySelect.disabled = state.isSavingSettings || !isApprentice;
+  if (blockSettingsButton) {
+    blockSettingsButton.disabled = state.isSavingSettings;
+  }
   if (!isApprentice) {
     schoolDaySelect.value = '';
   }
@@ -2469,6 +2515,45 @@ function getSelectedSchoolDay(profileId) {
     return null;
   }
   return value;
+}
+
+function normalizeBlockSchedule(rawSchedule) {
+  const rows = Array.isArray(rawSchedule) ? rawSchedule : [];
+  return rows
+    .map((entry) => {
+      const weekday = Number(entry?.weekday);
+      const mode = String(entry?.mode || 'full').trim();
+      if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5 || !BLOCK_DAY_MODE_OPTIONS[mode]) {
+        return null;
+      }
+      return { weekday, mode };
+    })
+    .filter(Boolean);
+}
+
+function parseBlockSchedule(profile) {
+  if (!profile) return [];
+  const raw = profile.block_schedule;
+  if (Array.isArray(raw)) {
+    return normalizeBlockSchedule(raw);
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      return normalizeBlockSchedule(JSON.parse(raw));
+    } catch (error) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function getBlockScheduleSummary(profile) {
+  const schedule = parseBlockSchedule(profile);
+  if (!schedule.length) return '–';
+  return schedule
+    .sort((left, right) => left.weekday - right.weekday || left.mode.localeCompare(right.mode, 'de'))
+    .map((entry) => `${WEEKDAY_LABELS[entry.weekday - 1]} (${BLOCK_DAY_MODE_OPTIONS[entry.mode].label})`)
+    .join(', ');
 }
 
 async function handleSaveUserSettings(profileId) {
@@ -2508,10 +2593,76 @@ async function handleSaveUserSettings(profileId) {
     const localProfile = state.profiles.find((item) => String(item.id) === String(profileId));
     if (localProfile) Object.assign(localProfile, updates);
     await synchronizeApprenticeSchoolReportsForYear(profileId, new Date().getUTCFullYear());
+    await synchronizeBlockDayReportsForYear(profileId, new Date().getUTCFullYear());
     await loadData();
   } catch (error) {
     console.error(error);
     alert(`Benutzereinstellungen konnten nicht gespeichert werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+function openBlockDayModal(profile) {
+  if (!elements.blockDayModal || !profile) return;
+  const year = new Date().getUTCFullYear();
+  elements.blockDayProfileIdInput.value = profile.id;
+  elements.blockDayYearInput.value = String(year);
+  const selectedEntries = parseBlockSchedule(profile);
+  const selectedMap = new Map(selectedEntries.map((entry) => [`${entry.weekday}:${entry.mode}`, true]));
+  const rows = SCHOOL_DAY_OPTIONS.map((day) => {
+    const modeOptions = Object.entries(BLOCK_DAY_MODE_OPTIONS).map(([modeKey, config]) => (
+      `<label class="checkbox-inline"><input type="checkbox" value="${day.value}:${modeKey}" ${selectedMap.has(`${day.value}:${modeKey}`) ? 'checked' : ''} /><span>${escapeHtml(config.label)}</span></label>`
+    )).join('');
+    return `<tr><td>${escapeHtml(day.label)}</td><td><div class="block-day-mode-grid">${modeOptions}</div></td></tr>`;
+  }).join('');
+  elements.blockDayOptionsBody.innerHTML = rows;
+  elements.blockDayModal.classList.remove('hidden');
+}
+
+function closeBlockDayModal() {
+  if (!elements.blockDayModal) return;
+  elements.blockDayModal.classList.add('hidden');
+  if (elements.blockDayForm) elements.blockDayForm.reset();
+}
+
+async function handleBlockDayFormSubmit(event) {
+  event.preventDefault();
+  if (state.isSavingSettings) return;
+  const profileId = String(elements.blockDayProfileIdInput?.value || '').trim();
+  const year = Number(elements.blockDayYearInput?.value);
+  if (!profileId) return;
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    alert('Bitte ein gültiges Kalenderjahr wählen.');
+    return;
+  }
+  const selections = Array.from(elements.blockDayOptionsBody?.querySelectorAll('input[type="checkbox"]:checked') || [])
+    .map((input) => String(input.value || '').split(':'))
+    .map(([weekdayRaw, modeRaw]) => ({ weekday: Number(weekdayRaw), mode: modeRaw }))
+    .filter((entry) => Number.isInteger(entry.weekday) && entry.weekday >= 1 && entry.weekday <= 5 && BLOCK_DAY_MODE_OPTIONS[entry.mode]);
+  const deduped = new Map();
+  selections.forEach((entry) => deduped.set(`${entry.weekday}:${entry.mode}`, entry));
+  const blockSchedule = [...deduped.values()];
+  state.isSavingSettings = true;
+  try {
+    if (state.isDemoMode) {
+      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (demoProfile) {
+        demoProfile.block_schedule = blockSchedule;
+      }
+    } else {
+      const { error } = await state.supabase.from('app_profiles').update({ block_schedule: blockSchedule }).eq('id', profileId);
+      if (error) throw error;
+    }
+    const profile = state.profiles.find((item) => String(item.id) === String(profileId));
+    if (profile) profile.block_schedule = blockSchedule;
+    await synchronizeBlockDayReportsForYear(profileId, year);
+    closeBlockDayModal();
+    await loadData();
+  } catch (error) {
+    console.error(error);
+    alert(`Blocktage konnten nicht gespeichert werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
@@ -2796,6 +2947,10 @@ async function createHolidayWeeklyReportsForDate(holidayDate, label, isPaid = tr
 
   for (const profile of activeProfiles) {
     const reportsForProfile = reportsByProfile.get(String(profile.id)) || [];
+    const hasAutoBlockDay = reportsForProfile.some((report) => isAutoBlockDayReport(report));
+    if (hasAutoBlockDay) {
+      continue;
+    }
     const absenceReportsForDate = reportsForProfile.filter((report) => isAbsenceTypeCode(report.abz_typ));
     // eslint-disable-next-line no-await-in-loop
     await replaceWithHolidayWeeklyReport(profile.id, holidayDate, label, isPaid, absenceReportsForDate);
@@ -3477,6 +3632,7 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
 
   const autoSchoolReports = profileReports.filter(isAutoSchoolReport);
   const manualReportDates = new Set(profileReports.filter((report) => !isAutoSchoolReport(report)).map((report) => report.work_date));
+  const blockDayDates = new Set(profileReports.filter((report) => isAutoBlockDayReport(report)).map((report) => report.work_date));
   const existingAutoDates = new Set(autoSchoolReports.map((report) => report.work_date));
   const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
   profileReports.forEach((report) => {
@@ -3485,7 +3641,7 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
     }
   });
   const datesToInsert = [...desiredDates].filter(
-    (date) => !manualReportDates.has(date) && !existingAutoDates.has(date) && !holidayDates.has(date),
+    (date) => !manualReportDates.has(date) && !existingAutoDates.has(date) && !holidayDates.has(date) && !blockDayDates.has(date),
   );
   const reportsToDeleteIds = autoSchoolReports.filter((report) => !desiredDates.has(report.work_date)).map((report) => report.id);
 
@@ -3533,6 +3689,115 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
       if (error) throw error;
     }
   }
+}
+
+async function synchronizeBlockDayReportsForYear(profileId, year) {
+  const profile = state.profiles.find((item) => String(item.id) === String(profileId))
+    || demoProfiles.find((item) => String(item.id) === String(profileId));
+  if (!profile) return;
+  const schedule = parseBlockSchedule(profile);
+  const desiredEntries = [];
+  if (schedule.length) {
+    const startDate = `${year}-01-01`;
+    const endDate = `${year}-12-31`;
+    const cursor = new Date(`${startDate}T00:00:00Z`);
+    const stop = new Date(`${endDate}T00:00:00Z`);
+    while (cursor <= stop) {
+      const isoDate = cursor.toISOString().slice(0, 10);
+      const weekday = getWeekdayIndex(isoDate) + 1;
+      schedule.forEach((entry) => {
+        if (entry.weekday === weekday) {
+          desiredEntries.push({ date: isoDate, mode: entry.mode });
+        }
+      });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+  let profileReports = [];
+  if (state.isDemoMode) {
+    profileReports = demoWeeklyReports.filter((report) => report.profile_id === profileId && Number(getIsoYearAndWeekFromDateString(report.work_date).year) === year);
+  } else {
+    const { data, error } = await state.supabase
+      .from('weekly_reports')
+      .select('*')
+      .eq('profile_id', profileId)
+      .eq('year', year);
+    if (error) throw error;
+    profileReports = data || [];
+  }
+
+  const existingAutoBlockReports = profileReports.filter(isAutoBlockDayReport);
+  const existingKeyToId = new Map(existingAutoBlockReports.map((report) => [`${report.work_date}:${getBlockDayModeFromReport(report)}`, report.id]));
+  const desiredKeySet = new Set(desiredEntries.map((entry) => `${entry.date}:${entry.mode}`));
+  const rowsToInsert = desiredEntries.filter((entry) => !existingKeyToId.has(`${entry.date}:${entry.mode}`));
+  const reportIdsToDelete = existingAutoBlockReports
+    .filter((report) => !desiredKeySet.has(`${report.work_date}:${getBlockDayModeFromReport(report)}`))
+    .map((report) => report.id);
+  const blockerDates = new Set(desiredEntries.map((entry) => entry.date));
+  const conflictingAbsenceIds = profileReports
+    .filter((report) => blockerDates.has(String(report.work_date)) && Number(report.abz_typ) !== BLOCK_DAY_TYPE_CODE && isAbsenceTypeCode(report.abz_typ))
+    .map((report) => report.id);
+  const idsToDelete = [...new Set([...reportIdsToDelete, ...conflictingAbsenceIds])];
+
+  if (rowsToInsert.length) {
+    const rows = rowsToInsert.map((entry) => buildBlockDayWeeklyReport(profileId, entry.date, entry.mode));
+    if (state.isDemoMode) {
+      rows.forEach((row) => demoWeeklyReports.push({ id: crypto.randomUUID(), ...row }));
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').insert(rows);
+      if (error) throw error;
+    }
+  }
+  if (idsToDelete.length) {
+    if (state.isDemoMode) {
+      for (const reportId of idsToDelete) {
+        const index = demoWeeklyReports.findIndex((item) => String(item.id) === String(reportId));
+        if (index >= 0) demoWeeklyReports.splice(index, 1);
+      }
+    } else {
+      const { error } = await state.supabase.from('weekly_reports').delete().in('id', idsToDelete);
+      if (error) throw error;
+    }
+  }
+}
+
+function buildBlockDayWeeklyReport(profileId, workDate, mode) {
+  const timeConfig = BLOCK_DAY_MODE_OPTIONS[mode] || BLOCK_DAY_MODE_OPTIONS.full;
+  const isoWeek = getIsoYearAndWeekFromDateString(workDate);
+  return {
+    profile_id: profileId,
+    work_date: workDate,
+    year: isoWeek.year,
+    kw: isoWeek.kw,
+    project_name: `Blocktag (${timeConfig.label})`,
+    commission_number: 'Blocktag',
+    abz_typ: BLOCK_DAY_TYPE_CODE,
+    start_time: timeConfig.start,
+    end_time: timeConfig.end,
+    lunch_break_minutes: timeConfig.lunch,
+    additional_break_minutes: timeConfig.additional,
+    total_work_minutes: timeConfig.minutes,
+    adjusted_work_minutes: timeConfig.minutes,
+    expenses_amount: 0,
+    other_costs_amount: 0,
+    expense_note: '',
+    notes: `${BLOCK_DAY_REPORT_NOTE_MARKER} (${mode}).`,
+    controll: '',
+    attachments: [],
+  };
+}
+
+function getBlockDayModeFromReport(report) {
+  const match = String(report?.notes || '').match(/\((full|am|pm)\)/);
+  if (match?.[1]) return match[1];
+  const startTime = String(report?.start_time || '').slice(0, 5);
+  if (startTime === '07:00' && String(report?.end_time || '').slice(0, 5) === '12:00') return 'am';
+  if (startTime === '13:00') return 'pm';
+  return 'full';
+}
+
+function isAutoBlockDayReport(report) {
+  return Number(report?.abz_typ) === BLOCK_DAY_TYPE_CODE && String(report?.notes || '').includes(BLOCK_DAY_REPORT_NOTE_MARKER);
 }
 
 function isAutoSchoolReport(report) {
@@ -3922,7 +4187,7 @@ function getFilteredCrmContacts() {
 function renderSettingsUsersTable() {
   if (!elements.settingsUsersTableBody) return;
   if (!state.profiles.length) {
-    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="7">Keine Benutzer gefunden.</td></tr>';
+    elements.settingsUsersTableBody.innerHTML = '<tr><td colspan="8">Keine Benutzer gefunden.</td></tr>';
     return;
   }
 
@@ -3950,6 +4215,12 @@ function renderSettingsUsersTable() {
             return `<option value="${option.value}" ${selected ? 'selected' : ''}>${escapeHtml(option.label)}</option>`;
           }).join('')}
         </select>
+      </td>
+      <td>
+        <div class="stacked-cell">
+          <button class="button button-small button-secondary" type="button" data-action="edit-block-days" data-block-days-input="${escapeAttribute(profile.id)}" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSettings ? 'disabled' : ''}>Blocktage</button>
+          <small class="subtle-text">${escapeHtml(getBlockScheduleSummary(profile))}</small>
+        </div>
       </td>
       <td>
         <input
@@ -4163,7 +4434,7 @@ function normalizeDispoTimeValue(value, fallback) {
 
 function isAbsenceDispoItem(label) {
   const normalized = normalizeSearchValue(label || '');
-  return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'berufsschule', 'absenz'].some((term) => normalized.includes(term));
+  return ['ferien', 'feiertag', 'krankheit', 'unfall', 'militaer', 'zivildienst', 'berufsschule', 'blocktag', 'absenz'].some((term) => normalized.includes(term));
 }
 
 function upsertLocalDailyAssignment(entry) {
