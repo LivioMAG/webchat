@@ -487,37 +487,26 @@ function getVisibleNotes() {
   const today = startOfDay(new Date());
   if (!me) return [];
   return state.notes.filter((note) => {
-    if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TASK) {
-      if (String(note.disco_status || NOTE_DISCO_STATUS_OPEN) === NOTE_DISCO_STATUS_DONE) return false;
-      const scheduledDate = toDateOnly(note.disco_scheduled_for);
-      const visibilityDate = toDateOnly(note.visible_from_date);
-      if (scheduledDate) {
-        const dayBefore = new Date(scheduledDate);
-        dayBefore.setDate(dayBefore.getDate() - 1);
-        const start = visibilityDate && visibilityDate < dayBefore ? visibilityDate : dayBefore;
-        const isInProcess = today >= start && today <= scheduledDate;
-        if (!isInProcess) return false;
-      } else if (visibilityDate && today < visibilityDate) {
-        return false;
-      }
-    } else {
-      const recipientUid = String(note.recipient_uid || '');
-      const senderUid = String(note.sender_uid || '');
-      const isRecipient = recipientUid === me;
-      const isSender = senderUid === me;
-      if (!isRecipient && !isSender) return false;
-    }
-    if (state.showHiddenNotes) return true;
-    return isVisibleByDate(note.visible_from_date);
-  });
-}
+    const recipientUid = String(note.recipient_uid || '');
+    const senderUid = String(note.sender_uid || '');
+    const isRecipient = recipientUid === me;
+    const isSender = senderUid === me;
+    if (!isRecipient && !isSender) return false;
 
-function isVisibleByDate(value) {
-  if (!value) return true;
-  const visibleFrom = new Date(value);
-  if (Number.isNaN(visibleFrom.getTime())) return true;
-  const now = new Date();
-  return visibleFrom.getTime() <= now.getTime();
+    if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TASK
+      && String(note.disco_status || NOTE_DISCO_STATUS_OPEN) === NOTE_DISCO_STATUS_DONE) {
+      return false;
+    }
+
+    if (state.showHiddenNotes) return true;
+
+    const visibilityDate = toDateOnly(note.visible_from_date);
+    if (visibilityDate) return today >= visibilityDate;
+
+    const dispoDate = toDateOnly(note.disco_scheduled_for);
+    if (dispoDate) return today >= dispoDate;
+    return true;
+  });
 }
 
 function toDateInputValue(value) {
