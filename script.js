@@ -11,7 +11,7 @@ const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
-const APP_ROLE_OPTIONS = ['Lehrling', 'Elektroinstallateur', 'Bauleiter', 'Projektleiter'];
+const APP_ROLE_OPTIONS = ['Lehrling', 'Elektroinstallateur', 'Bauleiter', 'Projektleiter', 'Service'];
 const SCHOOL_DAY_OPTIONS = [
   { value: 1, label: 'Montag' },
   { value: 2, label: 'Dienstag' },
@@ -812,6 +812,14 @@ function cacheElements() {
   elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
   elements.dispoGapSearchButton = document.getElementById('dispoGapSearchButton');
   elements.dispoGapResults = document.getElementById('dispoGapResults');
+  elements.dispoGapSearchModal = document.getElementById('dispoGapSearchModal');
+  elements.dispoGapSearchForm = document.getElementById('dispoGapSearchForm');
+  elements.dispoGapWeekFromInput = document.getElementById('dispoGapWeekFromInput');
+  elements.dispoGapWeekToInput = document.getElementById('dispoGapWeekToInput');
+  elements.dispoGapMinimumHoursInput = document.getElementById('dispoGapMinimumHoursInput');
+  elements.dispoGapServiceProfiles = document.getElementById('dispoGapServiceProfiles');
+  elements.closeDispoGapSearchModalButton = document.getElementById('closeDispoGapSearchModalButton');
+  elements.cancelDispoGapSearchButton = document.getElementById('cancelDispoGapSearchButton');
   elements.dispoMultiEntryInput = document.getElementById('dispoMultiEntryInput');
   elements.dispoAssignModal = document.getElementById('dispoAssignModal');
   elements.dispoAssignForm = document.getElementById('dispoAssignForm');
@@ -944,7 +952,23 @@ function bindEvents() {
   elements.dispoTableBody.addEventListener('click', handleDispoTableClick);
   elements.dispoTableHead.addEventListener('click', handleDispoTableClick);
   elements.dispoExportPdfButton.addEventListener('click', exportDispoPdf);
-  elements.dispoGapSearchButton.addEventListener('click', handleDispoGapSearchClick);
+  elements.dispoGapSearchButton.addEventListener('click', openDispoGapSearchModal);
+  if (elements.dispoGapSearchForm) {
+    elements.dispoGapSearchForm.addEventListener('submit', handleDispoGapSearchSubmit);
+  }
+  if (elements.closeDispoGapSearchModalButton) {
+    elements.closeDispoGapSearchModalButton.addEventListener('click', closeDispoGapSearchModal);
+  }
+  if (elements.cancelDispoGapSearchButton) {
+    elements.cancelDispoGapSearchButton.addEventListener('click', closeDispoGapSearchModal);
+  }
+  if (elements.dispoGapSearchModal) {
+    elements.dispoGapSearchModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeDispoGapSearchModal === 'true') {
+        closeDispoGapSearchModal();
+      }
+    });
+  }
   elements.dispoMultiEntryInput.addEventListener('change', handleDispoMultiEntryToggle);
   elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
   elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
@@ -4387,55 +4411,77 @@ function normalizeDispoTimeValue(value, fallback) {
   return raw.slice(0, 5);
 }
 
-async function handleDispoGapSearchClick() {
-  const defaults = {
-    timeWindow: '07:00-17:00',
-    weekValue: getCurrentWeekValue(),
-    minimumHours: '4',
-  };
-  const timeWindowInput = window.prompt('Zeitfenster eingeben (HH:MM-HH:MM):', defaults.timeWindow);
-  if (timeWindowInput === null) return;
-  const parsedWindow = parseDispoGapTimeWindow(timeWindowInput);
-  if (!parsedWindow) {
-    showInlineAlert(elements.dispoAlert, 'Ungültiges Zeitfenster. Beispiel: 07:00-17:00', true);
-    return;
+function openDispoGapSearchModal() {
+  if (!elements.dispoGapSearchModal) return;
+  const serviceProfiles = getServiceProfiles();
+  const currentWeek = state.selectedWeek || getCurrentWeekValue();
+  if (elements.dispoGapWeekFromInput) elements.dispoGapWeekFromInput.value = currentWeek;
+  if (elements.dispoGapWeekToInput) elements.dispoGapWeekToInput.value = '';
+  if (elements.dispoGapMinimumHoursInput) elements.dispoGapMinimumHoursInput.value = '4';
+  if (elements.dispoGapServiceProfiles) {
+    elements.dispoGapServiceProfiles.textContent = serviceProfiles.length
+      ? `Service-Mitarbeitende (${serviceProfiles.length}): ${serviceProfiles.map((profile) => profile.full_name || profile.email || 'Unbekannt').join(', ')}`
+      : 'Keine aktiven Mitarbeitenden mit Rolle „Service“ gefunden.';
   }
-  const weekInput = window.prompt('Kalenderwoche eingeben (YYYY-Www):', defaults.weekValue);
-  if (weekInput === null) return;
-  const normalizedWeek = normalizeWeekInput(weekInput);
-  if (!normalizedWeek) {
-    showInlineAlert(elements.dispoAlert, 'Ungültige Kalenderwoche. Beispiel: 2026-W16', true);
-    return;
-  }
-  const minimumHoursInput = window.prompt('Mindestlücke in Stunden:', defaults.minimumHours);
-  if (minimumHoursInput === null) return;
-  const minimumHours = Number(String(minimumHoursInput).replace(',', '.'));
-  if (!Number.isFinite(minimumHours) || minimumHours <= 0) {
-    showInlineAlert(elements.dispoAlert, 'Die Mindestlücke muss grösser als 0 Stunden sein.', true);
-    return;
-  }
-  const minimumMinutes = Math.round(minimumHours * 60);
+  elements.dispoGapSearchModal.classList.remove('hidden');
+}
 
-  if (normalizedWeek !== state.selectedWeek) {
-    state.selectedWeek = normalizedWeek;
-    if (elements.weekPicker) {
-      elements.weekPicker.value = normalizedWeek;
+function closeDispoGapSearchModal() {
+  if (!elements.dispoGapSearchModal) return;
+  elements.dispoGapSearchModal.classList.add('hidden');
+}
+
+async function handleDispoGapSearchSubmit(event) {
+  event.preventDefault();
+  try {
+    const serviceProfiles = getServiceProfiles();
+    if (!serviceProfiles.length) {
+      showInlineAlert(elements.dispoAlert, 'Keine aktiven Personen mit Rolle „Service“ vorhanden.', true);
+      return;
     }
-    await loadData();
+    const weekFrom = normalizeWeekInput(elements.dispoGapWeekFromInput?.value);
+    if (!weekFrom) {
+      showInlineAlert(elements.dispoAlert, 'Bitte eine gültige Kalenderwoche bei „Von“ eingeben.', true);
+      return;
+    }
+    const weekToInput = normalizeWeekInput(elements.dispoGapWeekToInput?.value);
+    const weekTo = weekToInput || weekFrom;
+    const weekValues = getWeekValueRange(weekFrom, weekTo);
+    if (!weekValues) {
+      showInlineAlert(elements.dispoAlert, 'Die Kalenderwoche „Bis“ muss gleich oder nach „Von“ liegen.', true);
+      return;
+    }
+    if (weekValues.length > 3) {
+      showInlineAlert(elements.dispoAlert, 'Es können maximal 3 Kalenderwochen gleichzeitig gesucht werden.', true);
+      return;
+    }
+    const minimumHours = Number(String(elements.dispoGapMinimumHoursInput?.value || '').replace(',', '.'));
+    if (!Number.isFinite(minimumHours) || minimumHours <= 0) {
+      showInlineAlert(elements.dispoAlert, 'Die Mindestlücke muss grösser als 0 Stunden sein.', true);
+      return;
+    }
+    const minimumMinutes = Math.round(minimumHours * 60);
+    const searchRange = getWeekRangeAcrossValues(weekValues);
+    const assignmentEntries = await fetchDispoAssignmentsForRange(searchRange.start, searchRange.end);
+    const matches = findDispoAvailabilityGaps({
+      weekValues,
+      windowStartMinutes: parseClockToMinutes('07:00'),
+      windowEndMinutes: parseClockToMinutes('17:00'),
+      minimumGapMinutes: minimumMinutes,
+      profiles: serviceProfiles,
+      assignmentEntries,
+    });
+    renderDispoGapSearchResults({
+      matches,
+      weekLabel: weekValues.length === 1 ? getWeekLabel(weekValues[0]) : `${getWeekLabel(weekValues[0])} bis ${getWeekLabel(weekValues[weekValues.length - 1])}`,
+      minimumHours,
+      windowLabel: '07:00 – 17:00',
+    });
+    closeDispoGapSearchModal();
+    showInlineAlert(elements.dispoAlert, `Lückensuche für ${weekValues.length} KW abgeschlossen (${matches.length} Treffer).`, false);
+  } catch (error) {
+    showInlineAlert(elements.dispoAlert, `Lückensuche fehlgeschlagen: ${error.message}`, true);
   }
-  const matches = findDispoAvailabilityGaps({
-    weekValue: normalizedWeek,
-    windowStartMinutes: parsedWindow.startMinutes,
-    windowEndMinutes: parsedWindow.endMinutes,
-    minimumGapMinutes: minimumMinutes,
-  });
-  renderDispoGapSearchResults({
-    matches,
-    weekValue: normalizedWeek,
-    minimumHours,
-    windowLabel: `${minutesToTimeLabel(parsedWindow.startMinutes)} – ${minutesToTimeLabel(parsedWindow.endMinutes)}`,
-  });
-  showInlineAlert(elements.dispoAlert, `Lückensuche für ${getWeekLabel(normalizedWeek)} abgeschlossen (${matches.length} Treffer).`, false);
 }
 
 function parseDispoGapTimeWindow(inputValue) {
@@ -4474,13 +4520,19 @@ function normalizeWeekInput(inputValue) {
   return `${year}-W${String(week).padStart(2, '0')}`;
 }
 
-function findDispoAvailabilityGaps({ weekValue, windowStartMinutes, windowEndMinutes, minimumGapMinutes }) {
-  const dates = getWeekDateList(weekValue).filter((date) => !isWeekendDate(date));
-  const profiles = getActiveProfiles();
+function findDispoAvailabilityGaps({
+  weekValues,
+  windowStartMinutes,
+  windowEndMinutes,
+  minimumGapMinutes,
+  profiles,
+  assignmentEntries,
+}) {
+  const dates = weekValues.flatMap((weekValue) => getWeekDateList(weekValue)).filter((date) => !isWeekendDate(date));
   const matches = [];
   for (const profile of profiles) {
     for (const date of dates) {
-      const busyIntervals = getBusyIntervalsForProfileDate(profile.id, date, windowStartMinutes, windowEndMinutes);
+      const busyIntervals = getBusyIntervalsForProfileDate(profile.id, date, windowStartMinutes, windowEndMinutes, assignmentEntries);
       const freeIntervals = computeFreeIntervals(windowStartMinutes, windowEndMinutes, busyIntervals)
         .filter((interval) => (interval.end - interval.start) >= minimumGapMinutes);
       for (const interval of freeIntervals) {
@@ -4501,8 +4553,8 @@ function findDispoAvailabilityGaps({ weekValue, windowStartMinutes, windowEndMin
   });
 }
 
-function getBusyIntervalsForProfileDate(profileId, date, windowStartMinutes, windowEndMinutes) {
-  const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
+function getBusyIntervalsForProfileDate(profileId, date, windowStartMinutes, windowEndMinutes, assignmentEntries = state.dailyAssignments) {
+  const entry = assignmentEntries.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const blockItems = getBlockDayDispoItems(profileId, date);
   const assignmentItems = getDispoItemsForEntry(entry);
   const busyItems = [...blockItems, ...assignmentItems];
@@ -4555,11 +4607,11 @@ function computeFreeIntervals(windowStartMinutes, windowEndMinutes, busyInterval
   return freeIntervals;
 }
 
-function renderDispoGapSearchResults({ matches, weekValue, minimumHours, windowLabel }) {
+function renderDispoGapSearchResults({ matches, weekLabel, minimumHours, windowLabel }) {
   if (!elements.dispoGapResults) return;
   elements.dispoGapResults.classList.remove('hidden');
   if (!matches.length) {
-    elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${getWeekLabel(weekValue)})</h4>
+    elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
       <p class="subtle-text">Keine freien Zeitfenster ≥ ${escapeHtml(String(minimumHours))}h im Bereich ${escapeHtml(windowLabel)} gefunden.</p>`;
     return;
   }
@@ -4568,9 +4620,92 @@ function renderDispoGapSearchResults({ matches, weekValue, minimumHours, windowL
       match.isFullDay ? 'Ganzer Tag frei' : `${escapeHtml(minutesToTimeLabel(match.start))} – ${escapeHtml(minutesToTimeLabel(match.end))} frei`
     }</li>`)
     .join('');
-  elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${getWeekLabel(weekValue)})</h4>
+  elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
     <p class="subtle-text">Zeitfenster: ${escapeHtml(windowLabel)} · Mindestlücke: ${escapeHtml(String(minimumHours))}h</p>
     <ul>${rows}</ul>`;
+}
+
+function getServiceProfiles() {
+  return getActiveProfiles().filter((profile) => String(profile.role_label || '').trim() === 'Service');
+}
+
+function getWeekValueRange(weekFrom, weekTo) {
+  const fromRange = getWeekRange(weekFrom);
+  const toRange = getWeekRange(weekTo);
+  if (toRange.start < fromRange.start) return null;
+  const values = [weekFrom];
+  let cursor = weekFrom;
+  while (cursor !== weekTo) {
+    const next = shiftWeekValue(cursor, 1);
+    if (next === cursor || values.length > 53) return null;
+    cursor = next;
+    values.push(cursor);
+  }
+  return values;
+}
+
+function getWeekRangeAcrossValues(weekValues) {
+  const firstRange = getWeekRange(weekValues[0]);
+  const lastRange = getWeekRange(weekValues[weekValues.length - 1]);
+  return { start: firstRange.start, end: lastRange.end };
+}
+
+async function fetchDispoAssignmentsForRange(startDate, endDate) {
+  if (!state.supabase) return [];
+  const [dailyAssignmentsResponse, weeklyReportsResponse] = await Promise.all([
+    state.supabase
+      .from('daily_assignments')
+      .select('*')
+      .gte('assignment_date', startDate)
+      .lte('assignment_date', endDate)
+      .order('assignment_date', { ascending: true }),
+    state.supabase
+      .from('weekly_reports')
+      .select('*')
+      .gte('work_date', startDate)
+      .lte('work_date', endDate)
+      .order('work_date', { ascending: true }),
+  ]);
+  const { data: dailyAssignments, error: dailyAssignmentsError } = dailyAssignmentsResponse;
+  const { data: weeklyReports, error: weeklyReportsError } = weeklyReportsResponse;
+  if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) {
+    throw dailyAssignmentsError;
+  }
+  if (weeklyReportsError) {
+    throw weeklyReportsError;
+  }
+  const profileMap = new Map(state.profiles.map((profile) => [String(profile.id), profile]));
+  const projectMap = new Map(state.projects.map((project) => [String(project.id), project]));
+  const merged = [...(dailyAssignments || [])];
+  const byKey = new Map(merged.map((entry) => [`${entry.profile_id}:${entry.assignment_date}`, entry]));
+  for (const report of weeklyReports || []) {
+    const key = `${report.profile_id}:${report.work_date}`;
+    if (byKey.has(key)) continue;
+    const projectId = resolveProjectIdFromReportWithMap(report, projectMap);
+    if (!projectId) continue;
+    const project = projectMap.get(String(projectId));
+    const serialized = serializeDispoItems([{
+      type: 'project',
+      project_id: projectId,
+      label: `${project?.commission_number || report.commission_number || ''} ${project?.name || report.project_name || ''}`.trim(),
+      start_time: normalizeDispoTimeValue(report.start_time, DISPO_DEFAULT_START_TIME),
+      end_time: normalizeDispoTimeValue(report.end_time, DISPO_DEFAULT_END_TIME),
+    }]);
+    const profile = profileMap.get(String(report.profile_id));
+    if (profile?.is_active === false) continue;
+    const entry = { id: `weekly-${key}`, profile_id: report.profile_id, assignment_date: report.work_date, label: serialized, source: 'weekly_report' };
+    byKey.set(key, entry);
+    merged.push(entry);
+  }
+  return merged;
+}
+
+function resolveProjectIdFromReportWithMap(report, projectMap) {
+  const byCommission = [...projectMap.values()].find((project) => String(project.commission_number || '').trim() === String(report.commission_number || '').trim());
+  if (byCommission) return byCommission.id;
+  const byName = [...projectMap.values()].find((project) => String(project.name || '').trim().toLowerCase() === String(report.project_name || '').trim().toLowerCase());
+  if (byName) return byName.id;
+  return null;
 }
 
 function isAbsenceDispoItem(label) {
