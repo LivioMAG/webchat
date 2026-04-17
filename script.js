@@ -765,11 +765,10 @@ function cacheElements() {
   elements.editStartTime = document.getElementById('editStartTime');
   elements.editEndTime = document.getElementById('editEndTime');
   elements.editTotalMinutes = document.getElementById('editTotalMinutes');
+  elements.editPauseMinutes = document.getElementById('editPauseMinutes');
   elements.editExpensesAmount = document.getElementById('editExpensesAmount');
   elements.editOtherCostsAmount = document.getElementById('editOtherCostsAmount');
   elements.editNotes = document.getElementById('editNotes');
-  elements.editPauseMinutesHint = document.getElementById('editPauseMinutesHint');
-  elements.reportEditStats = document.getElementById('reportEditStats');
   elements.reportEditAttachments = document.getElementById('reportEditAttachments');
   elements.adjustedMinutesModal = document.getElementById('adjustedMinutesModal');
   elements.adjustedMinutesForm = document.getElementById('adjustedMinutesForm');
@@ -932,6 +931,8 @@ function bindEvents() {
   elements.editEndTime.addEventListener('change', syncEditedWorkMinutesWithTimeRange);
   elements.editStartTime.addEventListener('input', syncEditedWorkMinutesWithTimeRange);
   elements.editEndTime.addEventListener('input', syncEditedWorkMinutesWithTimeRange);
+  elements.editPauseMinutes.addEventListener('change', syncEditedWorkMinutesWithTimeRange);
+  elements.editPauseMinutes.addEventListener('input', syncEditedWorkMinutesWithTimeRange);
   elements.adjustedMinutesForm.addEventListener('submit', handleAdjustedMinutesSubmit);
   elements.reportEditModal.addEventListener('click', (event) => {
     if (event.target?.dataset?.closeModal === 'true') {
@@ -3415,16 +3416,7 @@ function openReportEditModal(reportId) {
   elements.editNotes.value = report.notes || '';
   const pauseMinutes = Number(report.lunch_break_minutes || 0) + Number(report.additional_break_minutes || 0);
   state.editingReportPauseMinutes = pauseMinutes;
-  if (elements.editPauseMinutesHint) {
-    elements.editPauseMinutesHint.textContent = `Rapportierte Pausenminuten: ${pauseMinutes} Min`;
-  }
-  if (elements.reportEditStats) {
-    elements.reportEditStats.innerHTML = `
-      <div><strong>Pausenminuten:</strong> ${formatMinutes(pauseMinutes)}</div>
-      <div><strong>Arbeitsminuten:</strong> ${formatMinutes(report.total_work_minutes)}</div>
-      <div><strong>Bereinigte Arbeitsminuten:</strong> ${formatMinutes(getAdjustedWorkMinutes(report))}</div>
-    `;
-  }
+  elements.editPauseMinutes.value = pauseMinutes;
   if (elements.reportEditAttachments) {
     elements.reportEditAttachments.innerHTML = renderAttachmentLinks(report.attachments);
   }
@@ -3440,14 +3432,8 @@ function closeReportEditModal() {
 
   elements.reportEditModal.classList.add('hidden');
   elements.reportEditForm.reset();
-  if (elements.reportEditStats) {
-    elements.reportEditStats.innerHTML = '';
-  }
   if (elements.reportEditAttachments) {
     elements.reportEditAttachments.innerHTML = '';
-  }
-  if (elements.editPauseMinutesHint) {
-    elements.editPauseMinutesHint.textContent = '';
   }
 }
 
@@ -3530,7 +3516,8 @@ function syncEditedWorkMinutesWithTimeRange() {
   if (durationMinutes < 0) {
     durationMinutes += 24 * 60;
   }
-  const pauseMinutes = Math.max(0, Number(state.editingReportPauseMinutes || 0));
+  const pauseMinutes = Math.max(0, Number(elements.editPauseMinutes.value || 0));
+  state.editingReportPauseMinutes = pauseMinutes;
   const workMinutes = Math.max(0, durationMinutes - pauseMinutes);
   elements.editTotalMinutes.value = String(workMinutes);
 }
@@ -3546,6 +3533,7 @@ async function handleReportEditSubmit(event) {
   const wasConfirmed = Boolean(String(existingReport?.controll || '').trim());
   syncEditedWorkMinutesWithTimeRange();
   const totalWorkMinutes = Math.max(0, Number(elements.editTotalMinutes.value || 0));
+  const pauseMinutes = Math.max(0, Number(elements.editPauseMinutes.value || 0));
   const baseAdjustedMinutes = shouldApplyHolidayDoubleMinutes(existingReport)
     ? Math.round(totalWorkMinutes / 2)
     : totalWorkMinutes;
@@ -3555,6 +3543,8 @@ async function handleReportEditSubmit(event) {
     commission_number: elements.editCommissionNumber.value.trim(),
     start_time: elements.editStartTime.value,
     end_time: elements.editEndTime.value,
+    lunch_break_minutes: pauseMinutes,
+    additional_break_minutes: 0,
     total_work_minutes: totalWorkMinutes,
     ...buildAdjustedMinutesUpdatePayload(existingReport, baseAdjustedMinutes),
     expenses_amount: Number(elements.editExpensesAmount.value || 0),
