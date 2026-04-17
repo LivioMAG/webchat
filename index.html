@@ -341,33 +341,27 @@
           </section>
 
           <section id="dispoPage" class="page hidden">
-            <div class="panel table-panel">
-              <div class="section-heading">
-                <div>
-                  <h3>Dispo / Wochenplanung</h3>
-                  <p>Mitarbeiter pro Kalenderwoche auf Projekte disponieren.</p>
+            <div id="dispoAlert" class="alert hidden"></div>
+            <div class="panel toolbar dispo-toolbar">
+              <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
+                <button id="dispoPreviousWeekButton" class="button button-secondary button-icon" type="button" aria-label="Vorherige Woche">←</button>
+                <div class="week-summary">
+                  <span class="subtle-label">Kalenderwoche</span>
+                  <strong id="dispoWeekLabel">KW 00</strong>
+                  <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
                 </div>
+                <button id="dispoNextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
               </div>
-              <div id="dispoAlert" class="alert hidden"></div>
-              <div class="toolbar panel dispo-toolbar">
-                <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
-                  <button id="dispoPreviousWeekButton" class="button button-secondary button-icon" type="button" aria-label="Vorherige Woche">←</button>
-                  <div class="week-summary">
-                    <span class="subtle-label">Kalenderwoche</span>
-                    <strong id="dispoWeekLabel">KW 00</strong>
-                    <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
-                  </div>
-                  <button id="dispoNextWeekButton" class="button button-secondary button-icon" type="button" aria-label="Nächste Woche">→</button>
-                </div>
-                <div class="toolbar-group toolbar-actions">
-                  <label class="checkbox-inline with-icon">
-                    <span aria-hidden="true">🧩</span>
-                    <input id="dispoMultiEntryInput" type="checkbox" />
-                    <span>Mehrere Einträge pro Tag</span>
-                  </label>
-                  <button id="dispoExportPdfButton" class="button button-secondary" type="button">Dispo als PDF</button>
-                </div>
+              <div class="toolbar-group toolbar-actions">
+                <label class="checkbox-inline with-icon">
+                  <span aria-hidden="true">🧩</span>
+                  <input id="dispoMultiEntryInput" type="checkbox" />
+                  <span>Mehrere Einträge pro Tag</span>
+                </label>
+                <button id="dispoExportPdfButton" class="button button-secondary" type="button">Dispo als PDF</button>
               </div>
+            </div>
+            <div class="panel table-panel dispo-matrix-panel">
               <div class="table-wrapper">
                 <table class="dispo-table">
                   <thead id="dispoTableHead"></thead>
