@@ -380,6 +380,8 @@ create table if not exists public.notes (
   note_category text not null default 'information',
   note_ranking smallint not null default 2 check (note_ranking between 1 and 3),
   attachments jsonb not null default '[]'::jsonb,
+  note_pos_x integer not null default 24,
+  note_pos_y integer not null default 24,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -400,6 +402,13 @@ add column if not exists note_ranking smallint not null default 2;
 
 alter table public.notes
 add column if not exists attachments jsonb not null default '[]'::jsonb;
+
+
+alter table public.notes
+add column if not exists note_pos_x integer not null default 24;
+
+alter table public.notes
+add column if not exists note_pos_y integer not null default 24;
 
 do $$
 begin
