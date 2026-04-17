@@ -71,7 +71,7 @@ const ABSENCE_CATEGORY_CONFIG = [
   { typeCode: 7, label: 'Berufsschule' },
 ];
 const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7]);
-const MAX_VISIBLE_FILTER_OPTIONS = 5;
+const MAX_VISIBLE_FILTER_OPTIONS = 20;
 const ADMIN_SQL_SNIPPET = `-- Vollzugriff nur für Profile mit is_admin = true
 
 alter table public.holiday_requests
@@ -626,6 +626,10 @@ const state = {
   employeeSelectionInitialized: false,
   employeeSelectionTouched: false,
   showControlledReports: false,
+  dispoFilterQuery: '',
+  selectedDispoEmployeeIds: [],
+  dispoSelectionInitialized: false,
+  dispoSelectionTouched: false,
   absenceFilterQuery: '',
   selectedAbsenceEmployeeIds: [],
   absenceSelectionInitialized: false,
@@ -634,7 +638,9 @@ const state = {
   includeConfirmationHistory: false,
   isConfirmationsModalOpen: false,
   reportsPage: 1,
-  reportsPerPage: 10,
+  reportsPerPage: 20,
+  dispoPage: 1,
+  dispoPerPage: 20,
   editingReportId: null,
   isSavingReport: false,
   isDemoMode: false,
@@ -715,7 +721,6 @@ function cacheElements() {
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
   elements.missingList = document.getElementById('missingList');
-  elements.selectedEmployeesSummary = document.getElementById('selectedEmployeesSummary');
   elements.employeeFilterInput = document.getElementById('employeeFilterInput');
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
@@ -795,6 +800,13 @@ function cacheElements() {
   elements.dispoTableBody = document.getElementById('dispoTableBody');
   elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
   elements.dispoMultiEntryInput = document.getElementById('dispoMultiEntryInput');
+  elements.dispoEmployeeFilterInput = document.getElementById('dispoEmployeeFilterInput');
+  elements.dispoEmployeeFilterList = document.getElementById('dispoEmployeeFilterList');
+  elements.selectAllDispoEmployeesButton = document.getElementById('selectAllDispoEmployeesButton');
+  elements.clearDispoSelectionButton = document.getElementById('clearDispoSelectionButton');
+  elements.dispoPrevPageButton = document.getElementById('dispoPrevPageButton');
+  elements.dispoNextPageButton = document.getElementById('dispoNextPageButton');
+  elements.dispoPaginationSummary = document.getElementById('dispoPaginationSummary');
   elements.dispoAssignModal = document.getElementById('dispoAssignModal');
   elements.dispoAssignForm = document.getElementById('dispoAssignForm');
   elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
@@ -920,6 +932,12 @@ function bindEvents() {
   elements.dispoTableHead.addEventListener('click', handleDispoTableClick);
   elements.dispoExportPdfButton.addEventListener('click', exportDispoPdf);
   elements.dispoMultiEntryInput.addEventListener('change', handleDispoMultiEntryToggle);
+  elements.dispoEmployeeFilterInput.addEventListener('input', handleDispoFilterInput);
+  elements.dispoEmployeeFilterList.addEventListener('change', handleDispoSelectionChange);
+  elements.selectAllDispoEmployeesButton.addEventListener('click', selectAllDispoEmployees);
+  elements.clearDispoSelectionButton.addEventListener('click', clearDispoSelection);
+  elements.dispoPrevPageButton.addEventListener('click', goToPreviousDispoPage);
+  elements.dispoNextPageButton.addEventListener('click', goToNextDispoPage);
   elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
   elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
   elements.cancelDispoAssignButton.addEventListener('click', closeDispoAssignModal);
@@ -1263,12 +1281,17 @@ function resetAppState() {
   state.employeeSelectionInitialized = false;
   state.employeeSelectionTouched = false;
   state.showControlledReports = false;
+  state.dispoFilterQuery = '';
+  state.selectedDispoEmployeeIds = [];
+  state.dispoSelectionInitialized = false;
+  state.dispoSelectionTouched = false;
   state.absenceFilterQuery = '';
   state.selectedAbsenceEmployeeIds = [];
   state.absenceSelectionInitialized = false;
   state.absenceSelectionTouched = false;
   state.showControlledAbsences = false;
   state.reportsPage = 1;
+  state.dispoPage = 1;
   state.selectedProjectId = null;
   state.dispoAllowMultiplePerDay = true;
   state.includeConfirmationHistory = false;
@@ -1458,6 +1481,7 @@ async function loadData() {
     }
     state.roleAssignments = [];
     syncEmployeeSelection();
+    syncDispoSelection();
     syncAbsenceSelection();
     elements.dataTimestamp.textContent = `Letzte Aktualisierung: ${new Date().toLocaleString('de-CH')}`;
     finishDataLoad(requestId);
@@ -1550,6 +1574,7 @@ async function loadDemoData() {
   state.crmNotes = [];
   state.selectedCrmContactId = null;
   syncEmployeeSelection();
+  syncDispoSelection();
   syncAbsenceSelection();
   elements.dataTimestamp.textContent = `Demo-Daten geladen: ${new Date().toLocaleString('de-CH')}`;
 }
@@ -1588,6 +1613,7 @@ function render() {
   renderWeekSummary();
   renderReportStats();
   renderEmployeeFilters();
+  renderDispoFilters();
   renderAbsenceFilters();
   renderReportsTable();
   renderSubmissionLists();
@@ -1719,8 +1745,6 @@ function renderEmployeeFilters() {
   const profiles = getReportableProfiles();
   const visibleProfiles = getMatchingProfiles(profiles, state.employeeFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
 
-  elements.selectedEmployeesSummary.textContent = `${state.selectedEmployeeIds.length} von ${profiles.length} Mitarbeitenden ausgewählt`;
-
   if (!profiles.length) {
     elements.employeeFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden vorhanden.</div>';
     return;
@@ -1731,6 +1755,32 @@ function renderEmployeeFilters() {
         .map((profile) => `
           <label class="employee-filter-option">
             <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedEmployeeIds.includes(profile.id) ? 'checked' : ''} />
+            <span>${escapeHtml(profile.full_name)}</span>
+          </label>
+        `)
+        .join('')
+    : '<div class="empty-state">Keine Mitarbeitenden für diesen Suchbegriff gefunden.</div>';
+}
+
+function renderDispoFilters() {
+  if (!elements.dispoEmployeeFilterInput || !elements.dispoEmployeeFilterList) {
+    return;
+  }
+
+  elements.dispoEmployeeFilterInput.value = state.dispoFilterQuery;
+  const profiles = getReportableProfiles();
+  const visibleProfiles = getMatchingProfiles(profiles, state.dispoFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
+
+  if (!profiles.length) {
+    elements.dispoEmployeeFilterList.innerHTML = '<div class="empty-state">Keine Mitarbeitenden vorhanden.</div>';
+    return;
+  }
+
+  elements.dispoEmployeeFilterList.innerHTML = visibleProfiles.length
+    ? visibleProfiles
+        .map((profile) => `
+          <label class="employee-filter-option">
+            <input type="checkbox" value="${escapeAttribute(profile.id)}" ${state.selectedDispoEmployeeIds.includes(profile.id) ? 'checked' : ''} />
             <span>${escapeHtml(profile.full_name)}</span>
           </label>
         `)
@@ -2007,6 +2057,13 @@ function handleDispoMultiEntryToggle() {
   renderDispoPlanner();
 }
 
+function handleDispoFilterInput(event) {
+  state.dispoFilterQuery = event.target.value;
+  state.dispoPage = 1;
+  renderDispoFilters();
+  renderDispoPlanner();
+}
+
 function handleConfirmationHistoryToggle() {
   state.includeConfirmationHistory = Boolean(elements.includeConfirmationHistoryInput?.checked);
   renderConfirmationsTable();
@@ -2067,6 +2124,44 @@ function clearEmployeeSelection() {
   render();
 }
 
+function handleDispoSelectionChange(event) {
+  if (event.target?.type !== 'checkbox') {
+    return;
+  }
+
+  const profileId = event.target.value;
+  if (event.target.checked) {
+    if (!state.selectedDispoEmployeeIds.includes(profileId)) {
+      state.selectedDispoEmployeeIds = [...state.selectedDispoEmployeeIds, profileId];
+    }
+  } else {
+    state.selectedDispoEmployeeIds = state.selectedDispoEmployeeIds.filter((id) => id !== profileId);
+  }
+
+  state.dispoSelectionInitialized = true;
+  state.dispoSelectionTouched = true;
+  state.dispoPage = 1;
+  renderDispoPlanner();
+}
+
+function selectAllDispoEmployees() {
+  state.selectedDispoEmployeeIds = getAvailableReportProfileIds();
+  state.dispoSelectionInitialized = true;
+  state.dispoSelectionTouched = true;
+  state.dispoPage = 1;
+  renderDispoFilters();
+  renderDispoPlanner();
+}
+
+function clearDispoSelection() {
+  state.selectedDispoEmployeeIds = [];
+  state.dispoSelectionInitialized = true;
+  state.dispoSelectionTouched = true;
+  state.dispoPage = 1;
+  renderDispoFilters();
+  renderDispoPlanner();
+}
+
 function selectAllAbsenceEmployees() {
   state.selectedAbsenceEmployeeIds = getAvailableAbsenceProfileIds();
   state.absenceSelectionInitialized = true;
@@ -2102,6 +2197,29 @@ function syncEmployeeSelection() {
   state.selectedEmployeeIds = validIds.length ? selected : [];
   const pageCount = Math.max(1, Math.ceil(getSortedFilteredReports().length / state.reportsPerPage));
   state.reportsPage = Math.min(state.reportsPage, pageCount);
+}
+
+function syncDispoSelection() {
+  const validIds = getAvailableReportProfileIds();
+  const validIdSet = new Set(validIds);
+  const selected = state.selectedDispoEmployeeIds.filter((id) => validIdSet.has(id));
+
+  if (!state.dispoSelectionInitialized) {
+    state.selectedDispoEmployeeIds = [...validIds];
+    state.dispoSelectionInitialized = true;
+    state.dispoPage = 1;
+    return;
+  }
+
+  if (!state.dispoSelectionTouched) {
+    state.selectedDispoEmployeeIds = [...validIds];
+    state.dispoPage = 1;
+    return;
+  }
+
+  state.selectedDispoEmployeeIds = validIds.length ? selected : [];
+  const pageCount = Math.max(1, Math.ceil(getFilteredDispoProfiles().length / state.dispoPerPage));
+  state.dispoPage = Math.min(state.dispoPage, pageCount);
 }
 
 function syncAbsenceSelection() {
@@ -4087,8 +4205,8 @@ function renderDispoPlanner() {
       : '';
     return `<th><div class="dispo-header-cell">${escapeHtml(getWeekdayLabel(date))}<span class="subtle-text">${escapeHtml(formatDate(date))}</span>${bulkAssignButton}</div></th>`;
   }).join('')}</tr>`;
-  const activeProfiles = getActiveProfiles();
-  elements.dispoTableBody.innerHTML = activeProfiles.map((profile) => {
+  const pagination = getDispoPaginationMeta();
+  elements.dispoTableBody.innerHTML = pagination.pageItems.map((profile) => {
     const cells = dates.map((date) => renderDispoCell(profile.id, date)).join('');
     const hasEditableWeekdays = dates.some((date) => !isWeekendDate(date) && !isWeeklyReportLocked(profile.id, date));
     const bulkAssignRowButton = hasEditableWeekdays
@@ -4096,6 +4214,63 @@ function renderDispoPlanner() {
       : '';
     return `<tr><td><div class="dispo-name-cell"><strong>${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</strong>${bulkAssignRowButton}</div></td>${cells}</tr>`;
   }).join('');
+  renderDispoPagination(pagination);
+}
+
+function getFilteredDispoProfiles() {
+  if (!state.selectedDispoEmployeeIds.length && !state.dispoSelectionTouched) {
+    return getActiveProfiles();
+  }
+  const selectedIds = new Set(state.selectedDispoEmployeeIds);
+  return getActiveProfiles().filter((profile) => selectedIds.has(profile.id));
+}
+
+function getDispoPaginationMeta() {
+  const profiles = getFilteredDispoProfiles();
+  const totalItems = profiles.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.dispoPerPage));
+  const currentPage = Math.min(Math.max(1, state.dispoPage), totalPages);
+  const startIndex = (currentPage - 1) * state.dispoPerPage;
+  const endIndex = Math.min(startIndex + state.dispoPerPage, totalItems);
+
+  state.dispoPage = currentPage;
+
+  return {
+    totalItems,
+    totalPages,
+    currentPage,
+    startIndex,
+    endIndex,
+    pageItems: profiles.slice(startIndex, endIndex),
+  };
+}
+
+function renderDispoPagination({ totalItems, totalPages, currentPage, startIndex, endIndex }) {
+  if (!elements.dispoPaginationSummary) {
+    return;
+  }
+  elements.dispoPaginationSummary.textContent = totalItems
+    ? `Seite ${currentPage} von ${totalPages} · ${startIndex + 1}-${endIndex} von ${totalItems} Mitarbeitenden`
+    : 'Seite 1 von 1 · 0 Mitarbeitende';
+  elements.dispoPrevPageButton.disabled = currentPage <= 1;
+  elements.dispoNextPageButton.disabled = currentPage >= totalPages || totalItems === 0;
+}
+
+function goToPreviousDispoPage() {
+  if (state.dispoPage <= 1) {
+    return;
+  }
+  state.dispoPage -= 1;
+  renderDispoPlanner();
+}
+
+function goToNextDispoPage() {
+  const totalPages = Math.max(1, Math.ceil(getFilteredDispoProfiles().length / state.dispoPerPage));
+  if (state.dispoPage >= totalPages) {
+    return;
+  }
+  state.dispoPage += 1;
+  renderDispoPlanner();
 }
 
 function renderDispoCell(profileId, date) {
