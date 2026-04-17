@@ -810,6 +810,8 @@ function cacheElements() {
   elements.dispoTableHead = document.getElementById('dispoTableHead');
   elements.dispoTableBody = document.getElementById('dispoTableBody');
   elements.dispoExportPdfButton = document.getElementById('dispoExportPdfButton');
+  elements.dispoGapSearchButton = document.getElementById('dispoGapSearchButton');
+  elements.dispoGapResults = document.getElementById('dispoGapResults');
   elements.dispoMultiEntryInput = document.getElementById('dispoMultiEntryInput');
   elements.dispoAssignModal = document.getElementById('dispoAssignModal');
   elements.dispoAssignForm = document.getElementById('dispoAssignForm');
@@ -942,6 +944,7 @@ function bindEvents() {
   elements.dispoTableBody.addEventListener('click', handleDispoTableClick);
   elements.dispoTableHead.addEventListener('click', handleDispoTableClick);
   elements.dispoExportPdfButton.addEventListener('click', exportDispoPdf);
+  elements.dispoGapSearchButton.addEventListener('click', handleDispoGapSearchClick);
   elements.dispoMultiEntryInput.addEventListener('change', handleDispoMultiEntryToggle);
   elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
   elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
@@ -4382,6 +4385,192 @@ function normalizeDispoTimeValue(value, fallback) {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
   return raw.slice(0, 5);
+}
+
+async function handleDispoGapSearchClick() {
+  const defaults = {
+    timeWindow: '07:00-17:00',
+    weekValue: getCurrentWeekValue(),
+    minimumHours: '4',
+  };
+  const timeWindowInput = window.prompt('Zeitfenster eingeben (HH:MM-HH:MM):', defaults.timeWindow);
+  if (timeWindowInput === null) return;
+  const parsedWindow = parseDispoGapTimeWindow(timeWindowInput);
+  if (!parsedWindow) {
+    showInlineAlert(elements.dispoAlert, 'Ungültiges Zeitfenster. Beispiel: 07:00-17:00', true);
+    return;
+  }
+  const weekInput = window.prompt('Kalenderwoche eingeben (YYYY-Www):', defaults.weekValue);
+  if (weekInput === null) return;
+  const normalizedWeek = normalizeWeekInput(weekInput);
+  if (!normalizedWeek) {
+    showInlineAlert(elements.dispoAlert, 'Ungültige Kalenderwoche. Beispiel: 2026-W16', true);
+    return;
+  }
+  const minimumHoursInput = window.prompt('Mindestlücke in Stunden:', defaults.minimumHours);
+  if (minimumHoursInput === null) return;
+  const minimumHours = Number(String(minimumHoursInput).replace(',', '.'));
+  if (!Number.isFinite(minimumHours) || minimumHours <= 0) {
+    showInlineAlert(elements.dispoAlert, 'Die Mindestlücke muss grösser als 0 Stunden sein.', true);
+    return;
+  }
+  const minimumMinutes = Math.round(minimumHours * 60);
+
+  if (normalizedWeek !== state.selectedWeek) {
+    state.selectedWeek = normalizedWeek;
+    if (elements.weekPicker) {
+      elements.weekPicker.value = normalizedWeek;
+    }
+    await loadData();
+  }
+  const matches = findDispoAvailabilityGaps({
+    weekValue: normalizedWeek,
+    windowStartMinutes: parsedWindow.startMinutes,
+    windowEndMinutes: parsedWindow.endMinutes,
+    minimumGapMinutes: minimumMinutes,
+  });
+  renderDispoGapSearchResults({
+    matches,
+    weekValue: normalizedWeek,
+    minimumHours,
+    windowLabel: `${minutesToTimeLabel(parsedWindow.startMinutes)} – ${minutesToTimeLabel(parsedWindow.endMinutes)}`,
+  });
+  showInlineAlert(elements.dispoAlert, `Lückensuche für ${getWeekLabel(normalizedWeek)} abgeschlossen (${matches.length} Treffer).`, false);
+}
+
+function parseDispoGapTimeWindow(inputValue) {
+  const raw = String(inputValue || '').trim().replace(/\s+/g, '');
+  const match = raw.match(/^(\d{1,2}(?::\d{2})?)-(\d{1,2}(?::\d{2})?)$/);
+  if (!match) return null;
+  const startMinutes = parseClockToMinutes(match[1]);
+  const endMinutes = parseClockToMinutes(match[2]);
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) return null;
+  return { startMinutes, endMinutes };
+}
+
+function parseClockToMinutes(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(':');
+  const hours = Number(parts[0]);
+  const minutes = parts.length > 1 ? Number(parts[1]) : 0;
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return (hours * 60) + minutes;
+}
+
+function minutesToTimeLabel(totalMinutes) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function normalizeWeekInput(inputValue) {
+  const match = String(inputValue || '').trim().match(/^(\d{4})-W(\d{1,2})$/i);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(week) || week < 1 || week > 53) return null;
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
+function findDispoAvailabilityGaps({ weekValue, windowStartMinutes, windowEndMinutes, minimumGapMinutes }) {
+  const dates = getWeekDateList(weekValue).filter((date) => !isWeekendDate(date));
+  const profiles = getActiveProfiles();
+  const matches = [];
+  for (const profile of profiles) {
+    for (const date of dates) {
+      const busyIntervals = getBusyIntervalsForProfileDate(profile.id, date, windowStartMinutes, windowEndMinutes);
+      const freeIntervals = computeFreeIntervals(windowStartMinutes, windowEndMinutes, busyIntervals)
+        .filter((interval) => (interval.end - interval.start) >= minimumGapMinutes);
+      for (const interval of freeIntervals) {
+        matches.push({
+          profileName: profile.full_name || profile.email || 'Unbekannt',
+          date,
+          start: interval.start,
+          end: interval.end,
+          isFullDay: interval.start === windowStartMinutes && interval.end === windowEndMinutes,
+        });
+      }
+    }
+  }
+  return matches.sort((left, right) => {
+    if (left.date !== right.date) return left.date.localeCompare(right.date);
+    if (left.profileName !== right.profileName) return left.profileName.localeCompare(right.profileName, 'de');
+    return left.start - right.start;
+  });
+}
+
+function getBusyIntervalsForProfileDate(profileId, date, windowStartMinutes, windowEndMinutes) {
+  const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
+  const blockItems = getBlockDayDispoItems(profileId, date);
+  const assignmentItems = getDispoItemsForEntry(entry);
+  const busyItems = [...blockItems, ...assignmentItems];
+  const intervals = busyItems
+    .map((item) => {
+      const start = toDispoMinutes(item.start_time, DISPO_DEFAULT_START_TIME);
+      const end = toDispoMinutes(item.end_time, DISPO_DEFAULT_END_TIME);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+      const clippedStart = Math.max(start, windowStartMinutes);
+      const clippedEnd = Math.min(end, windowEndMinutes);
+      if (clippedEnd <= clippedStart) return null;
+      return { start: clippedStart, end: clippedEnd };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.start - right.start);
+  return mergeIntervals(intervals);
+}
+
+function mergeIntervals(intervals) {
+  if (!intervals.length) return [];
+  const merged = [{ ...intervals[0] }];
+  for (let index = 1; index < intervals.length; index += 1) {
+    const current = intervals[index];
+    const last = merged[merged.length - 1];
+    if (current.start <= last.end) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+
+function computeFreeIntervals(windowStartMinutes, windowEndMinutes, busyIntervals) {
+  if (!busyIntervals.length) {
+    return [{ start: windowStartMinutes, end: windowEndMinutes }];
+  }
+  const freeIntervals = [];
+  let cursor = windowStartMinutes;
+  for (const interval of busyIntervals) {
+    if (interval.start > cursor) {
+      freeIntervals.push({ start: cursor, end: interval.start });
+    }
+    cursor = Math.max(cursor, interval.end);
+    if (cursor >= windowEndMinutes) break;
+  }
+  if (cursor < windowEndMinutes) {
+    freeIntervals.push({ start: cursor, end: windowEndMinutes });
+  }
+  return freeIntervals;
+}
+
+function renderDispoGapSearchResults({ matches, weekValue, minimumHours, windowLabel }) {
+  if (!elements.dispoGapResults) return;
+  elements.dispoGapResults.classList.remove('hidden');
+  if (!matches.length) {
+    elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${getWeekLabel(weekValue)})</h4>
+      <p class="subtle-text">Keine freien Zeitfenster ≥ ${escapeHtml(String(minimumHours))}h im Bereich ${escapeHtml(windowLabel)} gefunden.</p>`;
+    return;
+  }
+  const rows = matches
+    .map((match) => `<li><strong>${escapeHtml(match.profileName)}</strong> – ${escapeHtml(getWeekdayLabel(match.date))}, ${escapeHtml(formatDate(match.date))}: ${
+      match.isFullDay ? 'Ganzer Tag frei' : `${escapeHtml(minutesToTimeLabel(match.start))} – ${escapeHtml(minutesToTimeLabel(match.end))} frei`
+    }</li>`)
+    .join('');
+  elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${getWeekLabel(weekValue)})</h4>
+    <p class="subtle-text">Zeitfenster: ${escapeHtml(windowLabel)} · Mindestlücke: ${escapeHtml(String(minimumHours))}h</p>
+    <ul>${rows}</ul>`;
 }
 
 function isAbsenceDispoItem(label) {

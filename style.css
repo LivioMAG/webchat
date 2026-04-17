@@ -1298,3 +1298,19 @@ tbody tr:hover {
   width: 80px;
   text-align: center;
 }
+
+.dispo-gap-results {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.dispo-gap-results h4 {
+  margin: 0 0 8px;
+}
+
+.dispo-gap-results ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
