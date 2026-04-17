@@ -651,18 +651,17 @@ tbody tr:hover {
   justify-content: space-between;
   gap: 16px;
   align-items: end;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .report-filter-toolbar label {
-  flex: 1 1 auto;
-  min-width: 260px;
+  flex: 1 1 320px;
 }
 
 .report-filter-actions {
   display: flex;
   gap: 12px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
 }
 
