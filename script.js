@@ -654,6 +654,7 @@ const state = {
   reportsPage: 1,
   reportsPerPage: 20,
   editingReportId: null,
+  editingReportPauseMinutes: 0,
   isSavingReport: false,
   isDemoMode: false,
   hasAdminAccess: false,
@@ -767,7 +768,7 @@ function cacheElements() {
   elements.editExpensesAmount = document.getElementById('editExpensesAmount');
   elements.editOtherCostsAmount = document.getElementById('editOtherCostsAmount');
   elements.editNotes = document.getElementById('editNotes');
-  elements.editExpenseNote = document.getElementById('editExpenseNote');
+  elements.editPauseMinutesHint = document.getElementById('editPauseMinutesHint');
   elements.reportEditStats = document.getElementById('reportEditStats');
   elements.reportEditAttachments = document.getElementById('reportEditAttachments');
   elements.adjustedMinutesModal = document.getElementById('adjustedMinutesModal');
@@ -927,6 +928,10 @@ function bindEvents() {
   elements.closeReportEditModalButton.addEventListener('click', closeReportEditModal);
   elements.cancelReportEditButton.addEventListener('click', closeReportEditModal);
   elements.reportEditForm.addEventListener('submit', handleReportEditSubmit);
+  elements.editStartTime.addEventListener('change', syncEditedWorkMinutesWithTimeRange);
+  elements.editEndTime.addEventListener('change', syncEditedWorkMinutesWithTimeRange);
+  elements.editStartTime.addEventListener('input', syncEditedWorkMinutesWithTimeRange);
+  elements.editEndTime.addEventListener('input', syncEditedWorkMinutesWithTimeRange);
   elements.adjustedMinutesForm.addEventListener('submit', handleAdjustedMinutesSubmit);
   elements.reportEditModal.addEventListener('click', (event) => {
     if (event.target?.dataset?.closeModal === 'true') {
@@ -3408,8 +3413,11 @@ function openReportEditModal(reportId) {
   elements.editExpensesAmount.value = Number(report.expenses_amount || 0);
   elements.editOtherCostsAmount.value = Number(report.other_costs_amount || 0);
   elements.editNotes.value = report.notes || '';
-  elements.editExpenseNote.value = report.expense_note || '';
   const pauseMinutes = Number(report.lunch_break_minutes || 0) + Number(report.additional_break_minutes || 0);
+  state.editingReportPauseMinutes = pauseMinutes;
+  if (elements.editPauseMinutesHint) {
+    elements.editPauseMinutesHint.textContent = `Rapportierte Pausenminuten: ${pauseMinutes} Min`;
+  }
   if (elements.reportEditStats) {
     elements.reportEditStats.innerHTML = `
       <div><strong>Pausenminuten:</strong> ${formatMinutes(pauseMinutes)}</div>
@@ -3425,6 +3433,7 @@ function openReportEditModal(reportId) {
 
 function closeReportEditModal() {
   state.editingReportId = null;
+  state.editingReportPauseMinutes = 0;
   if (!elements.reportEditModal || !elements.reportEditForm) {
     return;
   }
@@ -3436,6 +3445,9 @@ function closeReportEditModal() {
   }
   if (elements.reportEditAttachments) {
     elements.reportEditAttachments.innerHTML = '';
+  }
+  if (elements.editPauseMinutesHint) {
+    elements.editPauseMinutesHint.textContent = '';
   }
 }
 
@@ -3507,6 +3519,22 @@ async function handleAdjustedMinutesSubmit(event) {
   }
 }
 
+function syncEditedWorkMinutesWithTimeRange() {
+  const startMinutes = parseTimeToMinutes(elements.editStartTime.value);
+  const endMinutes = parseTimeToMinutes(elements.editEndTime.value);
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
+    return;
+  }
+
+  let durationMinutes = endMinutes - startMinutes;
+  if (durationMinutes < 0) {
+    durationMinutes += 24 * 60;
+  }
+  const pauseMinutes = Math.max(0, Number(state.editingReportPauseMinutes || 0));
+  const workMinutes = Math.max(0, durationMinutes - pauseMinutes);
+  elements.editTotalMinutes.value = String(workMinutes);
+}
+
 async function handleReportEditSubmit(event) {
   event.preventDefault();
   if (!state.editingReportId || state.isSavingReport) {
@@ -3516,17 +3544,22 @@ async function handleReportEditSubmit(event) {
   const reportId = state.editingReportId;
   const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
   const wasConfirmed = Boolean(String(existingReport?.controll || '').trim());
+  syncEditedWorkMinutesWithTimeRange();
+  const totalWorkMinutes = Math.max(0, Number(elements.editTotalMinutes.value || 0));
+  const baseAdjustedMinutes = shouldApplyHolidayDoubleMinutes(existingReport)
+    ? Math.round(totalWorkMinutes / 2)
+    : totalWorkMinutes;
   const updates = {
     work_date: elements.editWorkDate.value,
     ...getIsoYearAndWeekFromDateString(elements.editWorkDate.value),
     commission_number: elements.editCommissionNumber.value.trim(),
     start_time: elements.editStartTime.value,
     end_time: elements.editEndTime.value,
-    total_work_minutes: Number(elements.editTotalMinutes.value || 0),
+    total_work_minutes: totalWorkMinutes,
+    ...buildAdjustedMinutesUpdatePayload(existingReport, baseAdjustedMinutes),
     expenses_amount: Number(elements.editExpensesAmount.value || 0),
     other_costs_amount: Number(elements.editOtherCostsAmount.value || 0),
     notes: elements.editNotes.value.trim(),
-    expense_note: elements.editExpenseNote.value.trim(),
   };
   if (wasConfirmed) {
     updates.controll = '';
