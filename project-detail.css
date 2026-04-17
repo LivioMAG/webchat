@@ -104,6 +104,10 @@ body {
   align-items: center;
 }
 
+.disco-week-row {
+  justify-content: center;
+}
+
 .status-alert {
   margin-bottom: 10px;
   padding: 10px 12px;
@@ -137,6 +141,55 @@ body {
   font-size: 12px;
   color: rgba(17, 17, 17, 0.45);
   pointer-events: none;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow: auto;
+}
+
+.disco-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.disco-table th,
+.disco-table td {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  padding: 8px;
+  vertical-align: top;
+}
+
+.disco-table th {
+  background: rgba(17, 17, 17, 0.04);
+  text-align: left;
+  font-size: 13px;
+}
+
+.disco-cell-input {
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid rgba(17, 17, 17, 0.16);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+.disco-info-row th {
+  background: rgba(29, 78, 216, 0.08);
+}
+
+.disco-info-cell {
+  color: rgba(17, 17, 17, 0.6);
+  background: rgba(29, 78, 216, 0.04);
+  font-size: 12px;
+}
+
+.disco-empty {
+  text-align: center;
+  color: rgba(17, 17, 17, 0.6);
 }
 
 .note-icon {

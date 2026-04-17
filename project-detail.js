@@ -20,7 +20,10 @@ const state = {
   activeNote: null,
   pendingPosition: { x: GRID_SIZE, y: GRID_SIZE },
   drag: null,
-  showOutgoingOnly: false,
+  showHiddenNotes: false,
+  activeView: 'dashboard',
+  discoWeekStart: null,
+  discoLayerProfileIds: [],
 };
 
 const elements = {};
@@ -30,6 +33,8 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   cacheElements();
   bindEvents();
+  state.discoWeekStart = getWeekStart(new Date());
+  switchView('dashboard');
   hydrateMeta();
   await initializeSupabase();
   await loadData();
@@ -37,8 +42,12 @@ async function init() {
 
 function cacheElements() {
   elements.projectMeta = document.getElementById('projectMeta');
+  elements.dashboardNavButton = document.getElementById('dashboardNavButton');
+  elements.discoNavButton = document.getElementById('discoNavButton');
+  elements.notesDashboardArea = document.getElementById('notesDashboardArea');
+  elements.discoArea = document.getElementById('discoArea');
   elements.backButton = document.getElementById('backIconButton');
-  elements.toggleOutgoingButton = document.getElementById('toggleOutgoingButton');
+  elements.toggleHiddenNotesButton = document.getElementById('toggleHiddenNotesButton');
   elements.canvas = document.getElementById('dashboardCanvas');
   elements.alert = document.getElementById('statusAlert');
   elements.modal = document.getElementById('noteModal');
@@ -48,11 +57,20 @@ function cacheElements() {
   elements.noteCategoryInput = document.getElementById('noteCategoryInput');
   elements.noteTextInput = document.getElementById('noteTextInput');
   elements.visibleFromInput = document.getElementById('visibleFromInput');
-  elements.requiresResponseInput = document.getElementById('requiresResponseInput');
   elements.noteAttachmentInput = document.getElementById('noteAttachmentInput');
   elements.deleteNoteButton = document.getElementById('deleteNoteButton');
   elements.existingAttachments = document.getElementById('existingAttachments');
   elements.noteFlowList = document.getElementById('noteFlowList');
+  elements.discoPreviousWeekButton = document.getElementById('discoPreviousWeekButton');
+  elements.discoNextWeekButton = document.getElementById('discoNextWeekButton');
+  elements.discoWeekLabel = document.getElementById('discoWeekLabel');
+  elements.discoTableHead = document.getElementById('discoTableHead');
+  elements.discoTableBody = document.getElementById('discoTableBody');
+  elements.openDiscoLayerPickerButton = document.getElementById('openDiscoLayerPickerButton');
+  elements.discoLayerModal = document.getElementById('discoLayerModal');
+  elements.discoLayerForm = document.getElementById('discoLayerForm');
+  elements.discoLayerProfileInput = document.getElementById('discoLayerProfileInput');
+  elements.closeDiscoLayerModalButton = document.getElementById('closeDiscoLayerModalButton');
 }
 
 function bindEvents() {
@@ -63,7 +81,9 @@ function bindEvents() {
     }
     window.location.href = './index.html';
   });
-  elements.toggleOutgoingButton?.addEventListener('click', toggleOutgoingView);
+  elements.toggleHiddenNotesButton?.addEventListener('click', toggleHiddenNotesView);
+  elements.dashboardNavButton?.addEventListener('click', () => switchView('dashboard'));
+  elements.discoNavButton?.addEventListener('click', () => switchView('disco'));
 
   elements.canvas?.addEventListener('dblclick', handleCanvasDoubleClick);
   elements.canvas?.addEventListener('pointerdown', handleCanvasPointerDown);
@@ -79,6 +99,16 @@ function bindEvents() {
     }
   });
   elements.deleteNoteButton?.addEventListener('click', handleDeleteNote);
+  elements.discoPreviousWeekButton?.addEventListener('click', () => shiftDiscoWeek(-7));
+  elements.discoNextWeekButton?.addEventListener('click', () => shiftDiscoWeek(7));
+  elements.openDiscoLayerPickerButton?.addEventListener('click', openDiscoLayerModal);
+  elements.closeDiscoLayerModalButton?.addEventListener('click', closeDiscoLayerModal);
+  elements.discoLayerForm?.addEventListener('submit', handleDiscoLayerSubmit);
+  elements.discoLayerModal?.addEventListener('click', (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeDiscoLayerModal === 'true') {
+      closeDiscoLayerModal();
+    }
+  });
 }
 
 function hydrateMeta() {
@@ -122,6 +152,8 @@ async function loadData() {
 
     renderCanvas();
     renderRecipientOptions();
+    renderDiscoLayerOptions();
+    renderDiscoPlanner();
   } catch (error) {
     showAlert(`Notizen konnten nicht geladen werden: ${error.message}`, true);
   }
@@ -245,7 +277,6 @@ function openModalForCreate() {
   const me = state.user?.id || '';
   if (me) elements.recipientUidInput.value = me;
   if (elements.visibleFromInput) elements.visibleFromInput.value = '';
-  if (elements.requiresResponseInput) elements.requiresResponseInput.checked = false;
   if (elements.existingAttachments) {
     elements.existingAttachments.innerHTML = '<span class="subtle-text">Noch keine Anhänge vorhanden.</span>';
   }
@@ -262,7 +293,6 @@ function openModalForNote(noteId) {
   elements.noteCategoryInput.value = normalizeCategory(note.note_category);
   elements.recipientUidInput.value = note.recipient_uid || state.user?.id || '';
   elements.visibleFromInput.value = toDateInputValue(note.visible_from_date);
-  elements.requiresResponseInput.checked = Boolean(note.requires_response);
   elements.noteAttachmentInput.value = '';
   elements.deleteNoteButton?.classList.remove('hidden');
 
@@ -291,7 +321,6 @@ async function handleSaveNote(event) {
   const noteText = String(elements.noteTextInput.value || '').trim();
   const noteCategory = normalizeCategory(elements.noteCategoryInput.value);
   const visibleFromDate = String(elements.visibleFromInput.value || '').trim() || null;
-  const requiresResponse = Boolean(elements.requiresResponseInput.checked);
 
   if (!senderUid || !recipientUid || !noteText) {
     showAlert('Aktiver Benutzer, Empfänger oder Notiztext fehlt.', true);
@@ -315,7 +344,7 @@ async function handleSaveNote(event) {
         recipient_uid: recipientUid,
         note_category: noteCategory,
         visible_from_date: visibleFromDate,
-        requires_response: requiresResponse,
+        requires_response: false,
         note_ranking: 2,
         attachments: newAttachments,
         note_flow: [flowEntry],
@@ -336,7 +365,7 @@ async function handleSaveNote(event) {
           recipient_uid: recipientUid,
           note_category: noteCategory,
           visible_from_date: visibleFromDate,
-          requires_response: requiresResponse,
+          requires_response: false,
           attachments: mergedAttachments,
           note_flow: mergedFlow,
         })
@@ -408,10 +437,10 @@ function normalizeCategory(category) {
   return normalized === NOTE_CATEGORY_TASK ? NOTE_CATEGORY_TASK : NOTE_CATEGORY_INFO;
 }
 
-function toggleOutgoingView() {
-  state.showOutgoingOnly = !state.showOutgoingOnly;
-  if (elements.toggleOutgoingButton) {
-    elements.toggleOutgoingButton.textContent = state.showOutgoingOnly ? 'Eingehende Notizen' : 'Ausgehende Notizen';
+function toggleHiddenNotesView() {
+  state.showHiddenNotes = !state.showHiddenNotes;
+  if (elements.toggleHiddenNotesButton) {
+    elements.toggleHiddenNotesButton.textContent = state.showHiddenNotes ? 'Unsichtbare Notizen ausblenden' : 'Unsichtbare Notizen';
   }
   renderCanvas();
 }
@@ -419,18 +448,13 @@ function toggleOutgoingView() {
 function getVisibleNotes() {
   const me = String(state.user?.id || '');
   if (!me) return [];
-  if (state.showOutgoingOnly) {
-    return state.notes.filter((note) => String(note.sender_uid || '') === me);
-  }
-
   return state.notes.filter((note) => {
     const recipientUid = String(note.recipient_uid || '');
     const senderUid = String(note.sender_uid || '');
-    const needsResponse = Boolean(note.requires_response);
     const isRecipient = recipientUid === me;
-    const isSenderWithResponse = senderUid === me && needsResponse;
-    if (!isRecipient && !isSenderWithResponse) return false;
-    if (!isRecipient) return true;
+    const isSender = senderUid === me;
+    if (!isRecipient && !isSender) return false;
+    if (state.showHiddenNotes) return true;
     return isVisibleByDate(note.visible_from_date);
   });
 }
@@ -559,6 +583,120 @@ function clampPosition(position) {
 
 function handleWindowResize() {
   renderCanvas();
+}
+
+function switchView(view) {
+  state.activeView = view === 'disco' ? 'disco' : 'dashboard';
+  elements.dashboardNavButton?.classList.toggle('active', state.activeView === 'dashboard');
+  elements.discoNavButton?.classList.toggle('active', state.activeView === 'disco');
+  elements.notesDashboardArea?.classList.toggle('hidden', state.activeView !== 'dashboard');
+  elements.discoArea?.classList.toggle('hidden', state.activeView !== 'disco');
+  if (state.activeView === 'disco') renderDiscoPlanner();
+}
+
+function getWeekStart(dateValue = new Date()) {
+  const date = new Date(dateValue);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+function getWeekDates(startDate) {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return date;
+  });
+}
+
+function getIsoWeekNumber(dateValue) {
+  const date = new Date(dateValue);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const firstThursday = new Date(date.getFullYear(), 0, 4);
+  firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
+  return 1 + Math.round((date.getTime() - firstThursday.getTime()) / 604800000);
+}
+
+function shiftDiscoWeek(days) {
+  if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
+  state.discoWeekStart.setDate(state.discoWeekStart.getDate() + days);
+  renderDiscoPlanner();
+}
+
+function renderDiscoLayerOptions() {
+  if (!elements.discoLayerProfileInput) return;
+  const available = state.profiles.filter((profile) => !state.discoLayerProfileIds.includes(profile.id));
+  if (!available.length) {
+    elements.discoLayerProfileInput.innerHTML = '<option value="">Keine weiteren Mitarbeiter verfügbar</option>';
+    elements.discoLayerProfileInput.disabled = true;
+    return;
+  }
+  elements.discoLayerProfileInput.disabled = false;
+  elements.discoLayerProfileInput.innerHTML = available
+    .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || profile.id)}</option>`)
+    .join('');
+}
+
+function openDiscoLayerModal() {
+  renderDiscoLayerOptions();
+  if (elements.discoLayerProfileInput?.disabled) return;
+  elements.discoLayerModal?.classList.remove('hidden');
+}
+
+function closeDiscoLayerModal() {
+  elements.discoLayerModal?.classList.add('hidden');
+}
+
+function handleDiscoLayerSubmit(event) {
+  event.preventDefault();
+  const profileId = String(elements.discoLayerProfileInput?.value || '').trim();
+  if (!profileId) return;
+  if (!state.discoLayerProfileIds.includes(profileId)) state.discoLayerProfileIds.push(profileId);
+  closeDiscoLayerModal();
+  renderDiscoLayerOptions();
+  renderDiscoPlanner();
+}
+
+function renderDiscoPlanner() {
+  if (!elements.discoTableHead || !elements.discoTableBody || !elements.discoWeekLabel) return;
+  if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
+  const weekStart = getWeekStart(state.discoWeekStart);
+  const weekDates = getWeekDates(weekStart);
+  const weekdayFormatter = new Intl.DateTimeFormat('de-CH', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const weekNumber = getIsoWeekNumber(weekStart);
+  elements.discoWeekLabel.textContent = `KW ${String(weekNumber).padStart(2, '0')}`;
+
+  elements.discoTableHead.innerHTML = `
+    <tr>
+      <th>Layer</th>
+      ${weekDates.map((date) => `<th>${escapeHtml(weekdayFormatter.format(date))}</th>`).join('')}
+    </tr>
+  `;
+
+  const layerRows = state.discoLayerProfileIds
+    .map((profileId) => {
+      const name = resolveProfileName(profileId) || profileId;
+      return `
+        <tr>
+          <th>${escapeHtml(name)}</th>
+          ${weekDates.map(() => '<td><textarea class="disco-cell-input" rows="2" placeholder="Eintrag"></textarea></td>').join('')}
+        </tr>
+      `;
+    })
+    .join('');
+
+  elements.discoTableBody.innerHTML = `
+    <tr class="disco-info-row">
+      <th>Layer Information</th>
+      ${weekDates.map(() => '<td class="disco-info-cell">Wird später durch KI befüllt</td>').join('')}
+    </tr>
+    ${layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`}
+  `;
 }
 
 function sanitizeFileName(name) {
