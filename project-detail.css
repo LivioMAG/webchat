@@ -192,6 +192,37 @@ body {
   color: rgba(17, 17, 17, 0.6);
 }
 
+.disco-backlog-cell,
+.disco-drop-cell {
+  min-width: 180px;
+  min-height: 92px;
+  background: rgba(17, 17, 17, 0.02);
+}
+
+.disco-card-list {
+  display: grid;
+  gap: 6px;
+}
+
+.disco-task-card {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+  cursor: grab;
+}
+
+.disco-task-card small {
+  color: rgba(17, 17, 17, 0.65);
+  font-size: 11px;
+}
+
+.disco-done-button {
+  justify-self: start;
+}
+
 .note-icon {
   position: absolute;
   width: 148px;
