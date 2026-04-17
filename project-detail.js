@@ -30,6 +30,7 @@ const state = {
   discoLayers: [],
   discoEntries: [],
   discoDragNoteId: null,
+  mainDispoByProfileDate: new Set(),
 };
 
 const elements = {};
@@ -111,8 +112,8 @@ function bindEvents() {
     }
   });
   elements.deleteNoteButton?.addEventListener('click', handleDeleteNote);
-  elements.discoPreviousWeekButton?.addEventListener('click', () => shiftDiscoWeek(-7));
-  elements.discoNextWeekButton?.addEventListener('click', () => shiftDiscoWeek(7));
+  elements.discoPreviousWeekButton?.addEventListener('click', async () => shiftDiscoWeek(-7));
+  elements.discoNextWeekButton?.addEventListener('click', async () => shiftDiscoWeek(7));
   elements.openDiscoLayerPickerButton?.addEventListener('click', openDiscoLayerModal);
   elements.closeDiscoLayerModalButton?.addEventListener('click', closeDiscoLayerModal);
   elements.discoLayerForm?.addEventListener('submit', handleDiscoLayerSubmit);
@@ -153,23 +154,31 @@ async function loadData() {
   if (!state.projectId) return;
 
   try {
-    const [notesResult, profilesResult, layersResult, entriesResult] = await Promise.all([
+    const weekStart = getWeekStart(state.discoWeekStart || new Date());
+    const weekDates = getWeekDates(weekStart);
+    const weekStartKey = formatDateKey(weekDates[0]);
+    const weekEndKey = formatDateKey(weekDates[6]);
+
+    const [notesResult, profilesResult, layersResult, entriesResult, mainDispoResult] = await Promise.all([
       state.supabase.from(NOTES_TABLE).select('*').eq('note_type', PROJECT_NOTE_TYPE).eq('target_uid', state.projectId).order('created_at', { ascending: false }),
       state.supabase.from('app_profiles').select('id,full_name,email').order('full_name', { ascending: true }),
       state.supabase.from(DISCO_LAYERS_TABLE).select('*').eq('project_id', state.projectId).order('sort_order', { ascending: true }),
       state.supabase.from(DISCO_ENTRIES_TABLE).select('*').eq('project_id', state.projectId).order('sort_order', { ascending: true }),
+      state.supabase.from('daily_assignments').select('profile_id, assignment_date').eq('project_id', state.projectId).gte('assignment_date', weekStartKey).lte('assignment_date', weekEndKey),
     ]);
 
     if (notesResult.error) throw notesResult.error;
     if (profilesResult.error) throw profilesResult.error;
     if (layersResult.error && !String(layersResult.error.message || '').includes('relation')) throw layersResult.error;
     if (entriesResult.error && !String(entriesResult.error.message || '').includes('relation')) throw entriesResult.error;
+    if (mainDispoResult.error && !String(mainDispoResult.error.message || '').includes('relation')) throw mainDispoResult.error;
 
     state.notes = notesResult.data || [];
     state.profiles = profilesResult.data || [];
     state.discoLayers = layersResult.data || [];
     state.discoEntries = entriesResult.data || [];
     state.discoLayerProfileIds = state.discoLayers.map((layer) => String(layer.profile_uid || '')).filter(Boolean);
+    state.mainDispoByProfileDate = new Set((mainDispoResult.data || []).map((entry) => `${String(entry.profile_id || '')}:${formatDateKey(entry.assignment_date)}`));
 
     requestAnimationFrame(() => renderCanvas());
     renderRecipientOptions();
@@ -210,15 +219,21 @@ function renderCanvas() {
     const previewText = String(latestEntry?.message || note.note_text || '');
     const previewAuthor = String(latestEntry?.author_name || resolveProfileName(latestEntry?.author_uid) || NOTE_FLOW_FALLBACK_NAME);
     node.title = `${previewAuthor}: ${previewText}`;
-    const categoryIcon = getCategoryIcon(note.note_category);
-    node.innerHTML = `
-      <span class="note-category-badge" aria-hidden="true">${escapeHtml(categoryIcon)}</span>
-      <div class="note-icon-title">${escapeHtml(buildTitleFromText(previewText))}</div>
-    `;
-    node.addEventListener('dblclick', (event) => {
+    const isTitleOnly = normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE;
+    if (isTitleOnly) {
+      node.classList.add('note-icon-title-only');
+      node.innerHTML = `<div class="note-icon-title">${escapeHtml(buildTitleFromText(previewText))}</div>`;
+    } else {
+      const categoryIcon = getCategoryIcon(note.note_category);
+      node.innerHTML = `
+        <span class="note-category-badge" aria-hidden="true">${escapeHtml(categoryIcon)}</span>
+        <div class="note-icon-title">${escapeHtml(buildTitleFromText(previewText))}</div>
+      `;
+    }
+    node.addEventListener('dblclick', async (event) => {
       event.stopPropagation();
-      if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE) {
-        openRenamePromptForTitleNote(note.id);
+      if (isTitleOnly) {
+        await deleteTitleNote(note.id);
         return;
       }
       openModalForNote(note.id);
@@ -378,10 +393,7 @@ function applyDefaultRecipientByCategory(categoryValue) {
 function openModalForNote(noteId) {
   const note = state.notes.find((item) => String(item.id) === String(noteId));
   if (!note) return;
-  if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE) {
-    openRenamePromptForTitleNote(note.id);
-    return;
-  }
+  if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE) return;
   state.activeNote = note;
 
   elements.noteTextInput.value = '';
@@ -402,20 +414,15 @@ function openModalForNote(noteId) {
   elements.modal?.classList.remove('hidden');
 }
 
-async function openRenamePromptForTitleNote(noteId) {
-  const note = state.notes.find((item) => String(item.id) === String(noteId));
-  if (!note) return;
-  const currentText = String(note.note_text || '').trim() || 'Titel';
-  const nextText = window.prompt('Titel umbenennen:', currentText);
-  if (nextText === null) return;
-  const trimmed = String(nextText || '').trim();
-  if (!trimmed || trimmed === currentText) return;
+async function deleteTitleNote(noteId) {
+  if (!window.confirm('Diesen Titel wirklich löschen?')) return;
   try {
-    const { error } = await state.supabase.from(NOTES_TABLE).update({ note_text: trimmed }).eq('id', noteId);
+    const { error } = await state.supabase.from(NOTES_TABLE).delete().eq('id', noteId);
     if (error) throw error;
+    showAlert('Titel gelöscht.', false);
     await loadData();
   } catch (error) {
-    showAlert(`Titel konnte nicht umbenannt werden: ${error.message}`, true);
+    showAlert(`Titel konnte nicht gelöscht werden: ${error.message}`, true);
   }
 }
 
@@ -434,24 +441,31 @@ async function handleSaveNote(event) {
   const noteCategory = normalizeCategory(elements.noteCategoryInput.value);
   const visibleFromDate = String(elements.visibleFromInput.value || '').trim() || null;
 
-  if (!senderUid || !noteText) {
-    showAlert('Aktiver Benutzer oder Notiztext fehlt.', true);
+  if (!senderUid) {
+    showAlert('Aktiver Benutzer fehlt.', true);
+    return;
+  }
+
+  if (!state.activeNote && !noteText) {
+    showAlert('Notiztext fehlt.', true);
     return;
   }
 
   try {
     const newAttachments = await uploadAttachments(senderUid, state.projectId, elements.noteAttachmentInput.files);
-    const flowEntry = buildFlowEntry({
-      authorUid: senderUid,
-      message: noteText,
-      attachments: newAttachments,
-    });
+    const flowEntry = noteText
+      ? buildFlowEntry({
+        authorUid: senderUid,
+        message: noteText,
+        attachments: newAttachments,
+      })
+      : null;
 
     if (!state.activeNote) {
       const payload = {
         target_uid: state.projectId,
         note_type: PROJECT_NOTE_TYPE,
-        note_text: flowEntry.message,
+        note_text: flowEntry?.message || noteText,
         sender_uid: senderUid,
         recipient_uid: recipientUid || null,
         note_category: noteCategory,
@@ -459,7 +473,7 @@ async function handleSaveNote(event) {
         requires_response: false,
         note_ranking: 2,
         attachments: newAttachments,
-        note_flow: [flowEntry],
+        note_flow: flowEntry ? [flowEntry] : [],
         note_pos_x: state.pendingPosition.x,
         note_pos_y: state.pendingPosition.y,
       };
@@ -468,12 +482,15 @@ async function handleSaveNote(event) {
       showAlert('Projekt-Notiz gespeichert.', false);
     } else {
       const existingFlow = getNoteFlow(state.activeNote);
-      const mergedFlow = [...existingFlow, flowEntry];
-      const mergedAttachments = mergedFlow.flatMap((entry) => (Array.isArray(entry.attachments) ? entry.attachments : []));
+      const mergedFlow = flowEntry ? [...existingFlow, flowEntry] : existingFlow;
+      const previousAttachments = Array.isArray(state.activeNote.attachments) ? state.activeNote.attachments : [];
+      const mergedAttachments = mergedFlow.length
+        ? mergedFlow.flatMap((entry) => (Array.isArray(entry.attachments) ? entry.attachments : []))
+        : [...previousAttachments, ...newAttachments];
       const { error } = await state.supabase
         .from(NOTES_TABLE)
         .update({
-          note_text: flowEntry.message,
+          note_text: flowEntry?.message || state.activeNote.note_text || '',
           recipient_uid: recipientUid || null,
           note_category: noteCategory,
           visible_from_date: visibleFromDate,
@@ -769,9 +786,10 @@ function formatDateKey(dateValue) {
   return `${year}-${month}-${day}`;
 }
 
-function shiftDiscoWeek(days) {
+async function shiftDiscoWeek(days) {
   if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
   state.discoWeekStart.setDate(state.discoWeekStart.getDate() + days);
+  await loadMainDispoAssignmentsForCurrentWeek();
   renderDiscoPlanner();
 }
 
@@ -830,6 +848,33 @@ async function handleDiscoLayerSubmit(event) {
   }
 }
 
+async function loadMainDispoAssignmentsForCurrentWeek() {
+  if (!state.supabase || !state.projectId) return;
+  if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
+  const weekStart = getWeekStart(state.discoWeekStart);
+  const weekDates = getWeekDates(weekStart);
+  const startKey = formatDateKey(weekDates[0]);
+  const endKey = formatDateKey(weekDates[6]);
+  try {
+    const { data, error } = await state.supabase
+      .from('daily_assignments')
+      .select('profile_id, assignment_date')
+      .eq('project_id', state.projectId)
+      .gte('assignment_date', startKey)
+      .lte('assignment_date', endKey);
+    if (error && !String(error.message || '').includes('relation')) throw error;
+    state.mainDispoByProfileDate = new Set((data || []).map((entry) => `${String(entry.profile_id || '')}:${formatDateKey(entry.assignment_date)}`));
+  } catch (error) {
+    state.mainDispoByProfileDate = new Set();
+    showAlert(`Hauptdispo konnte nicht geladen werden: ${error.message}`, true);
+  }
+}
+
+function getMainDispoStatusClass(profileId, dateKey) {
+  const key = `${String(profileId || '')}:${formatDateKey(dateKey)}`;
+  return state.mainDispoByProfileDate.has(key) ? 'disco-main-dispo-assigned' : 'disco-main-dispo-missing';
+}
+
 function renderDiscoPlanner() {
   if (!elements.discoTableHead || !elements.discoTableBody || !elements.discoWeekLabel) return;
   if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
@@ -861,7 +906,8 @@ function renderDiscoPlanner() {
       const dateKey = formatDateKey(date);
       const key = `${layer.id}:${dateKey}`;
       const entries = entriesByKey.get(key) || [];
-      return `<td class="disco-drop-cell" data-drop-zone="layer" data-layer-id="${escapeAttribute(layer.id)}" data-date="${escapeAttribute(dateKey)}">
+      const dispoStatusClass = getMainDispoStatusClass(profileId, dateKey);
+      return `<td class="disco-drop-cell ${dispoStatusClass}" data-drop-zone="layer" data-layer-id="${escapeAttribute(layer.id)}" data-date="${escapeAttribute(dateKey)}">
         <div class="disco-card-list">
           ${entries.map((entry) => {
             const note = state.notes.find((item) => String(item.id) === String(entry.note_id));
