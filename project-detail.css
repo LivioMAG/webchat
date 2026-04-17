@@ -118,10 +118,6 @@ body {
   flex: 1;
   border-radius: 10px;
   background-color: #fff;
-  background-image:
-    linear-gradient(to right, rgba(17, 17, 17, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(17, 17, 17, 0.05) 1px, transparent 1px);
-  background-size: 24px 24px;
   overflow: hidden;
 }
 
@@ -137,16 +133,20 @@ body {
 
 .note-icon {
   position: absolute;
-  width: 98px;
-  text-align: center;
+  width: 148px;
+  min-height: 136px;
+  text-align: left;
   user-select: none;
   cursor: grab;
-  padding: 4px;
-  border-radius: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  background: #fffef2;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .note-icon:hover {
-  background: rgba(17, 17, 17, 0.06);
+  background: #fffde7;
 }
 
 .note-icon.dragging {
@@ -154,28 +154,16 @@ body {
   opacity: 0.88;
 }
 
-.note-icon-symbol {
-  font-size: 28px;
-  line-height: 1;
-}
-
 .note-icon-title {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 600;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
   color: #111;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.note-icon-category {
-  margin-top: 2px;
-  font-size: 11px;
-  color: rgba(17, 17, 17, 0.7);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .modal {

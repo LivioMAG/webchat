@@ -4,6 +4,9 @@ const PROJECT_NOTE_TYPE = 'pro';
 const NOTE_STORAGE_BUCKET = 'crm-note-attachments';
 const GRID_SIZE = 24;
 const DEFAULT_NOTE_CATEGORY = 'information';
+const NOTE_CARD_WIDTH = 148;
+const NOTE_CARD_HEIGHT = 136;
+const NOTE_PREVIEW_LENGTH = 60;
 
 const state = {
   supabase: null,
@@ -57,6 +60,7 @@ function bindEvents() {
   elements.canvas?.addEventListener('pointerdown', handleCanvasPointerDown);
   window.addEventListener('pointermove', handlePointerMove);
   window.addEventListener('pointerup', handlePointerUp);
+  window.addEventListener('resize', handleWindowResize);
 
   elements.noteForm?.addEventListener('submit', handleSaveNote);
   elements.closeNoteModalButton?.addEventListener('click', closeModal);
@@ -134,15 +138,14 @@ function renderCanvas() {
 
     const x = snapToGrid(Number(note.note_pos_x ?? GRID_SIZE));
     const y = snapToGrid(Number(note.note_pos_y ?? GRID_SIZE));
-    node.style.left = `${x}px`;
-    node.style.top = `${y}px`;
+    const clamped = clampPosition({ x, y });
+    node.style.left = `${clamped.x}px`;
+    node.style.top = `${clamped.y}px`;
 
     const text = String(note.note_text || '');
     node.title = text;
     node.innerHTML = `
-      <div class="note-icon-symbol" aria-hidden="true">🗒️</div>
       <div class="note-icon-title">${escapeHtml(buildTitleFromText(text))}</div>
-      <div class="note-icon-category">${escapeHtml(note.note_category || DEFAULT_NOTE_CATEGORY)}</div>
     `;
     node.addEventListener('dblclick', (event) => {
       event.stopPropagation();
@@ -157,8 +160,8 @@ function handleCanvasDoubleClick(event) {
   if (event.target.closest('.note-icon')) return;
 
   const rect = elements.canvas.getBoundingClientRect();
-  const x = snapToGrid(event.clientX - rect.left - 50);
-  const y = snapToGrid(event.clientY - rect.top - 30);
+  const x = snapToGrid(event.clientX - rect.left - NOTE_CARD_WIDTH / 2);
+  const y = snapToGrid(event.clientY - rect.top - NOTE_CARD_HEIGHT / 2);
   state.pendingPosition = clampPosition({ x, y });
   openModalForCreate();
 }
@@ -356,8 +359,8 @@ function showAlert(message, isError) {
 function buildTitleFromText(text) {
   const normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if (!normalized) return 'Notiz';
-  if (normalized.length <= 16) return normalized;
-  return `${normalized.slice(0, 16)}…`;
+  if (normalized.length <= NOTE_PREVIEW_LENGTH) return normalized;
+  return `${normalized.slice(0, NOTE_PREVIEW_LENGTH)}…`;
 }
 
 function snapToGrid(value) {
@@ -367,12 +370,16 @@ function snapToGrid(value) {
 function clampPosition(position) {
   const canvas = elements.canvas;
   if (!canvas) return { x: position.x, y: position.y };
-  const maxX = Math.max(0, canvas.clientWidth - 102);
-  const maxY = Math.max(0, canvas.clientHeight - 90);
+  const maxX = Math.max(0, canvas.clientWidth - NOTE_CARD_WIDTH);
+  const maxY = Math.max(0, canvas.clientHeight - NOTE_CARD_HEIGHT);
   return {
     x: Math.max(0, Math.min(maxX, position.x)),
     y: Math.max(0, Math.min(maxY, position.y)),
   };
+}
+
+function handleWindowResize() {
+  renderCanvas();
 }
 
 function sanitizeFileName(name) {
