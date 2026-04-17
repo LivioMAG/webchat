@@ -167,6 +167,13 @@ body {
   font-size: 13px;
 }
 
+.disco-layer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 .disco-cell-input {
   width: 100%;
   min-height: 56px;
