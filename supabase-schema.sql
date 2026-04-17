@@ -376,8 +376,11 @@ create table if not exists public.notes (
   note_type text not null default 'crm',
   note_text text not null,
   sender_uid uuid not null references public.app_profiles(id) on delete restrict,
-  recipient_uid uuid not null references public.app_profiles(id) on delete set null,
+  recipient_uid uuid references public.app_profiles(id) on delete set null,
   note_category text not null default 'information',
+  disco_status text not null default 'open' check (disco_status in ('open', 'in_disco', 'done')),
+  disco_scheduled_for date,
+  disco_done_at timestamptz,
   requires_response boolean not null default false,
   visible_from_date date,
   note_ranking smallint not null default 2 check (note_ranking between 1 and 3),
@@ -401,6 +404,15 @@ alter table public.notes
 add column if not exists note_category text not null default 'information';
 
 alter table public.notes
+add column if not exists disco_status text not null default 'open';
+
+alter table public.notes
+add column if not exists disco_scheduled_for date;
+
+alter table public.notes
+add column if not exists disco_done_at timestamptz;
+
+alter table public.notes
 add column if not exists requires_response boolean not null default false;
 
 alter table public.notes
@@ -422,24 +434,8 @@ add column if not exists note_pos_x integer not null default 24;
 alter table public.notes
 add column if not exists note_pos_y integer not null default 24;
 
-do $$
-begin
-  update public.notes
-  set recipient_uid = sender_uid
-  where recipient_uid is null;
-
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'notes'
-      and column_name = 'recipient_uid'
-      and is_nullable = 'YES'
-  ) then
-    alter table public.notes alter column recipient_uid set not null;
-  end if;
-end;
-$$;
+alter table public.notes
+alter column recipient_uid drop not null;
 
 do $$
 begin
@@ -463,6 +459,38 @@ begin
   end if;
 end;
 $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'notes_disco_status_check'
+      and conrelid = 'public.notes'::regclass
+  ) then
+    alter table public.notes
+      add constraint notes_disco_status_check check (disco_status in ('open', 'in_disco', 'done'));
+  end if;
+end;
+$$;
+
+create table if not exists public.project_disco_layers (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  week_start_date date not null,
+  profile_uid uuid not null references public.app_profiles(id) on delete cascade,
+  sort_order integer not null default 1,
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create table if not exists public.project_disco_entries (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  note_id uuid not null references public.notes(id) on delete cascade,
+  layer_id uuid references public.project_disco_layers(id) on delete cascade,
+  plan_date date,
+  sort_order integer not null default 1,
+  created_at timestamptz not null default timezone('utc', now())
+);
 
 do $$
 begin
@@ -502,6 +530,8 @@ alter table public.projects enable row level security;
 alter table public.crm_contacts enable row level security;
 alter table public.notes enable row level security;
 alter table public.school_vacations enable row level security;
+alter table public.project_disco_layers enable row level security;
+alter table public.project_disco_entries enable row level security;
 
 drop policy if exists "projects own or admin" on public.projects;
 create policy "projects own or admin"
@@ -530,6 +560,22 @@ with check (public.is_admin_user());
 drop policy if exists "school_vacations admin access" on public.school_vacations;
 create policy "school_vacations admin access"
 on public.school_vacations
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "project_disco_layers admin access" on public.project_disco_layers;
+create policy "project_disco_layers admin access"
+on public.project_disco_layers
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "project_disco_entries admin access" on public.project_disco_entries;
+create policy "project_disco_entries admin access"
+on public.project_disco_entries
 for all
 to authenticated
 using (public.is_admin_user())
@@ -606,6 +652,9 @@ create index if not exists request_history_profile_created_at_idx on public.requ
 create index if not exists daily_assignments_profile_date_idx on public.daily_assignments (profile_id, assignment_date);
 create index if not exists crm_contacts_last_name_idx on public.crm_contacts (last_name, first_name);
 create index if not exists notes_target_uid_created_at_idx on public.notes (target_uid, created_at desc);
+create index if not exists notes_disco_status_idx on public.notes (target_uid, disco_status, disco_scheduled_for);
+create index if not exists project_disco_layers_project_week_idx on public.project_disco_layers (project_id, week_start_date, sort_order);
+create index if not exists project_disco_entries_project_note_idx on public.project_disco_entries (project_id, note_id);
 
 drop trigger if exists set_updated_at_app_profiles on public.app_profiles;
 create trigger set_updated_at_app_profiles

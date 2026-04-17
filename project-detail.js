@@ -1,6 +1,8 @@
 const CONFIG_PATH = './supabase-config.json';
 const NOTES_TABLE = 'notes';
 const PROJECT_NOTE_TYPE = 'pro';
+const DISCO_LAYERS_TABLE = 'project_disco_layers';
+const DISCO_ENTRIES_TABLE = 'project_disco_entries';
 const NOTE_STORAGE_BUCKET = 'crm-note-attachments';
 const GRID_SIZE = 24;
 const DEFAULT_NOTE_CATEGORY = 'information';
@@ -10,6 +12,9 @@ const NOTE_PREVIEW_LENGTH = 60;
 const NOTE_FLOW_FALLBACK_NAME = 'Unbekannt';
 const NOTE_CATEGORY_INFO = 'information';
 const NOTE_CATEGORY_TASK = 'aufgabe';
+const NOTE_DISCO_STATUS_OPEN = 'open';
+const NOTE_DISCO_STATUS_PLANNED = 'in_disco';
+const NOTE_DISCO_STATUS_DONE = 'done';
 
 const state = {
   supabase: null,
@@ -24,6 +29,9 @@ const state = {
   activeView: 'dashboard',
   discoWeekStart: null,
   discoLayerProfileIds: [],
+  discoLayers: [],
+  discoEntries: [],
+  discoDragNoteId: null,
 };
 
 const elements = {};
@@ -92,6 +100,7 @@ function bindEvents() {
   window.addEventListener('resize', handleWindowResize);
 
   elements.noteForm?.addEventListener('submit', handleSaveNote);
+  elements.noteCategoryInput?.addEventListener('change', handleNoteCategoryChange);
   elements.closeNoteModalButton?.addEventListener('click', closeModal);
   elements.modal?.addEventListener('click', (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeNoteModal === 'true') {
@@ -109,6 +118,7 @@ function bindEvents() {
       closeDiscoLayerModal();
     }
   });
+  elements.discoTableBody?.addEventListener('click', handleDiscoTableClick);
 }
 
 function hydrateMeta() {
@@ -139,16 +149,23 @@ async function loadData() {
   if (!state.projectId) return;
 
   try {
-    const [notesResult, profilesResult] = await Promise.all([
+    const [notesResult, profilesResult, layersResult, entriesResult] = await Promise.all([
       state.supabase.from(NOTES_TABLE).select('*').eq('note_type', PROJECT_NOTE_TYPE).eq('target_uid', state.projectId).order('created_at', { ascending: false }),
       state.supabase.from('app_profiles').select('id,full_name,email').order('full_name', { ascending: true }),
+      state.supabase.from(DISCO_LAYERS_TABLE).select('*').eq('project_id', state.projectId).order('sort_order', { ascending: true }),
+      state.supabase.from(DISCO_ENTRIES_TABLE).select('*').eq('project_id', state.projectId).order('sort_order', { ascending: true }),
     ]);
 
     if (notesResult.error) throw notesResult.error;
     if (profilesResult.error) throw profilesResult.error;
+    if (layersResult.error && !String(layersResult.error.message || '').includes('relation')) throw layersResult.error;
+    if (entriesResult.error && !String(entriesResult.error.message || '').includes('relation')) throw entriesResult.error;
 
     state.notes = notesResult.data || [];
     state.profiles = profilesResult.data || [];
+    state.discoLayers = layersResult.data || [];
+    state.discoEntries = entriesResult.data || [];
+    state.discoLayerProfileIds = state.discoLayers.map((layer) => String(layer.profile_uid || '')).filter(Boolean);
 
     renderCanvas();
     renderRecipientOptions();
@@ -164,7 +181,7 @@ function renderRecipientOptions() {
   const options = state.profiles
     .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || profile.id)}</option>`)
     .join('');
-  elements.recipientUidInput.innerHTML = options;
+  elements.recipientUidInput.innerHTML = `<option value="">Niemand</option>${options}`;
 }
 
 function renderCanvas() {
@@ -274,14 +291,30 @@ function openModalForCreate() {
   elements.deleteNoteButton?.classList.add('hidden');
   elements.noteForm?.reset();
   elements.noteCategoryInput.value = DEFAULT_NOTE_CATEGORY;
-  const me = state.user?.id || '';
-  if (me) elements.recipientUidInput.value = me;
+  applyDefaultRecipientByCategory(elements.noteCategoryInput.value);
   if (elements.visibleFromInput) elements.visibleFromInput.value = '';
   if (elements.existingAttachments) {
     elements.existingAttachments.innerHTML = '<span class="subtle-text">Noch keine Anhänge vorhanden.</span>';
   }
   renderFlowList([]);
   elements.modal?.classList.remove('hidden');
+}
+
+function handleNoteCategoryChange() {
+  if (!state.activeNote) {
+    applyDefaultRecipientByCategory(elements.noteCategoryInput?.value);
+  }
+}
+
+function applyDefaultRecipientByCategory(categoryValue) {
+  if (!elements.recipientUidInput) return;
+  const normalized = normalizeCategory(categoryValue);
+  if (normalized === NOTE_CATEGORY_TASK) {
+    elements.recipientUidInput.value = '';
+    return;
+  }
+  const me = String(state.user?.id || '').trim();
+  elements.recipientUidInput.value = me;
 }
 
 function openModalForNote(noteId) {
@@ -322,8 +355,8 @@ async function handleSaveNote(event) {
   const noteCategory = normalizeCategory(elements.noteCategoryInput.value);
   const visibleFromDate = String(elements.visibleFromInput.value || '').trim() || null;
 
-  if (!senderUid || !recipientUid || !noteText) {
-    showAlert('Aktiver Benutzer, Empfänger oder Notiztext fehlt.', true);
+  if (!senderUid || !noteText) {
+    showAlert('Aktiver Benutzer oder Notiztext fehlt.', true);
     return;
   }
 
@@ -341,9 +374,12 @@ async function handleSaveNote(event) {
         note_type: PROJECT_NOTE_TYPE,
         note_text: flowEntry.message,
         sender_uid: senderUid,
-        recipient_uid: recipientUid,
+        recipient_uid: recipientUid || null,
         note_category: noteCategory,
         visible_from_date: visibleFromDate,
+        disco_status: NOTE_DISCO_STATUS_OPEN,
+        disco_scheduled_for: null,
+        disco_done_at: null,
         requires_response: false,
         note_ranking: 2,
         attachments: newAttachments,
@@ -362,7 +398,7 @@ async function handleSaveNote(event) {
         .from(NOTES_TABLE)
         .update({
           note_text: flowEntry.message,
-          recipient_uid: recipientUid,
+          recipient_uid: recipientUid || null,
           note_category: noteCategory,
           visible_from_date: visibleFromDate,
           requires_response: false,
@@ -447,13 +483,29 @@ function toggleHiddenNotesView() {
 
 function getVisibleNotes() {
   const me = String(state.user?.id || '');
+  const today = startOfDay(new Date());
   if (!me) return [];
   return state.notes.filter((note) => {
-    const recipientUid = String(note.recipient_uid || '');
-    const senderUid = String(note.sender_uid || '');
-    const isRecipient = recipientUid === me;
-    const isSender = senderUid === me;
-    if (!isRecipient && !isSender) return false;
+    if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TASK) {
+      if (String(note.disco_status || NOTE_DISCO_STATUS_OPEN) === NOTE_DISCO_STATUS_DONE) return false;
+      const scheduledDate = toDateOnly(note.disco_scheduled_for);
+      const visibilityDate = toDateOnly(note.visible_from_date);
+      if (scheduledDate) {
+        const dayBefore = new Date(scheduledDate);
+        dayBefore.setDate(dayBefore.getDate() - 1);
+        const start = visibilityDate && visibilityDate < dayBefore ? visibilityDate : dayBefore;
+        const isInProcess = today >= start && today <= scheduledDate;
+        if (!isInProcess) return false;
+      } else if (visibilityDate && today < visibilityDate) {
+        return false;
+      }
+    } else {
+      const recipientUid = String(note.recipient_uid || '');
+      const senderUid = String(note.sender_uid || '');
+      const isRecipient = recipientUid === me;
+      const isSender = senderUid === me;
+      if (!isRecipient && !isSender) return false;
+    }
     if (state.showHiddenNotes) return true;
     return isVisibleByDate(note.visible_from_date);
   });
@@ -475,6 +527,19 @@ function toDateInputValue(value) {
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function startOfDay(dateValue) {
+  const date = new Date(dateValue);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function toDateOnly(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return startOfDay(date);
 }
 
 function getNoteFlow(note) {
@@ -622,6 +687,14 @@ function getIsoWeekNumber(dateValue) {
   return 1 + Math.round((date.getTime() - firstThursday.getTime()) / 604800000);
 }
 
+function formatDateKey(dateValue) {
+  const date = startOfDay(dateValue);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function shiftDiscoWeek(days) {
   if (!state.discoWeekStart) state.discoWeekStart = getWeekStart(new Date());
   state.discoWeekStart.setDate(state.discoWeekStart.getDate() + days);
@@ -630,7 +703,12 @@ function shiftDiscoWeek(days) {
 
 function renderDiscoLayerOptions() {
   if (!elements.discoLayerProfileInput) return;
-  const available = state.profiles.filter((profile) => !state.discoLayerProfileIds.includes(profile.id));
+  const weekStart = getWeekStart(state.discoWeekStart || new Date());
+  const weekKey = formatDateKey(weekStart);
+  const selectedIds = state.discoLayers
+    .filter((layer) => formatDateKey(layer.week_start_date || weekStart) === weekKey)
+    .map((layer) => String(layer.profile_uid || ''));
+  const available = state.profiles.filter((profile) => !selectedIds.includes(String(profile.id)));
   if (!available.length) {
     elements.discoLayerProfileInput.innerHTML = '<option value="">Keine weiteren Mitarbeiter verfügbar</option>';
     elements.discoLayerProfileInput.disabled = true;
@@ -652,14 +730,30 @@ function closeDiscoLayerModal() {
   elements.discoLayerModal?.classList.add('hidden');
 }
 
-function handleDiscoLayerSubmit(event) {
+async function handleDiscoLayerSubmit(event) {
   event.preventDefault();
   const profileId = String(elements.discoLayerProfileInput?.value || '').trim();
   if (!profileId) return;
-  if (!state.discoLayerProfileIds.includes(profileId)) state.discoLayerProfileIds.push(profileId);
-  closeDiscoLayerModal();
-  renderDiscoLayerOptions();
-  renderDiscoPlanner();
+  const weekStart = getWeekStart(state.discoWeekStart || new Date());
+  const weekKey = formatDateKey(weekStart);
+  const alreadyExists = state.discoLayers.some((layer) => formatDateKey(layer.week_start_date || weekStart) === weekKey && String(layer.profile_uid || '') === profileId);
+  if (alreadyExists) return;
+  try {
+    const nextSortOrder = state.discoLayers.length
+      ? Math.max(...state.discoLayers.map((layer) => Number(layer.sort_order || 0))) + 1
+      : 1;
+    const { error } = await state.supabase.from(DISCO_LAYERS_TABLE).insert({
+      project_id: state.projectId,
+      week_start_date: weekKey,
+      profile_uid: profileId,
+      sort_order: nextSortOrder,
+    });
+    if (error) throw error;
+    closeDiscoLayerModal();
+    await loadData();
+  } catch (error) {
+    showAlert(`Layer konnte nicht gespeichert werden: ${error.message}`, true);
+  }
 }
 
 function renderDiscoPlanner() {
@@ -673,30 +767,195 @@ function renderDiscoPlanner() {
 
   elements.discoTableHead.innerHTML = `
     <tr>
-      <th>Layer</th>
+      <th>Layer / Aufgabenpool</th>
       ${weekDates.map((date) => `<th>${escapeHtml(weekdayFormatter.format(date))}</th>`).join('')}
     </tr>
   `;
 
-  const layerRows = state.discoLayerProfileIds
-    .map((profileId) => {
-      const name = resolveProfileName(profileId) || profileId;
-      return `
-        <tr>
-          <th>${escapeHtml(name)}</th>
-          ${weekDates.map(() => '<td><textarea class="disco-cell-input" rows="2" placeholder="Eintrag"></textarea></td>').join('')}
-        </tr>
-      `;
-    })
-    .join('');
+  const openTasks = getOpenTaskNotes();
+  const placedNoteIds = new Set(state.discoEntries.map((entry) => String(entry.note_id)));
+  const backlogTasks = openTasks.filter((note) => !placedNoteIds.has(String(note.id)));
+  const entriesByKey = groupDiscoEntriesByCell();
+  const weekStartKey = formatDateKey(weekStart);
+  const layersForWeek = state.discoLayers.filter((layer) => formatDateKey(layer.week_start_date || weekStart) === weekStartKey);
 
-  elements.discoTableBody.innerHTML = `
-    <tr class="disco-info-row">
-      <th>Layer Information</th>
-      ${weekDates.map(() => '<td class="disco-info-cell">Wird später durch KI befüllt</td>').join('')}
+  const backlogRow = `
+    <tr class="disco-backlog-row">
+      <th>Offene Aufgaben (${backlogTasks.length})</th>
+      <td class="disco-backlog-cell" colspan="${weekDates.length}" data-drop-zone="backlog">
+        <div class="disco-card-list">
+          ${backlogTasks.map((note) => renderDiscoTaskCard(note)).join('')}
+        </div>
+      </td>
     </tr>
-    ${layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`}
   `;
+
+  const layerRows = layersForWeek.map((layer) => {
+    const profileId = String(layer.profile_uid || '');
+    const name = resolveProfileName(profileId) || profileId;
+    const cells = weekDates.map((date) => {
+      const dateKey = formatDateKey(date);
+      const key = `${layer.id}:${dateKey}`;
+      const entries = entriesByKey.get(key) || [];
+      return `<td class="disco-drop-cell" data-drop-zone="layer" data-layer-id="${escapeAttribute(layer.id)}" data-date="${escapeAttribute(dateKey)}">
+        <div class="disco-card-list">
+          ${entries.map((entry) => {
+            const note = state.notes.find((item) => String(item.id) === String(entry.note_id));
+            return note ? renderDiscoTaskCard(note) : '';
+          }).join('')}
+        </div>
+      </td>`;
+    }).join('');
+    return `<tr><th>${escapeHtml(name)}</th>${cells}</tr>`;
+  }).join('');
+
+  elements.discoTableBody.innerHTML = `${backlogRow}${layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`}`;
+  bindDiscoDragAndDrop();
+}
+
+function getOpenTaskNotes() {
+  return state.notes.filter((note) => {
+    if (normalizeCategory(note.note_category) !== NOTE_CATEGORY_TASK) return false;
+    return String(note.disco_status || NOTE_DISCO_STATUS_OPEN) !== NOTE_DISCO_STATUS_DONE;
+  });
+}
+
+function groupDiscoEntriesByCell() {
+  const grouped = new Map();
+  for (const entry of state.discoEntries) {
+    const layerId = String(entry.layer_id || '');
+    const dateKey = String(entry.plan_date || '');
+    if (!layerId || !dateKey) continue;
+    const key = `${layerId}:${dateKey}`;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(entry);
+  }
+  return grouped;
+}
+
+function renderDiscoTaskCard(note) {
+  const flow = getNoteFlow(note);
+  const latestEntry = flow[flow.length - 1] || null;
+  const text = String(latestEntry?.message || note.note_text || 'Aufgabe');
+  const status = String(note.disco_status || NOTE_DISCO_STATUS_OPEN);
+  const scheduledFor = note.disco_scheduled_for ? formatFlowTimestamp(note.disco_scheduled_for) : 'Offen';
+  return `<article class="disco-task-card" draggable="true" data-note-id="${escapeAttribute(note.id)}">
+    <strong>${escapeHtml(buildTitleFromText(text))}</strong>
+    <small>${escapeHtml(resolveProfileName(note.recipient_uid) || 'Niemand')}</small>
+    <small>SOS: ${escapeHtml(status)} · ${escapeHtml(scheduledFor)}</small>
+    <button class="button button-secondary compact disco-done-button" type="button" data-action="mark-task-done" data-note-id="${escapeAttribute(note.id)}">Erledigt</button>
+  </article>`;
+}
+
+function bindDiscoDragAndDrop() {
+  elements.discoTableBody.querySelectorAll('.disco-task-card').forEach((node) => {
+    node.addEventListener('dragstart', handleDiscoDragStart);
+    node.addEventListener('dragend', () => {
+      state.discoDragNoteId = null;
+    });
+  });
+  elements.discoTableBody.querySelectorAll('[data-drop-zone]').forEach((zone) => {
+    zone.addEventListener('dragover', (event) => event.preventDefault());
+    zone.addEventListener('drop', handleDiscoDrop);
+  });
+}
+
+function handleDiscoDragStart(event) {
+  const noteId = String(event.currentTarget?.dataset?.noteId || '').trim();
+  if (!noteId) return;
+  state.discoDragNoteId = noteId;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', noteId);
+  }
+}
+
+async function handleDiscoDrop(event) {
+  event.preventDefault();
+  const noteId = String(state.discoDragNoteId || event.dataTransfer?.getData('text/plain') || '').trim();
+  if (!noteId) return;
+  const zone = event.currentTarget;
+  const dropType = String(zone?.dataset?.dropZone || '');
+  if (dropType === 'layer') {
+    await assignTaskToLayer(noteId, String(zone.dataset.layerId || ''), String(zone.dataset.date || ''));
+  } else {
+    await moveTaskToBacklog(noteId);
+  }
+}
+
+async function handleDiscoTableClick(event) {
+  const button = event.target.closest('button[data-action="mark-task-done"]');
+  if (!button) return;
+  const noteId = String(button.dataset.noteId || '').trim();
+  if (!noteId) return;
+  await markTaskDone(noteId);
+}
+
+async function markTaskDone(noteId) {
+  try {
+    const { error: deleteError } = await state.supabase.from(DISCO_ENTRIES_TABLE).delete().eq('project_id', state.projectId).eq('note_id', noteId);
+    if (deleteError) throw deleteError;
+    const now = new Date().toISOString();
+    const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
+      recipient_uid: null,
+      disco_status: NOTE_DISCO_STATUS_DONE,
+      disco_done_at: now,
+    }).eq('id', noteId);
+    if (noteError) throw noteError;
+    await loadData();
+  } catch (error) {
+    showAlert(`Aufgabe konnte nicht abgeschlossen werden: ${error.message}`, true);
+  }
+}
+
+async function assignTaskToLayer(noteId, layerId, dateKey) {
+  if (!layerId || !dateKey) return;
+  const layer = state.discoLayers.find((item) => String(item.id) === String(layerId));
+  if (!layer) return;
+  const recipientUid = String(layer.profile_uid || '').trim() || null;
+  const previousEntries = state.discoEntries.filter((entry) => String(entry.note_id) === String(noteId));
+  const deleteIds = previousEntries.map((entry) => entry.id).filter(Boolean);
+  try {
+    if (deleteIds.length) {
+      const { error: deleteError } = await state.supabase.from(DISCO_ENTRIES_TABLE).delete().in('id', deleteIds);
+      if (deleteError) throw deleteError;
+    }
+    const { error: insertError } = await state.supabase.from(DISCO_ENTRIES_TABLE).insert({
+      project_id: state.projectId,
+      note_id: noteId,
+      layer_id: layerId,
+      plan_date: dateKey,
+      sort_order: Date.now(),
+    });
+    if (insertError) throw insertError;
+    const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
+      recipient_uid: recipientUid,
+      disco_status: NOTE_DISCO_STATUS_PLANNED,
+      disco_scheduled_for: dateKey,
+      disco_done_at: null,
+    }).eq('id', noteId);
+    if (noteError) throw noteError;
+    await loadData();
+  } catch (error) {
+    showAlert(`Aufgabe konnte nicht disponiert werden: ${error.message}`, true);
+  }
+}
+
+async function moveTaskToBacklog(noteId) {
+  try {
+    const { error: deleteError } = await state.supabase.from(DISCO_ENTRIES_TABLE).delete().eq('note_id', noteId).eq('project_id', state.projectId);
+    if (deleteError) throw deleteError;
+    const { error: noteError } = await state.supabase.from(NOTES_TABLE).update({
+      recipient_uid: null,
+      disco_status: NOTE_DISCO_STATUS_OPEN,
+      disco_scheduled_for: null,
+      disco_done_at: null,
+    }).eq('id', noteId);
+    if (noteError) throw noteError;
+    await loadData();
+  } catch (error) {
+    showAlert(`Aufgabe konnte nicht in den Pool verschoben werden: ${error.message}`, true);
+  }
 }
 
 function sanitizeFileName(name) {
