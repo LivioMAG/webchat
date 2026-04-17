@@ -56,7 +56,13 @@
         <section id="notesDashboardArea" class="dashboard-area" aria-label="Projektfläche">
           <div class="project-meta-row">
             <p id="projectMeta" class="project-meta">&nbsp;</p>
-            <button id="toggleHiddenNotesButton" class="button button-secondary compact" type="button">Unsichtbare Notizen</button>
+            <div class="dashboard-actions">
+              <button id="toggleHiddenNotesButton" class="button button-secondary compact icon-only" type="button" aria-label="Unsichtbare Notizen anzeigen" title="Unsichtbare Notizen anzeigen">
+                👁️
+              </button>
+              <button id="createNoteButton" class="button button-secondary compact" type="button">＋ Notiz</button>
+              <button id="createTitleNoteButton" class="button button-secondary compact" type="button">＋ Titel</button>
+            </div>
           </div>
           <div id="statusAlert" class="status-alert hidden" role="status" aria-live="polite"></div>
           <div id="dashboardCanvas" class="dashboard-canvas" aria-label="Projekt-Fläche"></div>

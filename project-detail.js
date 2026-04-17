@@ -12,6 +12,7 @@ const NOTE_PREVIEW_LENGTH = 60;
 const NOTE_FLOW_FALLBACK_NAME = 'Unbekannt';
 const NOTE_CATEGORY_INFO = 'information';
 const NOTE_CATEGORY_TASK = 'aufgabe';
+const NOTE_CATEGORY_TITLE = 'titel';
 
 const state = {
   supabase: null,
@@ -53,6 +54,8 @@ function cacheElements() {
   elements.discoArea = document.getElementById('discoArea');
   elements.backButton = document.getElementById('backIconButton');
   elements.toggleHiddenNotesButton = document.getElementById('toggleHiddenNotesButton');
+  elements.createNoteButton = document.getElementById('createNoteButton');
+  elements.createTitleNoteButton = document.getElementById('createTitleNoteButton');
   elements.canvas = document.getElementById('dashboardCanvas');
   elements.alert = document.getElementById('statusAlert');
   elements.modal = document.getElementById('noteModal');
@@ -88,6 +91,8 @@ function bindEvents() {
     window.location.href = './index.html';
   });
   elements.toggleHiddenNotesButton?.addEventListener('click', toggleHiddenNotesView);
+  elements.createNoteButton?.addEventListener('click', handleCreateNoteAtCenter);
+  elements.createTitleNoteButton?.addEventListener('click', handleCreateTitleNote);
   elements.dashboardNavButton?.addEventListener('click', () => switchView('dashboard'));
   elements.discoNavButton?.addEventListener('click', () => switchView('disco'));
 
@@ -117,6 +122,7 @@ function bindEvents() {
     }
   });
   elements.discoTableBody?.addEventListener('click', handleDiscoTableClick);
+  updateHiddenToggleButton();
 }
 
 function hydrateMeta() {
@@ -165,7 +171,7 @@ async function loadData() {
     state.discoEntries = entriesResult.data || [];
     state.discoLayerProfileIds = state.discoLayers.map((layer) => String(layer.profile_uid || '')).filter(Boolean);
 
-    renderCanvas();
+    requestAnimationFrame(() => renderCanvas());
     renderRecipientOptions();
     renderDiscoLayerOptions();
     renderDiscoPlanner();
@@ -191,9 +197,10 @@ function renderCanvas() {
     node.type = 'button';
     node.className = 'note-icon';
     node.dataset.noteId = String(note.id || '');
+    node.dataset.category = normalizeCategory(note.note_category);
 
-    const x = snapToGrid(Number(note.note_pos_x ?? GRID_SIZE));
-    const y = snapToGrid(Number(note.note_pos_y ?? GRID_SIZE));
+    const x = snapToGrid(toFiniteNumber(note.note_pos_x, GRID_SIZE));
+    const y = snapToGrid(toFiniteNumber(note.note_pos_y, GRID_SIZE));
     const clamped = clampPosition({ x, y });
     node.style.left = `${clamped.x}px`;
     node.style.top = `${clamped.y}px`;
@@ -210,6 +217,10 @@ function renderCanvas() {
     `;
     node.addEventListener('dblclick', (event) => {
       event.stopPropagation();
+      if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE) {
+        openRenamePromptForTitleNote(note.id);
+        return;
+      }
       openModalForNote(note.id);
     });
     elements.canvas.appendChild(node);
@@ -245,6 +256,55 @@ function handleCanvasPointerDown(event) {
   };
   noteNode.classList.add('dragging');
   noteNode.setPointerCapture(event.pointerId);
+}
+
+function getCanvasCenterPosition() {
+  if (!elements.canvas) return { x: GRID_SIZE * 2, y: GRID_SIZE * 2 };
+  const centerX = snapToGrid((elements.canvas.clientWidth - NOTE_CARD_WIDTH) / 2);
+  const centerY = snapToGrid((elements.canvas.clientHeight - NOTE_CARD_HEIGHT) / 2);
+  return clampPosition({ x: centerX, y: centerY });
+}
+
+function handleCreateNoteAtCenter() {
+  state.pendingPosition = getCanvasCenterPosition();
+  openModalForCreate();
+}
+
+async function handleCreateTitleNote() {
+  if (!state.projectId) return;
+  const senderUid = String(state.user?.id || '').trim();
+  if (!senderUid) {
+    showAlert('Aktiver Benutzer fehlt.', true);
+    return;
+  }
+  const text = window.prompt('Titel eingeben:', 'Neuer Titel');
+  if (text === null) return;
+  const titleText = String(text || '').trim();
+  if (!titleText) return;
+
+  const center = getCanvasCenterPosition();
+  try {
+    const { error } = await state.supabase.from(NOTES_TABLE).insert({
+      target_uid: state.projectId,
+      note_type: PROJECT_NOTE_TYPE,
+      note_text: titleText,
+      sender_uid: senderUid,
+      recipient_uid: null,
+      note_category: NOTE_CATEGORY_TITLE,
+      visible_from_date: null,
+      requires_response: false,
+      note_ranking: 1,
+      attachments: [],
+      note_flow: [],
+      note_pos_x: center.x,
+      note_pos_y: center.y,
+    });
+    if (error) throw error;
+    showAlert('Titel-Notiz erstellt.', false);
+    await loadData();
+  } catch (error) {
+    showAlert(`Titel konnte nicht erstellt werden: ${error.message}`, true);
+  }
 }
 
 function handlePointerMove(event) {
@@ -318,6 +378,10 @@ function applyDefaultRecipientByCategory(categoryValue) {
 function openModalForNote(noteId) {
   const note = state.notes.find((item) => String(item.id) === String(noteId));
   if (!note) return;
+  if (normalizeCategory(note.note_category) === NOTE_CATEGORY_TITLE) {
+    openRenamePromptForTitleNote(note.id);
+    return;
+  }
   state.activeNote = note;
 
   elements.noteTextInput.value = '';
@@ -336,6 +400,23 @@ function openModalForNote(noteId) {
   renderFlowList(getNoteFlow(note));
 
   elements.modal?.classList.remove('hidden');
+}
+
+async function openRenamePromptForTitleNote(noteId) {
+  const note = state.notes.find((item) => String(item.id) === String(noteId));
+  if (!note) return;
+  const currentText = String(note.note_text || '').trim() || 'Titel';
+  const nextText = window.prompt('Titel umbenennen:', currentText);
+  if (nextText === null) return;
+  const trimmed = String(nextText || '').trim();
+  if (!trimmed || trimmed === currentText) return;
+  try {
+    const { error } = await state.supabase.from(NOTES_TABLE).update({ note_text: trimmed }).eq('id', noteId);
+    if (error) throw error;
+    await loadData();
+  } catch (error) {
+    showAlert(`Titel konnte nicht umbenannt werden: ${error.message}`, true);
+  }
 }
 
 function closeModal() {
@@ -460,20 +541,28 @@ function buildTitleFromText(text) {
 function getCategoryIcon(category) {
   const normalized = normalizeCategory(category);
   if (normalized === NOTE_CATEGORY_TASK) return '🔨';
+  if (normalized === NOTE_CATEGORY_TITLE) return 'T';
   return 'i';
 }
 
 function normalizeCategory(category) {
   const normalized = String(category || '').trim().toLowerCase();
+  if (normalized === NOTE_CATEGORY_TITLE) return NOTE_CATEGORY_TITLE;
   return normalized === NOTE_CATEGORY_TASK ? NOTE_CATEGORY_TASK : NOTE_CATEGORY_INFO;
 }
 
 function toggleHiddenNotesView() {
   state.showHiddenNotes = !state.showHiddenNotes;
-  if (elements.toggleHiddenNotesButton) {
-    elements.toggleHiddenNotesButton.textContent = state.showHiddenNotes ? 'Unsichtbare Notizen ausblenden' : 'Unsichtbare Notizen';
-  }
+  updateHiddenToggleButton();
   renderCanvas();
+}
+
+function updateHiddenToggleButton() {
+  if (!elements.toggleHiddenNotesButton) return;
+  const showingHiddenOnly = state.showHiddenNotes;
+  elements.toggleHiddenNotesButton.textContent = showingHiddenOnly ? '🙈' : '👁️';
+  elements.toggleHiddenNotesButton.title = showingHiddenOnly ? 'Nur unsichtbare Notizen werden angezeigt' : 'Sichtbare Notizen werden angezeigt';
+  elements.toggleHiddenNotesButton.setAttribute('aria-label', elements.toggleHiddenNotesButton.title);
 }
 
 function getVisibleNotes() {
@@ -486,11 +575,10 @@ function getVisibleNotes() {
     const isRecipient = recipientUid === me;
     const isSender = senderUid === me;
     if (!isRecipient && !isSender) return false;
-    if (state.showHiddenNotes) return true;
-
     const visibilityDate = toDateOnly(note.visible_from_date);
-    if (visibilityDate) return today >= visibilityDate;
-    return true;
+    const isHidden = Boolean(visibilityDate && today < visibilityDate);
+    if (state.showHiddenNotes) return isHidden;
+    return !isHidden;
   });
 }
 
@@ -613,6 +701,9 @@ function snapToGrid(value) {
 function clampPosition(position) {
   const canvas = elements.canvas;
   if (!canvas) return { x: position.x, y: position.y };
+  if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) {
+    return { x: Math.max(0, position.x), y: Math.max(0, position.y) };
+  }
   const maxX = Math.max(0, canvas.clientWidth - NOTE_CARD_WIDTH);
   const maxY = Math.max(0, canvas.clientHeight - NOTE_CARD_HEIGHT);
   return {
@@ -631,7 +722,11 @@ function switchView(view) {
   elements.discoNavButton?.classList.toggle('active', state.activeView === 'disco');
   elements.notesDashboardArea?.classList.toggle('hidden', state.activeView !== 'dashboard');
   elements.discoArea?.classList.toggle('hidden', state.activeView !== 'disco');
-  if (state.activeView === 'disco') renderDiscoPlanner();
+  if (state.activeView === 'disco') {
+    renderDiscoPlanner();
+    return;
+  }
+  renderCanvas();
 }
 
 function getWeekStart(dateValue = new Date()) {
@@ -823,6 +918,11 @@ function renderDiscoTaskCard(note) {
 function bindDiscoDragAndDrop() {
   const dragContainers = [elements.discoOpenTasksList, elements.discoTableBody].filter(Boolean);
   dragContainers.forEach((container) => container.querySelectorAll('.disco-task-card').forEach((node) => {
+    node.addEventListener('click', () => {
+      const noteId = String(node.dataset.noteId || '').trim();
+      if (!noteId) return;
+      openModalForNote(noteId);
+    });
     node.addEventListener('dragstart', handleDiscoDragStart);
     node.addEventListener('dragend', () => {
       state.discoDragNoteId = null;
@@ -971,6 +1071,11 @@ async function moveTaskToBacklog(noteId) {
 
 function sanitizeFileName(name) {
   return String(name || 'attachment.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function toFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function escapeHtml(value) {
