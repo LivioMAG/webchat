@@ -686,6 +686,36 @@
         </div>
       </div>
 
+      <div id="dispoGapSearchModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dispoGapSearchTitle">
+        <div class="modal-backdrop" data-close-dispo-gap-search-modal="true"></div>
+        <div class="modal-card panel modal-card-compact">
+          <div class="modal-header">
+            <h3 id="dispoGapSearchTitle">Freie Lücken suchen</h3>
+            <button id="closeDispoGapSearchModalButton" class="button button-secondary button-small" type="button">Schliessen</button>
+          </div>
+          <form id="dispoGapSearchForm">
+            <label>
+              <span>Kalenderwoche von</span>
+              <input id="dispoGapWeekFromInput" type="week" required />
+            </label>
+            <label>
+              <span>Kalenderwoche bis (optional)</span>
+              <input id="dispoGapWeekToInput" type="week" />
+            </label>
+            <label>
+              <span>Mindestlücke (Stunden)</span>
+              <input id="dispoGapMinimumHoursInput" type="number" min="0.5" step="0.5" value="4" required />
+            </label>
+            <p id="dispoGapServiceProfiles" class="subtle-text"></p>
+            <p class="subtle-text">Es werden nur aktive Mitarbeitende mit Rolle <strong>Service</strong> gesucht (max. 3 Kalenderwochen).</p>
+            <div class="modal-actions">
+              <button id="cancelDispoGapSearchButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button class="button button-primary" type="submit">Lücken suchen</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div id="projectModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
         <div class="modal-backdrop" data-close-project-modal="true"></div>
         <div class="modal-card panel">
