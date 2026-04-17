@@ -652,7 +652,7 @@ const state = {
   includeConfirmationHistory: false,
   isConfirmationsModalOpen: false,
   reportsPage: 1,
-  reportsPerPage: 10,
+  reportsPerPage: 20,
   editingReportId: null,
   isSavingReport: false,
   isDemoMode: false,
