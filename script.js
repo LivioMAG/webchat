@@ -2632,7 +2632,7 @@ async function handleSaveUserSettings(profileId) {
     }
     const localProfile = state.profiles.find((item) => String(item.id) === String(profileId));
     if (localProfile) Object.assign(localProfile, updates);
-    await synchronizeApprenticeSchoolReportsForYear(profileId, new Date().getUTCFullYear());
+    await synchronizeApprenticeSchoolReportsForYears(profileId, getSchoolReportSyncYears());
     await loadData();
   } catch (error) {
     console.error(error);
@@ -3059,7 +3059,7 @@ async function handleSchoolVacationFormSubmit(event) {
       const { error } = await state.supabase.from('school_vacations').insert({ start_date: startDate, end_date: endDate });
       if (error) throw error;
     }
-    await synchronizeAllApprenticeSchoolReportsForYear(new Date().getUTCFullYear());
+    await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
     if (elements.schoolVacationForm) {
       elements.schoolVacationForm.reset();
     }
@@ -3087,7 +3087,7 @@ async function handleSettingsSchoolVacationsTableClick(event) {
       const { error } = await state.supabase.from('school_vacations').delete().eq('id', vacationId);
       if (error) throw error;
     }
-    await synchronizeAllApprenticeSchoolReportsForYear(new Date().getUTCFullYear());
+    await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
     await loadData();
   } catch (error) {
     console.error(error);
@@ -3650,6 +3650,38 @@ async function synchronizeAllApprenticeSchoolReportsForYear(year) {
   for (const apprentice of apprentices) {
     // eslint-disable-next-line no-await-in-loop
     await synchronizeApprenticeSchoolReportsForYear(apprentice.id, year);
+  }
+}
+
+function getSchoolReportSyncYears() {
+  const years = new Set();
+  const currentYear = new Date().getUTCFullYear();
+  years.add(currentYear);
+  years.add(currentYear + 1);
+  const selectedWeekYear = Number(getYearAndWeekFromWeekValue(state.selectedWeek).year);
+  if (Number.isInteger(selectedWeekYear)) {
+    years.add(selectedWeekYear);
+  }
+  state.schoolVacations.forEach((range) => {
+    const startYear = Number(String(range?.start_date || '').slice(0, 4));
+    const endYear = Number(String(range?.end_date || '').slice(0, 4));
+    if (Number.isInteger(startYear)) years.add(startYear);
+    if (Number.isInteger(endYear)) years.add(endYear);
+  });
+  return [...years].sort((left, right) => left - right);
+}
+
+async function synchronizeAllApprenticeSchoolReportsForYears(years = []) {
+  for (const year of years) {
+    // eslint-disable-next-line no-await-in-loop
+    await synchronizeAllApprenticeSchoolReportsForYear(year);
+  }
+}
+
+async function synchronizeApprenticeSchoolReportsForYears(profileId, years = []) {
+  for (const year of years) {
+    // eslint-disable-next-line no-await-in-loop
+    await synchronizeApprenticeSchoolReportsForYear(profileId, year);
   }
 }
 
@@ -4374,8 +4406,12 @@ function renderDispoCell(profileId, date) {
   const isLocked = isWeeklyReportLocked(profileId, date);
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const assignmentItems = getDispoItemsForEntry(entry);
-  const items = assignmentItems.length ? assignmentItems : (isLocked ? getWeeklyReportItems(profileId, date) : []);
-  const addButton = (!hasFullDayBlock && !isLocked)
+  const weeklyReportItems = getWeeklyReportItems(profileId, date);
+  const weeklyAbsenceItems = weeklyReportItems.filter((item) => isAbsenceDispoItem(item?.label));
+  const fallbackItems = weeklyAbsenceItems.length ? weeklyAbsenceItems : (isLocked ? weeklyReportItems : []);
+  const items = assignmentItems.length ? assignmentItems : fallbackItems;
+  const hasAutoAbsenceFromWeeklyReport = !assignmentItems.length && weeklyAbsenceItems.length > 0;
+  const addButton = (!hasFullDayBlock && !isLocked && !hasAutoAbsenceFromWeeklyReport)
     ? `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`
     : '';
   const blockTagBadges = blockItems.length
