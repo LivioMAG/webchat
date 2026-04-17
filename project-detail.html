@@ -15,32 +15,52 @@
   </head>
   <body>
     <div class="detail-shell">
-      <aside class="detail-sidebar">
-        <div class="nav-placeholder-title">Navigation</div>
-        <div class="nav-placeholder-list">
-          <span class="nav-placeholder-item"></span>
-          <span class="nav-placeholder-item"></span>
-          <span class="nav-placeholder-item"></span>
+      <aside class="detail-sidebar" aria-label="Projektnavigation">
+        <div class="nav-icon-list">
+          <button class="nav-icon-button active" type="button" title="Dashboard" aria-label="Dashboard">
+            <span class="icon" aria-hidden="true">🏠</span>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button class="nav-icon-button" type="button" title="Gantt" aria-label="Gantt-Diagramm">
+            <span class="icon" aria-hidden="true">📊</span>
+            <span class="nav-label">Gantt</span>
+          </button>
+          <button class="nav-icon-button" type="button" title="Testablauf" aria-label="Testablauf">
+            <span class="icon" aria-hidden="true">🧪</span>
+            <span class="nav-label">Tests</span>
+          </button>
+          <button class="nav-icon-button" type="button" title="Dokumente" aria-label="Dokumente">
+            <span class="icon" aria-hidden="true">📁</span>
+            <span class="nav-label">Docs</span>
+          </button>
+          <button class="nav-icon-button" type="button" title="Journal" aria-label="Journal">
+            <span class="icon" aria-hidden="true">📝</span>
+            <span class="nav-label">Journal</span>
+          </button>
+        </div>
+
+        <div class="nav-icon-footer">
+          <button class="nav-icon-button" type="button" title="Team" aria-label="Team">
+            <span class="icon" aria-hidden="true">👥</span>
+            <span class="nav-label">Team</span>
+          </button>
+          <button class="nav-icon-button" type="button" title="Einstellungen" aria-label="Einstellungen">
+            <span class="icon" aria-hidden="true">⚙️</span>
+            <span class="nav-label">Setup</span>
+          </button>
         </div>
       </aside>
 
       <main class="detail-content">
-        <header class="detail-header">
-          <div>
-            <span class="eyebrow">Übersicht</span>
-            <h1>Projekt</h1>
+        <section class="dashboard-area" aria-label="Dashboard">
+          <header class="dashboard-info">
+            <span class="eyebrow">Dashboard</span>
             <p id="projectMeta" class="project-meta">–</p>
-          </div>
-          <button id="backButton" class="back-button" type="button">Zurück</button>
-        </header>
-
-        <section class="detail-panel">
-          <h2>Neue Unterseite</h2>
-          <p>
-            Diese Projekt-Unterseite ist bewusst separat angelegt und kann später mit weiteren
-            Inhalten erweitert werden.
-          </p>
+          </header>
+          <div class="dashboard-canvas" aria-label="Dashboard-Fläche"></div>
         </section>
+
+        <button id="backButton" class="back-button" type="button">Zurück</button>
       </main>
     </div>
   </body>
