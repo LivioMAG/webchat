@@ -72,6 +72,7 @@ function cacheElements() {
   elements.discoPreviousWeekButton = document.getElementById('discoPreviousWeekButton');
   elements.discoNextWeekButton = document.getElementById('discoNextWeekButton');
   elements.discoWeekLabel = document.getElementById('discoWeekLabel');
+  elements.discoOpenTasksList = document.getElementById('discoOpenTasksList');
   elements.discoTableHead = document.getElementById('discoTableHead');
   elements.discoTableBody = document.getElementById('discoTableBody');
   elements.openDiscoLayerPickerButton = document.getElementById('openDiscoLayerPickerButton');
@@ -688,6 +689,10 @@ function getIsoWeekNumber(dateValue) {
 }
 
 function formatDateKey(dateValue) {
+  if (typeof dateValue === 'string') {
+    const trimmed = dateValue.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  }
   const date = startOfDay(dateValue);
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -778,17 +783,7 @@ function renderDiscoPlanner() {
   const entriesByKey = groupDiscoEntriesByCell();
   const weekStartKey = formatDateKey(weekStart);
   const layersForWeek = state.discoLayers.filter((layer) => formatDateKey(layer.week_start_date || weekStart) === weekStartKey);
-
-  const backlogRow = `
-    <tr class="disco-backlog-row">
-      <th>Offene Aufgaben (${backlogTasks.length})</th>
-      <td class="disco-backlog-cell" colspan="${weekDates.length}" data-drop-zone="backlog">
-        <div class="disco-card-list">
-          ${backlogTasks.map((note) => renderDiscoTaskCard(note)).join('')}
-        </div>
-      </td>
-    </tr>
-  `;
+  renderDiscoBacklogTasks(backlogTasks);
 
   const layerRows = layersForWeek.map((layer) => {
     const profileId = String(layer.profile_uid || '');
@@ -801,7 +796,7 @@ function renderDiscoPlanner() {
         <div class="disco-card-list">
           ${entries.map((entry) => {
             const note = state.notes.find((item) => String(item.id) === String(entry.note_id));
-            return note ? renderDiscoTaskCard(note) : '';
+            return note ? renderDiscoTaskCard(note, { showDoneButton: true }) : '';
           }).join('')}
         </div>
       </td>`;
@@ -809,8 +804,17 @@ function renderDiscoPlanner() {
     return `<tr><th>${escapeHtml(name)}</th>${cells}</tr>`;
   }).join('');
 
-  elements.discoTableBody.innerHTML = `${backlogRow}${layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`}`;
+  elements.discoTableBody.innerHTML = layerRows || `<tr><td colspan="8" class="disco-empty">Noch kein Mitarbeiter-Layer hinzugefügt.</td></tr>`;
   bindDiscoDragAndDrop();
+}
+
+function renderDiscoBacklogTasks(tasks) {
+  if (!elements.discoOpenTasksList) return;
+  if (!tasks.length) {
+    elements.discoOpenTasksList.innerHTML = '<p class="subtle-text">Keine offenen Aufgaben.</p>';
+    return;
+  }
+  elements.discoOpenTasksList.innerHTML = tasks.map((note) => renderDiscoTaskCard(note, { showDoneButton: false })).join('');
 }
 
 function getOpenTaskNotes() {
@@ -833,28 +837,36 @@ function groupDiscoEntriesByCell() {
   return grouped;
 }
 
-function renderDiscoTaskCard(note) {
+function renderDiscoTaskCard(note, options = {}) {
+  const { showDoneButton = false } = options;
   const flow = getNoteFlow(note);
   const latestEntry = flow[flow.length - 1] || null;
   const text = String(latestEntry?.message || note.note_text || 'Aufgabe');
-  const status = String(note.disco_status || NOTE_DISCO_STATUS_OPEN);
-  const scheduledFor = note.disco_scheduled_for ? formatFlowTimestamp(note.disco_scheduled_for) : 'Offen';
   return `<article class="disco-task-card" draggable="true" data-note-id="${escapeAttribute(note.id)}">
     <strong>${escapeHtml(buildTitleFromText(text))}</strong>
-    <small>${escapeHtml(resolveProfileName(note.recipient_uid) || 'Niemand')}</small>
-    <small>SOS: ${escapeHtml(status)} · ${escapeHtml(scheduledFor)}</small>
-    <button class="button button-secondary compact disco-done-button" type="button" data-action="mark-task-done" data-note-id="${escapeAttribute(note.id)}">Erledigt</button>
+    ${showDoneButton
+    ? `<button class="button button-secondary compact disco-done-button" type="button" data-action="mark-task-done" data-note-id="${escapeAttribute(note.id)}">Erledigt</button>`
+    : ''}
   </article>`;
 }
 
 function bindDiscoDragAndDrop() {
-  elements.discoTableBody.querySelectorAll('.disco-task-card').forEach((node) => {
+  const dragContainers = [elements.discoOpenTasksList, elements.discoTableBody].filter(Boolean);
+  dragContainers.forEach((container) => container.querySelectorAll('.disco-task-card').forEach((node) => {
     node.addEventListener('dragstart', handleDiscoDragStart);
     node.addEventListener('dragend', () => {
       state.discoDragNoteId = null;
     });
-  });
-  elements.discoTableBody.querySelectorAll('[data-drop-zone]').forEach((zone) => {
+  }));
+  const dropZones = [];
+  if (elements.discoOpenTasksList?.dataset?.dropZone) {
+    dropZones.push(elements.discoOpenTasksList);
+  }
+  dropZones.push(
+    ...(elements.discoOpenTasksList?.querySelectorAll('[data-drop-zone]') || []),
+    ...(elements.discoTableBody?.querySelectorAll('[data-drop-zone]') || []),
+  );
+  dropZones.forEach((zone) => {
     zone.addEventListener('dragover', (event) => event.preventDefault());
     zone.addEventListener('drop', handleDiscoDrop);
   });

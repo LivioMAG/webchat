@@ -200,26 +200,57 @@ body {
 }
 
 .disco-card-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  align-items: flex-start;
+}
+
+.disco-open-tasks-panel {
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.02);
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.disco-open-tasks-panel h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.disco-open-tasks-list {
+  min-height: 60px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
 }
 
 .disco-task-card {
   border: 1px solid rgba(17, 17, 17, 0.12);
-  border-radius: 10px;
-  background: #fff;
-  padding: 8px;
+  border-radius: 12px;
+  background: #fffef2;
+  padding: 10px;
+  width: 148px;
+  min-height: 136px;
   display: grid;
   gap: 4px;
   cursor: grab;
 }
 
-.disco-task-card small {
-  color: rgba(17, 17, 17, 0.65);
-  font-size: 11px;
+.disco-task-card strong {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .disco-done-button {
+  margin-top: auto;
   justify-self: start;
 }
 
