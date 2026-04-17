@@ -96,10 +96,205 @@ body {
   font-weight: 600;
 }
 
+.status-alert {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.status-alert.success {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(22, 163, 74, 0.35);
+}
+
+.status-alert.error {
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+
 .dashboard-canvas {
+  position: relative;
   flex: 1;
   border-radius: 10px;
+  background-color: #fff;
+  background-image:
+    linear-gradient(to right, rgba(17, 17, 17, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 17, 17, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  overflow: hidden;
+}
+
+.dashboard-canvas::before {
+  content: 'Doppelklick auf die Fläche, um eine Projekt-Notiz zu erstellen.';
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 12px;
+  color: rgba(17, 17, 17, 0.45);
+  pointer-events: none;
+}
+
+.note-icon {
+  position: absolute;
+  width: 98px;
+  text-align: center;
+  user-select: none;
+  cursor: grab;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.note-icon:hover {
+  background: rgba(17, 17, 17, 0.06);
+}
+
+.note-icon.dragging {
+  cursor: grabbing;
+  opacity: 0.88;
+}
+
+.note-icon-symbol {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.note-icon-title {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-icon-category {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(17, 17, 17, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+
+.modal.hidden,
+.hidden {
+  display: none;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 16, 28, 0.44);
+}
+
+.modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(740px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  border-radius: 12px;
   background: #fff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  padding: 16px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.subtle-text {
+  margin: 4px 0 0;
+  color: rgba(17, 17, 17, 0.65);
+  font-size: 13px;
+}
+
+.note-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.note-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.note-form textarea,
+.note-form select,
+.note-form input[type='file'] {
+  width: 100%;
+  border: 1px solid rgba(17, 17, 17, 0.16);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.note-form textarea {
+  resize: vertical;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.existing-attachments {
+  font-size: 13px;
+}
+
+.existing-attachments a {
+  color: #1d4ed8;
+}
+
+.note-form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.button {
+  border: 1px solid rgba(17, 17, 17, 0.2);
+  border-radius: 10px;
+  background: #fff;
+  color: #111;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.button-primary {
+  background: #111;
+  color: #fff;
+}
+
+.button-secondary {
+  background: #fff;
+}
+
+.button-danger {
+  border-color: rgba(185, 28, 28, 0.4);
+  color: #991b1b;
 }
 
 @media (max-width: 860px) {
@@ -127,5 +322,9 @@ body {
 
   .detail-content {
     min-height: calc(100vh - 90px);
+  }
+
+  .note-form {
+    grid-template-columns: 1fr;
   }
 }

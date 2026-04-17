@@ -1,23 +1,393 @@
-(function initProjectDetailPage() {
+const CONFIG_PATH = './supabase-config.json';
+const NOTES_TABLE = 'notes';
+const PROJECT_NOTE_TYPE = 'pro';
+const NOTE_STORAGE_BUCKET = 'crm-note-attachments';
+const GRID_SIZE = 24;
+const DEFAULT_NOTE_CATEGORY = 'information';
+
+const state = {
+  supabase: null,
+  user: null,
+  projectId: '',
+  profiles: [],
+  notes: [],
+  activeNote: null,
+  pendingPosition: { x: GRID_SIZE, y: GRID_SIZE },
+  drag: null,
+};
+
+const elements = {};
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  cacheElements();
+  bindEvents();
+  hydrateMeta();
+  await initializeSupabase();
+  await loadData();
+}
+
+function cacheElements() {
+  elements.projectMeta = document.getElementById('projectMeta');
+  elements.backButton = document.getElementById('backIconButton');
+  elements.canvas = document.getElementById('dashboardCanvas');
+  elements.alert = document.getElementById('statusAlert');
+  elements.modal = document.getElementById('noteModal');
+  elements.closeNoteModalButton = document.getElementById('closeNoteModalButton');
+  elements.noteForm = document.getElementById('noteForm');
+  elements.recipientUidInput = document.getElementById('recipientUidInput');
+  elements.noteCategoryInput = document.getElementById('noteCategoryInput');
+  elements.noteTextInput = document.getElementById('noteTextInput');
+  elements.noteAttachmentInput = document.getElementById('noteAttachmentInput');
+  elements.deleteNoteButton = document.getElementById('deleteNoteButton');
+  elements.existingAttachments = document.getElementById('existingAttachments');
+}
+
+function bindEvents() {
+  elements.backButton?.addEventListener('click', () => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = './index.html';
+  });
+
+  elements.canvas?.addEventListener('dblclick', handleCanvasDoubleClick);
+  elements.canvas?.addEventListener('pointerdown', handleCanvasPointerDown);
+  window.addEventListener('pointermove', handlePointerMove);
+  window.addEventListener('pointerup', handlePointerUp);
+
+  elements.noteForm?.addEventListener('submit', handleSaveNote);
+  elements.closeNoteModalButton?.addEventListener('click', closeModal);
+  elements.modal?.addEventListener('click', (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeNoteModal === 'true') {
+      closeModal();
+    }
+  });
+  elements.deleteNoteButton?.addEventListener('click', handleDeleteNote);
+}
+
+function hydrateMeta() {
   const params = new URLSearchParams(window.location.search);
   const commission = (params.get('commission') || '').trim();
   const name = (params.get('name') || '').trim();
+  state.projectId = (params.get('projectId') || '').trim();
   const meta = [commission, name].filter(Boolean).join(' · ');
 
-  const projectMetaElement = document.getElementById('projectMeta');
-  if (projectMetaElement) {
-    projectMetaElement.textContent = meta;
-    projectMetaElement.hidden = meta.length === 0;
+  if (elements.projectMeta) {
+    elements.projectMeta.textContent = meta;
+    elements.projectMeta.hidden = meta.length === 0;
   }
 
-  const backButton = document.getElementById('backIconButton');
-  if (backButton) {
-    backButton.addEventListener('click', () => {
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
-      window.location.href = './index.html';
-    });
+  if (!state.projectId) {
+    showAlert('Projekt-ID fehlt. Notizen können nicht geladen werden.', true);
   }
-})();
+}
+
+async function initializeSupabase() {
+  const config = await fetch(CONFIG_PATH, { cache: 'no-store' }).then((res) => res.json());
+  state.supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+  const { data: sessionData } = await state.supabase.auth.getSession();
+  state.user = sessionData?.session?.user || null;
+}
+
+async function loadData() {
+  if (!state.projectId) return;
+
+  try {
+    const [notesResult, profilesResult] = await Promise.all([
+      state.supabase.from(NOTES_TABLE).select('*').eq('note_type', PROJECT_NOTE_TYPE).eq('target_uid', state.projectId).order('created_at', { ascending: false }),
+      state.supabase.from('app_profiles').select('id,full_name,email').order('full_name', { ascending: true }),
+    ]);
+
+    if (notesResult.error) throw notesResult.error;
+    if (profilesResult.error) throw profilesResult.error;
+
+    state.notes = notesResult.data || [];
+    state.profiles = profilesResult.data || [];
+
+    renderCanvas();
+    renderRecipientOptions();
+  } catch (error) {
+    showAlert(`Notizen konnten nicht geladen werden: ${error.message}`, true);
+  }
+}
+
+function renderRecipientOptions() {
+  if (!elements.recipientUidInput) return;
+  const options = state.profiles
+    .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || profile.id)}</option>`)
+    .join('');
+  elements.recipientUidInput.innerHTML = `<option value="">Offen / kein Empfänger</option>${options}`;
+}
+
+function renderCanvas() {
+  if (!elements.canvas) return;
+  elements.canvas.querySelectorAll('.note-icon').forEach((node) => node.remove());
+
+  for (const note of state.notes) {
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = 'note-icon';
+    node.dataset.noteId = String(note.id || '');
+
+    const x = snapToGrid(Number(note.note_pos_x ?? GRID_SIZE));
+    const y = snapToGrid(Number(note.note_pos_y ?? GRID_SIZE));
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+
+    const text = String(note.note_text || '');
+    node.title = text;
+    node.innerHTML = `
+      <div class="note-icon-symbol" aria-hidden="true">🗒️</div>
+      <div class="note-icon-title">${escapeHtml(buildTitleFromText(text))}</div>
+      <div class="note-icon-category">${escapeHtml(note.note_category || DEFAULT_NOTE_CATEGORY)}</div>
+    `;
+    node.addEventListener('dblclick', (event) => {
+      event.stopPropagation();
+      openModalForNote(note.id);
+    });
+    elements.canvas.appendChild(node);
+  }
+}
+
+function handleCanvasDoubleClick(event) {
+  if (!(event.target instanceof HTMLElement)) return;
+  if (event.target.closest('.note-icon')) return;
+
+  const rect = elements.canvas.getBoundingClientRect();
+  const x = snapToGrid(event.clientX - rect.left - 50);
+  const y = snapToGrid(event.clientY - rect.top - 30);
+  state.pendingPosition = clampPosition({ x, y });
+  openModalForCreate();
+}
+
+function handleCanvasPointerDown(event) {
+  const noteNode = event.target instanceof HTMLElement ? event.target.closest('.note-icon') : null;
+  if (!noteNode || !(noteNode instanceof HTMLElement)) return;
+
+  const noteId = String(noteNode.dataset.noteId || '');
+  const rect = elements.canvas.getBoundingClientRect();
+  const left = parseFloat(noteNode.style.left || '0');
+  const top = parseFloat(noteNode.style.top || '0');
+
+  state.drag = {
+    noteId,
+    offsetX: event.clientX - rect.left - left,
+    offsetY: event.clientY - rect.top - top,
+    node: noteNode,
+    hasMoved: false,
+  };
+  noteNode.classList.add('dragging');
+  noteNode.setPointerCapture(event.pointerId);
+}
+
+function handlePointerMove(event) {
+  if (!state.drag || !elements.canvas) return;
+  state.drag.hasMoved = true;
+
+  const rect = elements.canvas.getBoundingClientRect();
+  const x = snapToGrid(event.clientX - rect.left - state.drag.offsetX);
+  const y = snapToGrid(event.clientY - rect.top - state.drag.offsetY);
+  const clamped = clampPosition({ x, y });
+
+  state.drag.node.style.left = `${clamped.x}px`;
+  state.drag.node.style.top = `${clamped.y}px`;
+}
+
+async function handlePointerUp() {
+  if (!state.drag) return;
+  const drag = state.drag;
+  state.drag = null;
+  drag.node.classList.remove('dragging');
+
+  if (!drag.hasMoved) return;
+  const x = snapToGrid(parseFloat(drag.node.style.left || '0'));
+  const y = snapToGrid(parseFloat(drag.node.style.top || '0'));
+
+  const existing = state.notes.find((note) => String(note.id) === String(drag.noteId));
+  if (!existing) return;
+
+  try {
+    const { error } = await state.supabase.from(NOTES_TABLE).update({ note_pos_x: x, note_pos_y: y }).eq('id', drag.noteId);
+    if (error) throw error;
+
+    existing.note_pos_x = x;
+    existing.note_pos_y = y;
+  } catch (error) {
+    showAlert(`Position konnte nicht gespeichert werden: ${error.message}`, true);
+  }
+}
+
+function openModalForCreate() {
+  state.activeNote = null;
+  elements.deleteNoteButton?.classList.add('hidden');
+  elements.noteForm?.reset();
+  elements.noteCategoryInput.value = DEFAULT_NOTE_CATEGORY;
+  const me = state.user?.id || '';
+  if (me) elements.recipientUidInput.value = me;
+  if (elements.existingAttachments) elements.existingAttachments.innerHTML = '';
+  elements.modal?.classList.remove('hidden');
+}
+
+function openModalForNote(noteId) {
+  const note = state.notes.find((item) => String(item.id) === String(noteId));
+  if (!note) return;
+  state.activeNote = note;
+
+  elements.noteTextInput.value = note.note_text || '';
+  elements.noteCategoryInput.value = note.note_category || DEFAULT_NOTE_CATEGORY;
+  elements.recipientUidInput.value = note.recipient_uid || '';
+  elements.noteAttachmentInput.value = '';
+  elements.deleteNoteButton?.classList.remove('hidden');
+
+  const attachments = Array.isArray(note.attachments) ? note.attachments : [];
+  elements.existingAttachments.innerHTML = attachments.length
+    ? `<strong>Vorhandene Anhänge:</strong> ${attachments
+      .map((attachment) => `<a href="${escapeAttribute(attachment.publicUrl || '#')}" target="_blank" rel="noopener">${escapeHtml(attachment.name || 'Anhang')}</a>`)
+      .join(' · ')}`
+    : '<span class="subtle-text">Keine Anhänge vorhanden.</span>';
+
+  elements.modal?.classList.remove('hidden');
+}
+
+function closeModal() {
+  elements.modal?.classList.add('hidden');
+  state.activeNote = null;
+}
+
+async function handleSaveNote(event) {
+  event.preventDefault();
+  if (!state.projectId) return;
+
+  const senderUid = String(state.user?.id || '').trim();
+  const recipientUid = String(elements.recipientUidInput.value || '').trim();
+  const noteText = String(elements.noteTextInput.value || '').trim();
+  const noteCategory = String(elements.noteCategoryInput.value || DEFAULT_NOTE_CATEGORY).trim().toLowerCase();
+
+  if (!senderUid || !noteText) {
+    showAlert('Aktiver Benutzer oder Notiztext fehlt.', true);
+    return;
+  }
+
+  try {
+    const newAttachments = await uploadAttachments(senderUid, state.projectId, elements.noteAttachmentInput.files);
+
+    if (!state.activeNote) {
+      const payload = {
+        target_uid: state.projectId,
+        note_type: PROJECT_NOTE_TYPE,
+        note_text: noteText,
+        sender_uid: senderUid,
+        recipient_uid: recipientUid || senderUid,
+        note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
+        note_ranking: 2,
+        attachments: newAttachments,
+        note_pos_x: state.pendingPosition.x,
+        note_pos_y: state.pendingPosition.y,
+      };
+      const { error } = await state.supabase.from(NOTES_TABLE).insert(payload);
+      if (error) throw error;
+      showAlert('Projekt-Notiz gespeichert.', false);
+    } else {
+      const mergedAttachments = [
+        ...(Array.isArray(state.activeNote.attachments) ? state.activeNote.attachments : []),
+        ...newAttachments,
+      ];
+      const { error } = await state.supabase
+        .from(NOTES_TABLE)
+        .update({
+          note_text: noteText,
+          recipient_uid: recipientUid || senderUid,
+          note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
+          attachments: mergedAttachments,
+        })
+        .eq('id', state.activeNote.id);
+      if (error) throw error;
+      showAlert('Projekt-Notiz aktualisiert.', false);
+    }
+
+    closeModal();
+    await loadData();
+  } catch (error) {
+    showAlert(`Notiz konnte nicht gespeichert werden: ${error.message}`, true);
+  }
+}
+
+async function handleDeleteNote() {
+  if (!state.activeNote) return;
+  if (!window.confirm('Diese Notiz wirklich löschen?')) return;
+
+  try {
+    const { error } = await state.supabase.from(NOTES_TABLE).delete().eq('id', state.activeNote.id);
+    if (error) throw error;
+
+    showAlert('Notiz gelöscht.', false);
+    closeModal();
+    await loadData();
+  } catch (error) {
+    showAlert(`Notiz konnte nicht gelöscht werden: ${error.message}`, true);
+  }
+}
+
+async function uploadAttachments(senderUid, projectId, fileList) {
+  const files = Array.from(fileList || []).filter((file) => String(file.type || '').toLowerCase() === 'application/pdf' || String(file.name || '').toLowerCase().endsWith('.pdf'));
+  if (!files.length) return [];
+
+  const entries = [];
+  for (const file of files) {
+    const path = `${senderUid}/${projectId}/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
+    const { error } = await state.supabase.storage.from(NOTE_STORAGE_BUCKET).upload(path, file, { upsert: false, contentType: file.type || 'application/pdf' });
+    if (error) throw error;
+    const { data } = state.supabase.storage.from(NOTE_STORAGE_BUCKET).getPublicUrl(path);
+    entries.push({ name: file.name, mimeType: file.type || 'application/pdf', size: file.size, path, bucket: NOTE_STORAGE_BUCKET, publicUrl: data?.publicUrl || '' });
+  }
+  return entries;
+}
+
+function showAlert(message, isError) {
+  if (!elements.alert) return;
+  elements.alert.textContent = message;
+  elements.alert.classList.remove('hidden', 'error', 'success');
+  elements.alert.classList.add(isError ? 'error' : 'success');
+}
+
+function buildTitleFromText(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Notiz';
+  if (normalized.length <= 16) return normalized;
+  return `${normalized.slice(0, 16)}…`;
+}
+
+function snapToGrid(value) {
+  return Math.round(Number(value || 0) / GRID_SIZE) * GRID_SIZE;
+}
+
+function clampPosition(position) {
+  const canvas = elements.canvas;
+  if (!canvas) return { x: position.x, y: position.y };
+  const maxX = Math.max(0, canvas.clientWidth - 102);
+  const maxY = Math.max(0, canvas.clientHeight - 90);
+  return {
+    x: Math.max(0, Math.min(maxX, position.x)),
+    y: Math.max(0, Math.min(maxY, position.y)),
+  };
+}
+
+function sanitizeFileName(name) {
+  return String(name || 'attachment.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
+}

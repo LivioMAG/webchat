@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./project-detail.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="./project-detail.js"></script>
   </head>
   <body>
@@ -54,9 +55,53 @@
       <main class="detail-content">
         <section class="dashboard-area" aria-label="Projektfläche">
           <p id="projectMeta" class="project-meta">&nbsp;</p>
-          <div class="dashboard-canvas" aria-label="Projekt-Fläche"></div>
+          <div id="statusAlert" class="status-alert hidden" role="status" aria-live="polite"></div>
+          <div id="dashboardCanvas" class="dashboard-canvas" aria-label="Projekt-Fläche"></div>
         </section>
       </main>
+    </div>
+
+    <div id="noteModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteModalTitle">
+      <div class="modal-backdrop" data-close-note-modal="true"></div>
+      <div class="modal-panel">
+        <header class="modal-header">
+          <div>
+            <h3 id="noteModalTitle">Projekt-Notiz</h3>
+            <p class="subtle-text">Nur Empfänger, Kategorie, Text und Anhänge sind anpassbar.</p>
+          </div>
+          <button id="closeNoteModalButton" class="button button-secondary" type="button">Schliessen</button>
+        </header>
+
+        <form id="noteForm" class="note-form">
+          <label>
+            <span>Empfänger</span>
+            <select id="recipientUidInput"></select>
+          </label>
+          <label>
+            <span>Kategorie</span>
+            <select id="noteCategoryInput">
+              <option value="information">Information</option>
+              <option value="aufgabe">Aufgabe</option>
+              <option value="rueckfrage">Rückfrage</option>
+            </select>
+          </label>
+          <label class="full-width">
+            <span>Text *</span>
+            <textarea id="noteTextInput" rows="5" required></textarea>
+          </label>
+          <label class="full-width">
+            <span>Attachments (PDF)</span>
+            <input id="noteAttachmentInput" type="file" accept="application/pdf,.pdf" multiple />
+          </label>
+
+          <div id="existingAttachments" class="existing-attachments full-width"></div>
+
+          <footer class="note-form-actions full-width">
+            <button id="deleteNoteButton" class="button button-danger hidden" type="button">Löschen</button>
+            <button class="button button-primary" type="submit">Speichern</button>
+          </footer>
+        </form>
+      </div>
     </div>
   </body>
 </html>
