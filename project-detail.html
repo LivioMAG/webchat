@@ -54,7 +54,10 @@
 
       <main class="detail-content">
         <section class="dashboard-area" aria-label="Projektfläche">
-          <p id="projectMeta" class="project-meta">&nbsp;</p>
+          <div class="project-meta-row">
+            <p id="projectMeta" class="project-meta">&nbsp;</p>
+            <button id="toggleOutgoingButton" class="button button-secondary compact" type="button">Ausgehende Notizen</button>
+          </div>
           <div id="statusAlert" class="status-alert hidden" role="status" aria-live="polite"></div>
           <div id="dashboardCanvas" class="dashboard-canvas" aria-label="Projekt-Fläche"></div>
         </section>
@@ -75,15 +78,22 @@
         <form id="noteForm" class="note-form">
           <label>
             <span>Empfänger</span>
-            <select id="recipientUidInput"></select>
+            <select id="recipientUidInput" required></select>
           </label>
           <label>
             <span>Kategorie</span>
             <select id="noteCategoryInput">
               <option value="information">Information</option>
               <option value="aufgabe">Aufgabe</option>
-              <option value="rueckfrage">Rückfrage</option>
             </select>
+          </label>
+          <label>
+            <span>Sichtbar ab</span>
+            <input id="visibleFromInput" type="date" />
+          </label>
+          <label>
+            <span>Antwort erforderlich</span>
+            <input id="requiresResponseInput" type="checkbox" />
           </label>
           <label class="full-width">
             <span>Kommentar *</span>

@@ -90,10 +90,18 @@ body {
 }
 
 .project-meta {
-  margin: 0 0 10px;
+  margin: 0;
   color: rgba(17, 17, 17, 0.75);
   font-size: 14px;
   font-weight: 600;
+}
+
+.project-meta-row {
+  margin: 0 0 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
 }
 
 .status-alert {
@@ -164,6 +172,14 @@ body {
   -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.note-category-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  opacity: 0.75;
 }
 
 .modal {
@@ -328,6 +344,11 @@ body {
 
 .button-secondary {
   background: #fff;
+}
+
+.button.compact {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .button-danger {

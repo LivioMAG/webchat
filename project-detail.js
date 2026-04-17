@@ -8,6 +8,8 @@ const NOTE_CARD_WIDTH = 148;
 const NOTE_CARD_HEIGHT = 136;
 const NOTE_PREVIEW_LENGTH = 60;
 const NOTE_FLOW_FALLBACK_NAME = 'Unbekannt';
+const NOTE_CATEGORY_INFO = 'information';
+const NOTE_CATEGORY_TASK = 'aufgabe';
 
 const state = {
   supabase: null,
@@ -18,6 +20,7 @@ const state = {
   activeNote: null,
   pendingPosition: { x: GRID_SIZE, y: GRID_SIZE },
   drag: null,
+  showOutgoingOnly: false,
 };
 
 const elements = {};
@@ -35,6 +38,7 @@ async function init() {
 function cacheElements() {
   elements.projectMeta = document.getElementById('projectMeta');
   elements.backButton = document.getElementById('backIconButton');
+  elements.toggleOutgoingButton = document.getElementById('toggleOutgoingButton');
   elements.canvas = document.getElementById('dashboardCanvas');
   elements.alert = document.getElementById('statusAlert');
   elements.modal = document.getElementById('noteModal');
@@ -43,6 +47,8 @@ function cacheElements() {
   elements.recipientUidInput = document.getElementById('recipientUidInput');
   elements.noteCategoryInput = document.getElementById('noteCategoryInput');
   elements.noteTextInput = document.getElementById('noteTextInput');
+  elements.visibleFromInput = document.getElementById('visibleFromInput');
+  elements.requiresResponseInput = document.getElementById('requiresResponseInput');
   elements.noteAttachmentInput = document.getElementById('noteAttachmentInput');
   elements.deleteNoteButton = document.getElementById('deleteNoteButton');
   elements.existingAttachments = document.getElementById('existingAttachments');
@@ -57,6 +63,7 @@ function bindEvents() {
     }
     window.location.href = './index.html';
   });
+  elements.toggleOutgoingButton?.addEventListener('click', toggleOutgoingView);
 
   elements.canvas?.addEventListener('dblclick', handleCanvasDoubleClick);
   elements.canvas?.addEventListener('pointerdown', handleCanvasPointerDown);
@@ -125,14 +132,14 @@ function renderRecipientOptions() {
   const options = state.profiles
     .map((profile) => `<option value="${escapeAttribute(profile.id)}">${escapeHtml(profile.full_name || profile.email || profile.id)}</option>`)
     .join('');
-  elements.recipientUidInput.innerHTML = `<option value="">Offen / kein Empfänger</option>${options}`;
+  elements.recipientUidInput.innerHTML = options;
 }
 
 function renderCanvas() {
   if (!elements.canvas) return;
   elements.canvas.querySelectorAll('.note-icon').forEach((node) => node.remove());
 
-  for (const note of state.notes) {
+  for (const note of getVisibleNotes()) {
     const node = document.createElement('button');
     node.type = 'button';
     node.className = 'note-icon';
@@ -149,7 +156,9 @@ function renderCanvas() {
     const previewText = String(latestEntry?.message || note.note_text || '');
     const previewAuthor = String(latestEntry?.author_name || resolveProfileName(latestEntry?.author_uid) || NOTE_FLOW_FALLBACK_NAME);
     node.title = `${previewAuthor}: ${previewText}`;
+    const categoryIcon = getCategoryIcon(note.note_category);
     node.innerHTML = `
+      <span class="note-category-badge" aria-hidden="true">${escapeHtml(categoryIcon)}</span>
       <div class="note-icon-title">${escapeHtml(buildTitleFromText(previewText))}</div>
     `;
     node.addEventListener('dblclick', (event) => {
@@ -235,6 +244,8 @@ function openModalForCreate() {
   elements.noteCategoryInput.value = DEFAULT_NOTE_CATEGORY;
   const me = state.user?.id || '';
   if (me) elements.recipientUidInput.value = me;
+  if (elements.visibleFromInput) elements.visibleFromInput.value = '';
+  if (elements.requiresResponseInput) elements.requiresResponseInput.checked = false;
   if (elements.existingAttachments) {
     elements.existingAttachments.innerHTML = '<span class="subtle-text">Noch keine Anhänge vorhanden.</span>';
   }
@@ -248,8 +259,10 @@ function openModalForNote(noteId) {
   state.activeNote = note;
 
   elements.noteTextInput.value = '';
-  elements.noteCategoryInput.value = note.note_category || DEFAULT_NOTE_CATEGORY;
-  elements.recipientUidInput.value = note.recipient_uid || '';
+  elements.noteCategoryInput.value = normalizeCategory(note.note_category);
+  elements.recipientUidInput.value = note.recipient_uid || state.user?.id || '';
+  elements.visibleFromInput.value = toDateInputValue(note.visible_from_date);
+  elements.requiresResponseInput.checked = Boolean(note.requires_response);
   elements.noteAttachmentInput.value = '';
   elements.deleteNoteButton?.classList.remove('hidden');
 
@@ -276,10 +289,12 @@ async function handleSaveNote(event) {
   const senderUid = String(state.user?.id || '').trim();
   const recipientUid = String(elements.recipientUidInput.value || '').trim();
   const noteText = String(elements.noteTextInput.value || '').trim();
-  const noteCategory = String(elements.noteCategoryInput.value || DEFAULT_NOTE_CATEGORY).trim().toLowerCase();
+  const noteCategory = normalizeCategory(elements.noteCategoryInput.value);
+  const visibleFromDate = String(elements.visibleFromInput.value || '').trim() || null;
+  const requiresResponse = Boolean(elements.requiresResponseInput.checked);
 
-  if (!senderUid || !noteText) {
-    showAlert('Aktiver Benutzer oder Notiztext fehlt.', true);
+  if (!senderUid || !recipientUid || !noteText) {
+    showAlert('Aktiver Benutzer, Empfänger oder Notiztext fehlt.', true);
     return;
   }
 
@@ -297,8 +312,10 @@ async function handleSaveNote(event) {
         note_type: PROJECT_NOTE_TYPE,
         note_text: flowEntry.message,
         sender_uid: senderUid,
-        recipient_uid: recipientUid || senderUid,
-        note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
+        recipient_uid: recipientUid,
+        note_category: noteCategory,
+        visible_from_date: visibleFromDate,
+        requires_response: requiresResponse,
         note_ranking: 2,
         attachments: newAttachments,
         note_flow: [flowEntry],
@@ -316,8 +333,10 @@ async function handleSaveNote(event) {
         .from(NOTES_TABLE)
         .update({
           note_text: flowEntry.message,
-          recipient_uid: recipientUid || senderUid,
-          note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
+          recipient_uid: recipientUid,
+          note_category: noteCategory,
+          visible_from_date: visibleFromDate,
+          requires_response: requiresResponse,
           attachments: mergedAttachments,
           note_flow: mergedFlow,
         })
@@ -376,6 +395,62 @@ function buildTitleFromText(text) {
   if (!normalized) return 'Notiz';
   if (normalized.length <= NOTE_PREVIEW_LENGTH) return normalized;
   return `${normalized.slice(0, NOTE_PREVIEW_LENGTH)}…`;
+}
+
+function getCategoryIcon(category) {
+  const normalized = normalizeCategory(category);
+  if (normalized === NOTE_CATEGORY_TASK) return '🔨';
+  return 'i';
+}
+
+function normalizeCategory(category) {
+  const normalized = String(category || '').trim().toLowerCase();
+  return normalized === NOTE_CATEGORY_TASK ? NOTE_CATEGORY_TASK : NOTE_CATEGORY_INFO;
+}
+
+function toggleOutgoingView() {
+  state.showOutgoingOnly = !state.showOutgoingOnly;
+  if (elements.toggleOutgoingButton) {
+    elements.toggleOutgoingButton.textContent = state.showOutgoingOnly ? 'Eingehende Notizen' : 'Ausgehende Notizen';
+  }
+  renderCanvas();
+}
+
+function getVisibleNotes() {
+  const me = String(state.user?.id || '');
+  if (!me) return [];
+  if (state.showOutgoingOnly) {
+    return state.notes.filter((note) => String(note.sender_uid || '') === me);
+  }
+
+  return state.notes.filter((note) => {
+    const recipientUid = String(note.recipient_uid || '');
+    const senderUid = String(note.sender_uid || '');
+    const needsResponse = Boolean(note.requires_response);
+    const isRecipient = recipientUid === me;
+    const isSenderWithResponse = senderUid === me && needsResponse;
+    if (!isRecipient && !isSenderWithResponse) return false;
+    if (!isRecipient) return true;
+    return isVisibleByDate(note.visible_from_date);
+  });
+}
+
+function isVisibleByDate(value) {
+  if (!value) return true;
+  const visibleFrom = new Date(value);
+  if (Number.isNaN(visibleFrom.getTime())) return true;
+  const now = new Date();
+  return visibleFrom.getTime() <= now.getTime();
+}
+
+function toDateInputValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getNoteFlow(note) {

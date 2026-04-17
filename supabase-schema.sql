@@ -376,8 +376,10 @@ create table if not exists public.notes (
   note_type text not null default 'crm',
   note_text text not null,
   sender_uid uuid not null references public.app_profiles(id) on delete restrict,
-  recipient_uid uuid references public.app_profiles(id) on delete set null,
+  recipient_uid uuid not null references public.app_profiles(id) on delete set null,
   note_category text not null default 'information',
+  requires_response boolean not null default false,
+  visible_from_date date,
   note_ranking smallint not null default 2 check (note_ranking between 1 and 3),
   attachments jsonb not null default '[]'::jsonb,
   note_flow jsonb not null default '[]'::jsonb,
@@ -399,6 +401,12 @@ alter table public.notes
 add column if not exists note_category text not null default 'information';
 
 alter table public.notes
+add column if not exists requires_response boolean not null default false;
+
+alter table public.notes
+add column if not exists visible_from_date date;
+
+alter table public.notes
 add column if not exists note_ranking smallint not null default 2;
 
 alter table public.notes
@@ -413,6 +421,25 @@ add column if not exists note_pos_x integer not null default 24;
 
 alter table public.notes
 add column if not exists note_pos_y integer not null default 24;
+
+do $$
+begin
+  update public.notes
+  set recipient_uid = sender_uid
+  where recipient_uid is null;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'notes'
+      and column_name = 'recipient_uid'
+      and is_nullable = 'YES'
+  ) then
+    alter table public.notes alter column recipient_uid set not null;
+  end if;
+end;
+$$;
 
 do $$
 begin
