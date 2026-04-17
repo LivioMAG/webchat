@@ -7,6 +7,7 @@ const DEFAULT_NOTE_CATEGORY = 'information';
 const NOTE_CARD_WIDTH = 148;
 const NOTE_CARD_HEIGHT = 136;
 const NOTE_PREVIEW_LENGTH = 60;
+const NOTE_FLOW_FALLBACK_NAME = 'Unbekannt';
 
 const state = {
   supabase: null,
@@ -45,6 +46,7 @@ function cacheElements() {
   elements.noteAttachmentInput = document.getElementById('noteAttachmentInput');
   elements.deleteNoteButton = document.getElementById('deleteNoteButton');
   elements.existingAttachments = document.getElementById('existingAttachments');
+  elements.noteFlowList = document.getElementById('noteFlowList');
 }
 
 function bindEvents() {
@@ -142,10 +144,13 @@ function renderCanvas() {
     node.style.left = `${clamped.x}px`;
     node.style.top = `${clamped.y}px`;
 
-    const text = String(note.note_text || '');
-    node.title = text;
+    const flow = getNoteFlow(note);
+    const latestEntry = flow[flow.length - 1] || null;
+    const previewText = String(latestEntry?.message || note.note_text || '');
+    const previewAuthor = String(latestEntry?.author_name || resolveProfileName(latestEntry?.author_uid) || NOTE_FLOW_FALLBACK_NAME);
+    node.title = `${previewAuthor}: ${previewText}`;
     node.innerHTML = `
-      <div class="note-icon-title">${escapeHtml(buildTitleFromText(text))}</div>
+      <div class="note-icon-title">${escapeHtml(buildTitleFromText(previewText))}</div>
     `;
     node.addEventListener('dblclick', (event) => {
       event.stopPropagation();
@@ -230,7 +235,10 @@ function openModalForCreate() {
   elements.noteCategoryInput.value = DEFAULT_NOTE_CATEGORY;
   const me = state.user?.id || '';
   if (me) elements.recipientUidInput.value = me;
-  if (elements.existingAttachments) elements.existingAttachments.innerHTML = '';
+  if (elements.existingAttachments) {
+    elements.existingAttachments.innerHTML = '<span class="subtle-text">Noch keine Anhänge vorhanden.</span>';
+  }
+  renderFlowList([]);
   elements.modal?.classList.remove('hidden');
 }
 
@@ -239,7 +247,7 @@ function openModalForNote(noteId) {
   if (!note) return;
   state.activeNote = note;
 
-  elements.noteTextInput.value = note.note_text || '';
+  elements.noteTextInput.value = '';
   elements.noteCategoryInput.value = note.note_category || DEFAULT_NOTE_CATEGORY;
   elements.recipientUidInput.value = note.recipient_uid || '';
   elements.noteAttachmentInput.value = '';
@@ -251,6 +259,7 @@ function openModalForNote(noteId) {
       .map((attachment) => `<a href="${escapeAttribute(attachment.publicUrl || '#')}" target="_blank" rel="noopener">${escapeHtml(attachment.name || 'Anhang')}</a>`)
       .join(' · ')}`
     : '<span class="subtle-text">Keine Anhänge vorhanden.</span>';
+  renderFlowList(getNoteFlow(note));
 
   elements.modal?.classList.remove('hidden');
 }
@@ -276,17 +285,23 @@ async function handleSaveNote(event) {
 
   try {
     const newAttachments = await uploadAttachments(senderUid, state.projectId, elements.noteAttachmentInput.files);
+    const flowEntry = buildFlowEntry({
+      authorUid: senderUid,
+      message: noteText,
+      attachments: newAttachments,
+    });
 
     if (!state.activeNote) {
       const payload = {
         target_uid: state.projectId,
         note_type: PROJECT_NOTE_TYPE,
-        note_text: noteText,
+        note_text: flowEntry.message,
         sender_uid: senderUid,
         recipient_uid: recipientUid || senderUid,
         note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
         note_ranking: 2,
         attachments: newAttachments,
+        note_flow: [flowEntry],
         note_pos_x: state.pendingPosition.x,
         note_pos_y: state.pendingPosition.y,
       };
@@ -294,17 +309,17 @@ async function handleSaveNote(event) {
       if (error) throw error;
       showAlert('Projekt-Notiz gespeichert.', false);
     } else {
-      const mergedAttachments = [
-        ...(Array.isArray(state.activeNote.attachments) ? state.activeNote.attachments : []),
-        ...newAttachments,
-      ];
+      const existingFlow = getNoteFlow(state.activeNote);
+      const mergedFlow = [...existingFlow, flowEntry];
+      const mergedAttachments = mergedFlow.flatMap((entry) => (Array.isArray(entry.attachments) ? entry.attachments : []));
       const { error } = await state.supabase
         .from(NOTES_TABLE)
         .update({
-          note_text: noteText,
+          note_text: flowEntry.message,
           recipient_uid: recipientUid || senderUid,
           note_category: noteCategory || DEFAULT_NOTE_CATEGORY,
           attachments: mergedAttachments,
+          note_flow: mergedFlow,
         })
         .eq('id', state.activeNote.id);
       if (error) throw error;
@@ -361,6 +376,95 @@ function buildTitleFromText(text) {
   if (!normalized) return 'Notiz';
   if (normalized.length <= NOTE_PREVIEW_LENGTH) return normalized;
   return `${normalized.slice(0, NOTE_PREVIEW_LENGTH)}…`;
+}
+
+function getNoteFlow(note) {
+  const flow = Array.isArray(note?.note_flow) ? note.note_flow : [];
+  if (flow.length) {
+    return flow
+      .map((entry) => normalizeFlowEntry(entry))
+      .filter((entry) => entry.message || entry.attachments.length);
+  }
+
+  const legacyMessage = String(note?.note_text || '').trim();
+  const legacyAttachments = Array.isArray(note?.attachments) ? note.attachments : [];
+  if (!legacyMessage && !legacyAttachments.length) return [];
+  return [
+    buildFlowEntry({
+      authorUid: note?.sender_uid || '',
+      authorName: resolveProfileName(note?.sender_uid),
+      message: legacyMessage,
+      attachments: legacyAttachments,
+      createdAt: note?.created_at || new Date().toISOString(),
+      id: note?.id ? `${note.id}-legacy` : crypto.randomUUID(),
+    }),
+  ];
+}
+
+function buildFlowEntry({ authorUid, authorName, message, attachments, createdAt, id }) {
+  return {
+    id: id || crypto.randomUUID(),
+    author_uid: String(authorUid || ''),
+    author_name: String(authorName || resolveProfileName(authorUid) || NOTE_FLOW_FALLBACK_NAME),
+    message: String(message || '').trim(),
+    attachments: Array.isArray(attachments) ? attachments : [],
+    created_at: String(createdAt || new Date().toISOString()),
+  };
+}
+
+function normalizeFlowEntry(entry) {
+  return buildFlowEntry({
+    id: entry?.id,
+    authorUid: entry?.author_uid,
+    authorName: entry?.author_name,
+    message: entry?.message,
+    attachments: entry?.attachments,
+    createdAt: entry?.created_at,
+  });
+}
+
+function resolveProfileName(profileId) {
+  if (!profileId) return '';
+  const profile = state.profiles.find((item) => String(item.id) === String(profileId));
+  return String(profile?.full_name || profile?.email || '');
+}
+
+function renderFlowList(flowEntries) {
+  if (!elements.noteFlowList) return;
+  if (!flowEntries.length) {
+    elements.noteFlowList.innerHTML = '<p class="subtle-text">Noch keine Kommentare vorhanden.</p>';
+    return;
+  }
+
+  elements.noteFlowList.innerHTML = flowEntries
+    .map((entry) => {
+      const createdLabel = formatFlowTimestamp(entry.created_at);
+      const links = Array.isArray(entry.attachments) && entry.attachments.length
+        ? `<div class="flow-entry-attachments"><strong>Anhänge:</strong> ${entry.attachments
+          .map((attachment) => `<a href="${escapeAttribute(attachment.publicUrl || '#')}" target="_blank" rel="noopener">${escapeHtml(attachment.name || 'Anhang')}</a>`)
+          .join(' · ')}</div>`
+        : '';
+      return `
+        <article class="flow-entry">
+          <div class="flow-entry-header">
+            <span class="flow-entry-author">${escapeHtml(entry.author_name || NOTE_FLOW_FALLBACK_NAME)}</span>
+            <span>${escapeHtml(createdLabel)}</span>
+          </div>
+          <p class="flow-entry-message">${escapeHtml(entry.message || '–')}</p>
+          ${links}
+        </article>
+      `;
+    })
+    .join('');
+}
+
+function formatFlowTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Zeit unbekannt';
+  return new Intl.DateTimeFormat('de-CH', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function snapToGrid(value) {

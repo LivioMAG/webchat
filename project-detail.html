@@ -67,7 +67,7 @@
         <header class="modal-header">
           <div>
             <h3 id="noteModalTitle">Projekt-Notiz</h3>
-            <p class="subtle-text">Nur Empfänger, Kategorie, Text und Anhänge sind anpassbar.</p>
+            <p class="subtle-text">Notiz-Flow mit Kommentaren und Anhängen.</p>
           </div>
           <button id="closeNoteModalButton" class="button button-secondary" type="button">Schliessen</button>
         </header>
@@ -86,7 +86,7 @@
             </select>
           </label>
           <label class="full-width">
-            <span>Text *</span>
+            <span>Kommentar *</span>
             <textarea id="noteTextInput" rows="5" required></textarea>
           </label>
           <label class="full-width">
@@ -95,6 +95,12 @@
           </label>
 
           <div id="existingAttachments" class="existing-attachments full-width"></div>
+          <div class="flow-thread full-width">
+            <div class="flow-thread-title">Flow-Verlauf</div>
+            <div id="noteFlowList" class="flow-list">
+              <p class="subtle-text">Noch keine Kommentare vorhanden.</p>
+            </div>
+          </div>
 
           <footer class="note-form-actions full-width">
             <button id="deleteNoteButton" class="button button-danger hidden" type="button">Löschen</button>
