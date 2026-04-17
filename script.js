@@ -744,6 +744,8 @@ function cacheElements() {
   elements.editOtherCostsAmount = document.getElementById('editOtherCostsAmount');
   elements.editNotes = document.getElementById('editNotes');
   elements.editExpenseNote = document.getElementById('editExpenseNote');
+  elements.reportEditStats = document.getElementById('reportEditStats');
+  elements.reportEditAttachments = document.getElementById('reportEditAttachments');
   elements.adjustedMinutesModal = document.getElementById('adjustedMinutesModal');
   elements.adjustedMinutesForm = document.getElementById('adjustedMinutesForm');
   elements.adjustedReportId = document.getElementById('adjustedReportId');
@@ -864,11 +866,11 @@ function bindEvents() {
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
   elements.showControlledReportsInput.addEventListener('change', handleShowControlledReportsToggle);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
-  elements.absenceFilterInput.addEventListener('input', handleAbsenceFilterInput);
-  elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
-  elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
-  elements.showControlledAbsencesInput.addEventListener('change', handleShowControlledAbsencesToggle);
-  elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
+  if (elements.absenceFilterInput) elements.absenceFilterInput.addEventListener('input', handleAbsenceFilterInput);
+  if (elements.selectAllAbsenceEmployeesButton) elements.selectAllAbsenceEmployeesButton.addEventListener('click', selectAllAbsenceEmployees);
+  if (elements.clearAbsenceSelectionButton) elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
+  if (elements.showControlledAbsencesInput) elements.showControlledAbsencesInput.addEventListener('change', handleShowControlledAbsencesToggle);
+  if (elements.absenceFilterList) elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
   elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
   elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
   elements.includeConfirmationHistoryInput.addEventListener('change', handleConfirmationHistoryToggle);
@@ -1730,6 +1732,9 @@ function renderEmployeeFilters() {
 }
 
 function renderAbsenceFilters() {
+  if (!elements.absenceFilterInput || !elements.absenceFilterList || !elements.selectedAbsenceEmployeesSummary) {
+    return;
+  }
   elements.absenceFilterInput.value = state.absenceFilterQuery;
   if (elements.showControlledAbsencesInput) {
     elements.showControlledAbsencesInput.checked = state.showControlledAbsences;
@@ -1758,7 +1763,7 @@ function renderAbsenceFilters() {
 
 function renderReportsTable() {
   if (state.isLoadingData) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Rapporte für ${escapeHtml(getWeekLabel(state.selectedWeek))} werden geladen …</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Rapporte für ${escapeHtml(getWeekLabel(state.selectedWeek))} werden geladen …</td></tr>`;
     renderReportsPagination({ totalItems: 0, totalPages: 1, currentPage: 1, startIndex: 0, endIndex: 0 });
     return;
   }
@@ -1767,13 +1772,13 @@ function renderReportsTable() {
   const pagination = getReportsPaginationMeta(allReports);
 
   if (!state.weeklyReports.length) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Keine Rapporte in dieser Woche gefunden.</td></tr>`;
     renderReportsPagination(pagination);
     return;
   }
 
   if (!allReports.length) {
-    elements.reportsTableBody.innerHTML = `<tr><td colspan="11">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
+    elements.reportsTableBody.innerHTML = `<tr><td colspan="10">Für die aktuelle Auswahl wurden keine Rapporte gefunden.</td></tr>`;
     renderReportsPagination(pagination);
     return;
   }
@@ -1782,12 +1787,12 @@ function renderReportsTable() {
     .map((report) => {
       const profile = getProfileById(report.profile_id);
       return `
-        <tr class="report-row">
+        <tr class="report-row report-row-clickable" data-action="open-report-edit" data-report-id="${escapeAttribute(report.id)}">
           <td>${escapeHtml(profile?.full_name ?? 'Unbekannt')}</td>
           <td>${renderControllCell(report)}</td>
           <td>${formatDate(report.work_date)}</td>
           <td>${escapeHtml(report.commission_number || '–')}</td>
-          <td>${escapeHtml(report.start_time || '–')} – ${escapeHtml(report.end_time || '–')}</td>
+          <td>${formatTimeRange(report.start_time, report.end_time)}</td>
           <td>${formatMinutes(report.total_work_minutes)}</td>
           <td>
             <button class="adjusted-time-button" type="button" data-action="edit-adjusted-time" data-report-id="${escapeAttribute(report.id)}">
@@ -1795,11 +1800,9 @@ function renderReportsTable() {
             </button>
           </td>
           <td>${formatCurrency(Number(report.expenses_amount || 0) + Number(report.other_costs_amount || 0))}</td>
-          <td>${escapeHtml(report.notes || report.expense_note || '–')}</td>
           <td>${renderAttachmentLinks(report.attachments)}</td>
           <td>
             <div class="table-row-actions">
-              <button class="button button-small button-secondary" type="button" data-action="edit-report" data-report-id="${escapeAttribute(report.id)}">Bearbeiten</button>
               <button class="button button-small button-danger" type="button" data-action="delete-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Löschen</button>
             </div>
           </td>
@@ -1812,13 +1815,13 @@ function renderReportsTable() {
 
 function renderAbsenceTable() {
   if (!state.holidayRequests.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="8">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
   const sorted = getFilteredHolidayRequests();
   if (!sorted.length) {
-    elements.absencesTableBody.innerHTML = `<tr><td colspan="8">Für die aktuelle Auswahl wurden keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
+    elements.absencesTableBody.innerHTML = `<tr><td colspan="9">Keine Ferien- oder Absenzanträge gefunden.</td></tr>`;
     return;
   }
 
@@ -1833,8 +1836,9 @@ function renderAbsenceTable() {
           <td>${formatDate(request.end_date)}</td>
           <td>${escapeHtml(request.notes || '–')}</td>
           <td>${renderAttachmentLinks(request.attachments)}</td>
-          <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL', true)}</td>
+          <td>${renderHolidayApprovalCell(request, 'controll_pl', 'PL')}</td>
           <td>${renderHolidayApprovalCell(request, 'controll_gl', 'GL', false)}</td>
+          <td>${renderHolidayRejectCell(request)}</td>
         </tr>
       `;
     })
@@ -2281,6 +2285,15 @@ function handleReportsTableClick(event) {
     return;
   }
 
+  const clickedRow = event.target.closest('tr[data-action="open-report-edit"]');
+  if (clickedRow && !event.target.closest('button')) {
+    const rowReportId = clickedRow.dataset.reportId;
+    if (rowReportId) {
+      openReportEditModal(rowReportId);
+      return;
+    }
+  }
+
   const trigger = event.target.closest('[data-action]');
   if (!trigger) {
     return;
@@ -2291,7 +2304,7 @@ function handleReportsTableClick(event) {
     return;
   }
 
-  if (trigger.dataset.action === 'edit-report') {
+  if (trigger.dataset.action === 'edit-report' || trigger.dataset.action === 'open-report-edit') {
     openReportEditModal(reportId);
     return;
   }
@@ -2949,13 +2962,24 @@ function openReportEditModal(reportId) {
   elements.editEmployeeName.value = profile?.full_name ?? 'Unbekannt';
   elements.editWorkDate.value = report.work_date || '';
   elements.editCommissionNumber.value = report.commission_number || '';
-  elements.editStartTime.value = report.start_time || '';
-  elements.editEndTime.value = report.end_time || '';
+  elements.editStartTime.value = normalizeTimeForInput(report.start_time);
+  elements.editEndTime.value = normalizeTimeForInput(report.end_time);
   elements.editTotalMinutes.value = Number(report.total_work_minutes || 0);
   elements.editExpensesAmount.value = Number(report.expenses_amount || 0);
   elements.editOtherCostsAmount.value = Number(report.other_costs_amount || 0);
   elements.editNotes.value = report.notes || '';
   elements.editExpenseNote.value = report.expense_note || '';
+  const pauseMinutes = Number(report.lunch_break_minutes || 0) + Number(report.additional_break_minutes || 0);
+  if (elements.reportEditStats) {
+    elements.reportEditStats.innerHTML = `
+      <div><strong>Pausenminuten:</strong> ${formatMinutes(pauseMinutes)}</div>
+      <div><strong>Arbeitsminuten:</strong> ${formatMinutes(report.total_work_minutes)}</div>
+      <div><strong>Bereinigte Arbeitsminuten:</strong> ${formatMinutes(getAdjustedWorkMinutes(report))}</div>
+    `;
+  }
+  if (elements.reportEditAttachments) {
+    elements.reportEditAttachments.innerHTML = renderAttachmentLinks(report.attachments);
+  }
   elements.reportEditModal.classList.remove('hidden');
 }
 
@@ -2967,6 +2991,12 @@ function closeReportEditModal() {
 
   elements.reportEditModal.classList.add('hidden');
   elements.reportEditForm.reset();
+  if (elements.reportEditStats) {
+    elements.reportEditStats.innerHTML = '';
+  }
+  if (elements.reportEditAttachments) {
+    elements.reportEditAttachments.innerHTML = '';
+  }
 }
 
 function openAdjustedMinutesModal(reportId) {
@@ -3005,7 +3035,8 @@ async function handleAdjustedMinutesSubmit(event) {
 
   const adjustedMinutes = Math.max(0, Number(elements.adjustedMinutesInput.value || 0));
   const wasConfirmed = Boolean(String(report.controll || '').trim());
-  const updates = buildAdjustedMinutesUpdatePayload(report, adjustedMinutes);
+  const baseAdjustedMinutes = shouldApplyHolidayDoubleMinutes(report) ? Math.round(adjustedMinutes / 2) : adjustedMinutes;
+  const updates = buildAdjustedMinutesUpdatePayload(report, baseAdjustedMinutes);
   if (wasConfirmed) {
     updates.controll = '';
   }
@@ -3547,18 +3578,24 @@ function renderControllCell(report) {
   return `<button class="button button-small button-success" type="button" data-action="confirm-report" data-report-id="${escapeAttribute(report.id)}" ${state.isSavingReport ? 'disabled' : ''}>Bestätigen</button>`;
 }
 
-function renderHolidayApprovalCell(request, fieldName, roleLabel, showRejectButton = false) {
+function renderHolidayApprovalCell(request, fieldName, roleLabel) {
   const approvalValue = String(request?.[fieldName] || '').trim();
   if (approvalValue) {
-    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong>${showRejectButton && !isHolidayRequestFullyApproved(request) ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}</div>`;
+    return `<div class="status-stack compact"><span class="pill success">Bestätigt</span><strong>${escapeHtml(approvalValue)}</strong></div>`;
   }
 
   return `
     <div class="status-stack compact">
       <button class="button button-small button-success" type="button" data-action="confirm-absence-${escapeAttribute(roleLabel.toLowerCase())}" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Bestätigung ${escapeHtml(roleLabel)}</button>
-      ${showRejectButton ? `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>` : ''}
     </div>
   `;
+}
+
+function renderHolidayRejectCell(request) {
+  if (isHolidayRequestFullyApproved(request)) {
+    return '<span class="subtle-text">—</span>';
+  }
+  return `<button class="button button-small button-danger" type="button" data-action="reject-absence-request" data-request-id="${escapeAttribute(request.id)}" ${state.isSavingAbsence ? 'disabled' : ''}>Ablehnen</button>`;
 }
 
 function renderHolidayConfirmationCell(request) {
@@ -5599,13 +5636,8 @@ function getMatchingProfiles(profiles, query) {
 }
 
 function getFilteredHolidayRequests() {
-  const selectedIds = new Set(state.selectedAbsenceEmployeeIds);
   return [...state.holidayRequests]
-    .filter((request) => selectedIds.has(request.profile_id))
-    .filter((request) => {
-      if (state.showControlledAbsences) return true;
-      return !isHolidayRequestFullyApproved(request);
-    })
+    .filter((request) => !isHolidayRequestFullyApproved(request))
     .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
 }
 
@@ -5747,6 +5779,26 @@ function formatDate(dateString) {
   return new Date(`${dateString}T00:00:00Z`).toLocaleDateString('de-CH');
 }
 
+function formatTimeWithoutSeconds(timeValue) {
+  const raw = String(timeValue || '').trim();
+  if (!raw) return '–';
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return raw;
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+function formatTimeRange(startTime, endTime) {
+  const startLabel = formatTimeWithoutSeconds(startTime);
+  const endLabel = formatTimeWithoutSeconds(endTime);
+  if (startLabel === '–' && endLabel === '–') return '–';
+  return `${startLabel} – ${endLabel}`;
+}
+
+function normalizeTimeForInput(value) {
+  const normalized = formatTimeWithoutSeconds(value);
+  return normalized === '–' ? '' : normalized;
+}
+
 function renderSaldoInput(profileId, fieldName, value, step = 0.5) {
   return `<input class="saldo-input" type="number" step="${escapeAttribute(step)}" data-saldo-input="${escapeAttribute(fieldName)}" data-profile-id="${escapeAttribute(profileId)}" value="${escapeAttribute(Number(value || 0).toFixed(2))}" />`;
 }
@@ -5805,6 +5857,14 @@ function getAdjustedMinutesFieldName() {
 }
 
 function getAdjustedWorkMinutes(report) {
+  const baseAdjustedMinutes = getBaseAdjustedWorkMinutes(report);
+  if (shouldApplyHolidayDoubleMinutes(report)) {
+    return baseAdjustedMinutes * 2;
+  }
+  return baseAdjustedMinutes;
+}
+
+function getBaseAdjustedWorkMinutes(report) {
   const totalAdjustedMinutes = Number(report?.total_adjusted_work_minutes);
   const adjustedMinutes = Number(report?.adjusted_work_minutes);
 
@@ -5819,6 +5879,24 @@ function getAdjustedWorkMinutes(report) {
     return adjustedMinutes;
   }
   return Number(report?.total_work_minutes || 0);
+}
+
+function shouldApplyHolidayDoubleMinutes(report) {
+  if (!report || isHolidayMinutesReport(report)) {
+    return false;
+  }
+  return state.weeklyReports.some((entry) =>
+    String(entry?.id) !== String(report.id)
+    && String(entry?.profile_id) === String(report.profile_id)
+    && String(entry?.work_date) === String(report.work_date)
+    && isHolidayMinutesReport(entry));
+}
+
+function isHolidayMinutesReport(report) {
+  const haystack = [report?.project_name, report?.commission_number, report?.notes, report?.expense_note]
+    .map((value) => normalizeSearchValue(value || ''))
+    .join(' ');
+  return haystack.includes('feiertag');
 }
 
 function getReportBookingDelta(report, multiplier = 1) {

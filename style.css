@@ -662,6 +662,11 @@ tbody tr:hover {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.report-controlled-toggle {
+  margin-left: auto;
 }
 
 .employee-filter-list {
@@ -872,6 +877,19 @@ tbody tr:hover {
   border-radius: 999px;
   padding: 6px 10px;
   font-weight: 600;
+}
+
+.report-row-clickable {
+  cursor: pointer;
+}
+
+.report-row-clickable:hover {
+  background: rgba(17, 17, 17, 0.03);
+}
+
+.report-edit-stats {
+  display: grid;
+  gap: 4px;
 }
 
 .loading-overlay {

@@ -148,13 +148,12 @@
                     <input id="employeeFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
                   </label>
                   <div class="report-filter-actions">
-                    <label class="checkbox-inline with-icon">
-                      <span aria-hidden="true">🛡️</span>
-                      <input id="showControlledReportsInput" type="checkbox" />
-                      <span>Kontrollierte anzeigen</span>
-                    </label>
                     <button id="selectAllEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
                     <button id="clearEmployeeSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
+                    <label class="checkbox-inline with-icon report-controlled-toggle" title="Kontrollierte Rapporte anzeigen">
+                      <span aria-hidden="true">🛡️</span>
+                      <input id="showControlledReportsInput" type="checkbox" />
+                    </label>
                   </div>
                 </div>
                 <div class="employee-directory-heading">
@@ -176,9 +175,8 @@
                       <th>Arbeitszeit</th>
                       <th>Bereinigte Arbeitszeit</th>
                       <th>Spesen</th>
-                      <th>Bemerkungen</th>
                       <th>Anhänge</th>
-                      <th>Bearbeiten</th>
+                      <th>Aktion</th>
                     </tr>
                   </thead>
                   <tbody id="reportsTableBody"></tbody>
@@ -235,29 +233,6 @@
                   ✅
                 </button>
               </div>
-              <div class="report-filter-panel">
-                <div class="report-filter-toolbar">
-                  <label>
-                    <span>Mitarbeiter filtern</span>
-                    <input id="absenceFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
-                  </label>
-                  <div class="report-filter-actions">
-                    <label class="checkbox-inline with-icon">
-                      <span aria-hidden="true">👥</span>
-                      <input id="showControlledAbsencesInput" type="checkbox" />
-                      <span>Kontrollierte anzeigen</span>
-                    </label>
-                    <button id="selectAllAbsenceEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
-                    <button id="clearAbsenceSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
-                  </div>
-                </div>
-                <div class="employee-directory-heading">
-                  <strong>Mitarbeitende</strong>
-                  <span id="selectedAbsenceEmployeesSummary" class="subtle-text"></span>
-                  <span class="subtle-text">Maximal 5 Treffer werden angezeigt.</span>
-                </div>
-                <div id="absenceFilterList" class="employee-filter-list"></div>
-              </div>
               <div class="table-wrapper">
                 <table>
                   <thead>
@@ -270,6 +245,7 @@
                       <th>Anhänge</th>
                       <th>Bestätigung PL</th>
                       <th>Bestätigung GL</th>
+                      <th>Ablehnen</th>
                     </tr>
                   </thead>
                   <tbody id="absencesTableBody"></tbody>
@@ -632,6 +608,11 @@
               <span>Spesenbemerkung</span>
               <textarea id="editExpenseNote" rows="3" placeholder="Zusätzliche Infos zu Spesen"></textarea>
             </label>
+            <div id="reportEditStats" class="report-edit-stats subtle-text"></div>
+            <div>
+              <strong>Anhang</strong>
+              <div id="reportEditAttachments" class="attachment-list"></div>
+            </div>
             <div class="modal-actions">
               <button class="button button-secondary" type="button" id="cancelReportEditButton">Abbrechen</button>
               <button class="button button-primary" type="submit">Änderungen speichern</button>
