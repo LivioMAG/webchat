@@ -79,6 +79,9 @@ add column if not exists controll_pl text;
 alter table public.holiday_requests
 add column if not exists controll_gl text;
 
+alter table public.platform_holidays
+add column if not exists is_paid boolean not null default true;
+
 alter table public.app_profiles
 add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
 
@@ -165,6 +168,7 @@ create table if not exists public.platform_holidays (
   id uuid primary key default gen_random_uuid(),
   holiday_date date not null unique,
   label text not null,
+  is_paid boolean not null default true,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -806,6 +810,7 @@ function cacheElements() {
   elements.holidayForm = document.getElementById('holidayForm');
   elements.holidayDateInput = document.getElementById('holidayDateInput');
   elements.holidayNameInput = document.getElementById('holidayNameInput');
+  elements.holidayIsPaidInput = document.getElementById('holidayIsPaidInput');
   elements.saveHolidayButton = document.getElementById('saveHolidayButton');
   elements.schoolVacationForm = document.getElementById('schoolVacationForm');
   elements.schoolVacationStartInput = document.getElementById('schoolVacationStartInput');
@@ -2548,6 +2553,7 @@ async function handleHolidayFormSubmit(event) {
 
   const holidayDate = String(elements.holidayDateInput?.value || '').trim();
   const label = String(elements.holidayNameInput?.value || '').trim();
+  const isPaid = String(elements.holidayIsPaidInput?.value || 'true') !== 'false';
   if (!holidayDate || !label) {
     alert('Bitte Datum und Bezeichnung erfassen.');
     return;
@@ -2555,7 +2561,7 @@ async function handleHolidayFormSubmit(event) {
 
   state.isSavingSettings = true;
   try {
-    await createPlatformHoliday(holidayDate, label);
+    await createPlatformHoliday(holidayDate, label, isPaid);
     if (elements.holidayForm) {
       elements.holidayForm.reset();
     }
@@ -3205,28 +3211,28 @@ async function handleSaveSaldoProfile(profileId) {
   }
 }
 
-async function createPlatformHoliday(holidayDate, label) {
+async function createPlatformHoliday(holidayDate, label, isPaid = true) {
   if (state.isDemoMode) {
     const alreadyExists = demoPlatformHolidays.some((item) => item.holiday_date === holidayDate);
     if (!alreadyExists) {
-      demoPlatformHolidays.push({ id: crypto.randomUUID(), holiday_date: holidayDate, label });
+      demoPlatformHolidays.push({ id: crypto.randomUUID(), holiday_date: holidayDate, label, is_paid: isPaid });
     }
-    await createHolidayWeeklyReportsForDate(holidayDate, label);
+    await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
     return;
   }
 
   const upsertResult = await state.supabase
     .from(HOLIDAY_TABLE)
-    .upsert({ holiday_date: holidayDate, label }, { onConflict: 'holiday_date' })
+    .upsert({ holiday_date: holidayDate, label, is_paid: isPaid }, { onConflict: 'holiday_date' })
     .select('*')
     .maybeSingle();
   if (upsertResult.error && !isMissingTableError(upsertResult.error, HOLIDAY_TABLE)) {
     throw upsertResult.error;
   }
-  await createHolidayWeeklyReportsForDate(holidayDate, label);
+  await createHolidayWeeklyReportsForDate(holidayDate, label, isPaid);
 }
 
-async function createHolidayWeeklyReportsForDate(holidayDate, label) {
+async function createHolidayWeeklyReportsForDate(holidayDate, label, isPaid = true) {
   const activeProfiles = getActiveProfiles();
   if (!activeProfiles.length) {
     return;
@@ -3266,12 +3272,12 @@ async function createHolidayWeeklyReportsForDate(holidayDate, label) {
       end_time: '16:30',
       lunch_break_minutes: 60,
       additional_break_minutes: 30,
-      total_work_minutes: 480,
-      adjusted_work_minutes: 480,
+      total_work_minutes: isPaid ? 480 : 0,
+      adjusted_work_minutes: isPaid ? 480 : 0,
       expenses_amount: 0,
       other_costs_amount: 0,
       expense_note: '',
-      notes: `Automatisch aus Feiertag (${label || 'Feiertag'}) erstellt.`,
+      notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${label || 'Feiertag'}) erstellt.`,
       controll: '',
       attachments: [],
     }));
@@ -3831,7 +3837,7 @@ function renderSettingsHolidaysTable() {
   if (!elements.settingsHolidaysTableBody) return;
   const rows = [...state.platformHolidays].sort((a, b) => `${a.holiday_date || ''}`.localeCompare(`${b.holiday_date || ''}`));
   if (!rows.length) {
-    elements.settingsHolidaysTableBody.innerHTML = '<tr><td colspan="3">Noch keine Feiertage erfasst.</td></tr>';
+    elements.settingsHolidaysTableBody.innerHTML = '<tr><td colspan="4">Noch keine Feiertage erfasst.</td></tr>';
     return;
   }
 
@@ -3839,6 +3845,7 @@ function renderSettingsHolidaysTable() {
     <tr>
       <td>${escapeHtml(formatDate(entry.holiday_date))}</td>
       <td>${escapeHtml(entry.label || 'Feiertag')}</td>
+      <td>${entry.is_paid === false ? 'Unbezahlt' : 'Bezahlt'}</td>
       <td>
         <button class="button button-small button-danger" type="button" data-action="delete-holiday" data-holiday-id="${escapeAttribute(entry.id)}" ${state.isSavingSettings ? 'disabled' : ''}>
           Entfernen

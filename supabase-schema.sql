@@ -103,6 +103,7 @@ create table if not exists public.platform_holidays (
   id uuid primary key default gen_random_uuid(),
   holiday_date date not null unique,
   label text not null,
+  is_paid boolean not null default true,
   created_at timestamptz not null default timezone('utc', now())
 );
 
@@ -171,6 +172,9 @@ add column if not exists controll_pl text;
 
 alter table public.holiday_requests
 add column if not exists controll_gl text;
+
+alter table public.platform_holidays
+add column if not exists is_paid boolean not null default true;
 
 create or replace function public.is_admin_user()
 returns boolean

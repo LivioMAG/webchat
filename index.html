@@ -481,6 +481,13 @@
                       <span>Bezeichnung</span>
                       <input id="holidayNameInput" type="text" maxlength="120" placeholder="z. B. Ostermontag" required />
                     </label>
+                    <label>
+                      <span>Vergütung</span>
+                      <select id="holidayIsPaidInput">
+                        <option value="true" selected>Bezahlt</option>
+                        <option value="false">Unbezahlt</option>
+                      </select>
+                    </label>
                     <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
                   </form>
                   <div class="table-wrapper">
@@ -489,6 +496,7 @@
                         <tr>
                           <th>Datum</th>
                           <th>Bezeichnung</th>
+                          <th>Vergütung</th>
                           <th>Aktion</th>
                         </tr>
                       </thead>
