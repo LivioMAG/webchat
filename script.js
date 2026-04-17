@@ -22,10 +22,12 @@ const SCHOOL_DAY_OPTIONS = [
 const SCHOOL_REPORT_NOTE_MARKER = 'Automatisch erstellter Berufsschultag';
 const BLOCK_DAY_REPORT_NOTE_MARKER = 'Automatisch erstellter Blocktag';
 const BLOCK_DAY_TYPE_CODE = 8;
-const BLOCK_DAY_MODE_OPTIONS = {
-  full: { label: 'Ganzer Tag', start: '07:00', end: '16:30', lunch: 60, additional: 30, minutes: 480 },
-  am: { label: 'Vormittag', start: '07:00', end: '12:00', lunch: 0, additional: 0, minutes: 300 },
-  pm: { label: 'Nachmittag', start: '13:00', end: '16:30', lunch: 0, additional: 0, minutes: 210 },
+const BLOCK_DAY_DEFAULT_START = '07:00';
+const BLOCK_DAY_DEFAULT_END = '16:30';
+const BLOCK_DAY_LEGACY_MODE_OPTIONS = {
+  full: { label: 'Ganzer Tag', start: '07:00', end: '16:30' },
+  am: { label: 'Vormittag', start: '07:00', end: '12:00' },
+  pm: { label: 'Nachmittag', start: '13:00', end: '16:30' },
 };
 const CRM_CATEGORY_LABELS = {
   kunde: 'Kunde',
@@ -818,6 +820,7 @@ function cacheElements() {
   elements.dispoGapWeekToInput = document.getElementById('dispoGapWeekToInput');
   elements.dispoGapMinimumHoursInput = document.getElementById('dispoGapMinimumHoursInput');
   elements.dispoGapServiceProfiles = document.getElementById('dispoGapServiceProfiles');
+  elements.dispoGapModalResults = document.getElementById('dispoGapModalResults');
   elements.closeDispoGapSearchModalButton = document.getElementById('closeDispoGapSearchModalButton');
   elements.cancelDispoGapSearchButton = document.getElementById('cancelDispoGapSearchButton');
   elements.dispoMultiEntryInput = document.getElementById('dispoMultiEntryInput');
@@ -2551,11 +2554,19 @@ function normalizeBlockSchedule(rawSchedule) {
   return rows
     .map((entry) => {
       const weekday = Number(entry?.weekday);
-      const mode = String(entry?.mode || 'full').trim();
-      if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5 || !BLOCK_DAY_MODE_OPTIONS[mode]) {
+      if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5) {
         return null;
       }
-      return { weekday, mode };
+      const legacyMode = String(entry?.mode || '').trim();
+      const fallback = BLOCK_DAY_LEGACY_MODE_OPTIONS[legacyMode] || null;
+      const start_time = normalizeDispoTimeValue(entry?.start_time, fallback?.start || BLOCK_DAY_DEFAULT_START);
+      const end_time = normalizeDispoTimeValue(entry?.end_time, fallback?.end || BLOCK_DAY_DEFAULT_END);
+      const startMinutes = parseClockToMinutes(start_time);
+      const endMinutes = parseClockToMinutes(end_time);
+      if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+        return null;
+      }
+      return { weekday, start_time, end_time };
     })
     .filter(Boolean);
 }
@@ -2580,8 +2591,8 @@ function getBlockScheduleSummary(profile) {
   const schedule = parseBlockSchedule(profile);
   if (!schedule.length) return '–';
   return schedule
-    .sort((left, right) => left.weekday - right.weekday || left.mode.localeCompare(right.mode, 'de'))
-    .map((entry) => `${WEEKDAY_LABELS[entry.weekday - 1]} (${BLOCK_DAY_MODE_OPTIONS[entry.mode].label})`)
+    .sort((left, right) => left.weekday - right.weekday || left.start_time.localeCompare(right.start_time))
+    .map((entry) => `${WEEKDAY_LABELS[entry.weekday - 1]} (${entry.start_time}–${entry.end_time})`)
     .join(', ');
 }
 
@@ -2638,12 +2649,15 @@ function openBlockDayModal(profile) {
   elements.blockDayProfileIdInput.value = profile.id;
   elements.blockDayYearInput.value = String(year);
   const selectedEntries = parseBlockSchedule(profile);
-  const selectedMap = new Map(selectedEntries.map((entry) => [`${entry.weekday}:${entry.mode}`, true]));
+  const selectedByWeekday = new Map(selectedEntries.map((entry) => [entry.weekday, entry]));
   const rows = SCHOOL_DAY_OPTIONS.map((day) => {
-    const modeOptions = Object.entries(BLOCK_DAY_MODE_OPTIONS).map(([modeKey, config]) => (
-      `<label class="checkbox-inline"><input type="checkbox" value="${day.value}:${modeKey}" ${selectedMap.has(`${day.value}:${modeKey}`) ? 'checked' : ''} /><span>${escapeHtml(config.label)}</span></label>`
-    )).join('');
-    return `<tr><td>${escapeHtml(day.label)}</td><td><div class="block-day-mode-grid">${modeOptions}</div></td></tr>`;
+    const existing = selectedByWeekday.get(day.value);
+    return `<tr>
+      <td>${escapeHtml(day.label)}</td>
+      <td><label class="checkbox-inline"><input type="checkbox" data-blockday-active="${day.value}" ${existing ? 'checked' : ''} /><span>Ja</span></label></td>
+      <td><input type="time" data-blockday-start="${day.value}" value="${escapeAttribute(existing?.start_time || BLOCK_DAY_DEFAULT_START)}" /></td>
+      <td><input type="time" data-blockday-end="${day.value}" value="${escapeAttribute(existing?.end_time || BLOCK_DAY_DEFAULT_END)}" /></td>
+    </tr>`;
   }).join('');
   elements.blockDayOptionsBody.innerHTML = rows;
   elements.blockDayModal.classList.remove('hidden');
@@ -2671,13 +2685,22 @@ async function handleBlockDayFormSubmit(event) {
     alert('Bitte ein gültiges Kalenderjahr wählen.');
     return;
   }
-  const selections = Array.from(elements.blockDayOptionsBody?.querySelectorAll('input[type="checkbox"]:checked') || [])
-    .map((input) => String(input.value || '').split(':'))
-    .map(([weekdayRaw, modeRaw]) => ({ weekday: Number(weekdayRaw), mode: modeRaw }))
-    .filter((entry) => Number.isInteger(entry.weekday) && entry.weekday >= 1 && entry.weekday <= 5 && BLOCK_DAY_MODE_OPTIONS[entry.mode]);
-  const deduped = new Map();
-  selections.forEach((entry) => deduped.set(`${entry.weekday}:${entry.mode}`, entry));
-  const blockSchedule = [...deduped.values()];
+  const blockSchedule = [];
+  for (const day of SCHOOL_DAY_OPTIONS) {
+    const activeInput = elements.blockDayOptionsBody?.querySelector(`input[data-blockday-active="${day.value}"]`);
+    if (!(activeInput instanceof HTMLInputElement) || !activeInput.checked) continue;
+    const startInput = elements.blockDayOptionsBody?.querySelector(`input[data-blockday-start="${day.value}"]`);
+    const endInput = elements.blockDayOptionsBody?.querySelector(`input[data-blockday-end="${day.value}"]`);
+    const start_time = normalizeDispoTimeValue(startInput?.value, BLOCK_DAY_DEFAULT_START);
+    const end_time = normalizeDispoTimeValue(endInput?.value, BLOCK_DAY_DEFAULT_END);
+    const startMinutes = parseClockToMinutes(start_time);
+    const endMinutes = parseClockToMinutes(end_time);
+    if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || endMinutes <= startMinutes) {
+      alert(`Ungültige Blockzeit für ${day.label}. Bitte "Von" und "Bis" prüfen.`);
+      return;
+    }
+    blockSchedule.push({ weekday: day.value, start_time, end_time });
+  }
   state.isSavingSettings = true;
   try {
     if (state.isDemoMode) {
@@ -4343,7 +4366,11 @@ function renderDispoCell(profileId, date) {
     return '<td><div class="dispo-plus-cell"><span class="subtle-text">–</span></div></td>';
   }
   const blockItems = getBlockDayDispoItems(profileId, date);
-  const hasFullDayBlock = blockItems.some((item) => item.mode === 'full');
+  const hasFullDayBlock = blockItems.some((item) => {
+    const start = toDispoMinutes(item.start_time, BLOCK_DAY_DEFAULT_START);
+    const end = toDispoMinutes(item.end_time, BLOCK_DAY_DEFAULT_END);
+    return start <= parseClockToMinutes(BLOCK_DAY_DEFAULT_START) && end >= parseClockToMinutes(BLOCK_DAY_DEFAULT_END);
+  });
   const isLocked = isWeeklyReportLocked(profileId, date);
   const entry = state.dailyAssignments.find((item) => item.profile_id === profileId && item.assignment_date === date);
   const assignmentItems = getDispoItemsForEntry(entry);
@@ -4423,12 +4450,20 @@ function openDispoGapSearchModal() {
       ? `Service-Mitarbeitende (${serviceProfiles.length}): ${serviceProfiles.map((profile) => profile.full_name || profile.email || 'Unbekannt').join(', ')}`
       : 'Keine aktiven Mitarbeitenden mit Rolle „Service“ gefunden.';
   }
+  if (elements.dispoGapModalResults) {
+    elements.dispoGapModalResults.innerHTML = '';
+    elements.dispoGapModalResults.classList.add('hidden');
+  }
   elements.dispoGapSearchModal.classList.remove('hidden');
 }
 
 function closeDispoGapSearchModal() {
   if (!elements.dispoGapSearchModal) return;
   elements.dispoGapSearchModal.classList.add('hidden');
+  if (elements.dispoGapModalResults) {
+    elements.dispoGapModalResults.innerHTML = '';
+    elements.dispoGapModalResults.classList.add('hidden');
+  }
 }
 
 async function handleDispoGapSearchSubmit(event) {
@@ -4471,13 +4506,14 @@ async function handleDispoGapSearchSubmit(event) {
       profiles: serviceProfiles,
       assignmentEntries,
     });
-    renderDispoGapSearchResults({
+    const resultPayload = {
       matches,
       weekLabel: weekValues.length === 1 ? getWeekLabel(weekValues[0]) : `${getWeekLabel(weekValues[0])} bis ${getWeekLabel(weekValues[weekValues.length - 1])}`,
       minimumHours,
       windowLabel: '07:00 – 17:00',
-    });
-    closeDispoGapSearchModal();
+    };
+    renderDispoGapSearchResults(resultPayload, elements.dispoGapResults);
+    renderDispoGapSearchResults(resultPayload, elements.dispoGapModalResults);
     showInlineAlert(elements.dispoAlert, `Lückensuche für ${weekValues.length} KW abgeschlossen (${matches.length} Treffer).`, false);
   } catch (error) {
     showInlineAlert(elements.dispoAlert, `Lückensuche fehlgeschlagen: ${error.message}`, true);
@@ -4607,11 +4643,11 @@ function computeFreeIntervals(windowStartMinutes, windowEndMinutes, busyInterval
   return freeIntervals;
 }
 
-function renderDispoGapSearchResults({ matches, weekLabel, minimumHours, windowLabel }) {
-  if (!elements.dispoGapResults) return;
-  elements.dispoGapResults.classList.remove('hidden');
+function renderDispoGapSearchResults({ matches, weekLabel, minimumHours, windowLabel }, targetElement = elements.dispoGapResults) {
+  if (!targetElement) return;
+  targetElement.classList.remove('hidden');
   if (!matches.length) {
-    elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
+    targetElement.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
       <p class="subtle-text">Keine freien Zeitfenster ≥ ${escapeHtml(String(minimumHours))}h im Bereich ${escapeHtml(windowLabel)} gefunden.</p>`;
     return;
   }
@@ -4620,7 +4656,7 @@ function renderDispoGapSearchResults({ matches, weekLabel, minimumHours, windowL
       match.isFullDay ? 'Ganzer Tag frei' : `${escapeHtml(minutesToTimeLabel(match.start))} – ${escapeHtml(minutesToTimeLabel(match.end))} frei`
     }</li>`)
     .join('');
-  elements.dispoGapResults.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
+  targetElement.innerHTML = `<h4>Freie Lücken (${escapeHtml(weekLabel)})</h4>
     <p class="subtle-text">Zeitfenster: ${escapeHtml(windowLabel)} · Mindestlücke: ${escapeHtml(String(minimumHours))}h</p>
     <ul>${rows}</ul>`;
 }
@@ -4721,10 +4757,9 @@ function getBlockDayDispoItems(profileId, date) {
   return schedule
     .filter((entry) => entry.weekday === weekday)
     .map((entry) => ({
-      mode: entry.mode,
-      start_time: BLOCK_DAY_MODE_OPTIONS[entry.mode]?.start || BLOCK_DAY_MODE_OPTIONS.full.start,
-      end_time: BLOCK_DAY_MODE_OPTIONS[entry.mode]?.end || BLOCK_DAY_MODE_OPTIONS.full.end,
-      label: `Blocktag (${BLOCK_DAY_MODE_OPTIONS[entry.mode]?.label || 'Ganzer Tag'})`,
+      start_time: normalizeDispoTimeValue(entry.start_time, BLOCK_DAY_DEFAULT_START),
+      end_time: normalizeDispoTimeValue(entry.end_time, BLOCK_DAY_DEFAULT_END),
+      label: `Blocktag (${normalizeDispoTimeValue(entry.start_time, BLOCK_DAY_DEFAULT_START)}–${normalizeDispoTimeValue(entry.end_time, BLOCK_DAY_DEFAULT_END)})`,
     }));
 }
 
@@ -4742,8 +4777,8 @@ function hasBlockDayOverlap(profileId, date, items = []) {
     const itemEnd = toDispoMinutes(item.end_time, DISPO_DEFAULT_END_TIME);
     if (itemEnd <= itemStart) return true;
     return blockItems.some((block) => {
-      const blockStart = toDispoMinutes(block.start_time, BLOCK_DAY_MODE_OPTIONS.full.start);
-      const blockEnd = toDispoMinutes(block.end_time, BLOCK_DAY_MODE_OPTIONS.full.end);
+      const blockStart = toDispoMinutes(block.start_time, BLOCK_DAY_DEFAULT_START);
+      const blockEnd = toDispoMinutes(block.end_time, BLOCK_DAY_DEFAULT_END);
       return itemStart < blockEnd && itemEnd > blockStart;
     });
   });
