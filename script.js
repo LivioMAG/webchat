@@ -3203,13 +3203,17 @@ async function handleSchoolVacationFormSubmit(event) {
   }
   state.isSavingSettings = true;
   try {
+    const syncYears = mergeSchoolReportSyncYears(
+      getSchoolReportSyncYears(),
+      getYearsFromDateRange(startDate, endDate),
+    );
     if (state.isDemoMode) {
       state.schoolVacations.push({ id: crypto.randomUUID(), start_date: startDate, end_date: endDate });
     } else {
       const { error } = await state.supabase.from('school_vacations').insert({ start_date: startDate, end_date: endDate });
       if (error) throw error;
     }
-    await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
+    await synchronizeAllApprenticeSchoolReportsForYears(syncYears);
     if (elements.schoolVacationForm) {
       elements.schoolVacationForm.reset();
     }
@@ -3228,16 +3232,21 @@ async function handleSettingsSchoolVacationsTableClick(event) {
   if (!trigger || state.isSavingSettings) return;
   const vacationId = trigger.dataset.schoolVacationId;
   if (!vacationId) return;
+  const vacationRange = state.schoolVacations.find((item) => String(item.id) === String(vacationId));
   if (!confirm('Ferienzeit entfernen?')) return;
   state.isSavingSettings = true;
   try {
+    const syncYears = mergeSchoolReportSyncYears(
+      getSchoolReportSyncYears(),
+      getYearsFromDateRange(vacationRange?.start_date, vacationRange?.end_date),
+    );
     if (state.isDemoMode) {
       state.schoolVacations = state.schoolVacations.filter((item) => String(item.id) !== String(vacationId));
     } else {
       const { error } = await state.supabase.from('school_vacations').delete().eq('id', vacationId);
       if (error) throw error;
     }
-    await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
+    await synchronizeAllApprenticeSchoolReportsForYears(syncYears);
     await loadData();
   } catch (error) {
     console.error(error);
@@ -4143,6 +4152,23 @@ function getSchoolReportSyncYears() {
   return [...years].sort((left, right) => left - right);
 }
 
+function getYearsFromDateRange(startDate, endDate) {
+  const years = new Set();
+  const startYear = Number(String(startDate || '').slice(0, 4));
+  const endYear = Number(String(endDate || '').slice(0, 4));
+  if (Number.isInteger(startYear)) years.add(startYear);
+  if (Number.isInteger(endYear)) years.add(endYear);
+  return [...years];
+}
+
+function mergeSchoolReportSyncYears(...yearLists) {
+  const years = new Set();
+  yearLists.flat().forEach((year) => {
+    if (Number.isInteger(Number(year))) years.add(Number(year));
+  });
+  return [...years].sort((left, right) => left - right);
+}
+
 async function synchronizeAllApprenticeSchoolReportsForYears(years = []) {
   for (const year of years) {
     // eslint-disable-next-line no-await-in-loop
@@ -4212,8 +4238,8 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
       && !holidayDates.has(date)
       && !blockDayDates.has(date),
   );
-  const reportsToDeleteIds = autoSchoolReports
-    .filter((report) => report.work_date >= todayIso && !desiredDates.has(report.work_date))
+  const reportsToDeleteIds = profileReports
+    .filter((report) => report.work_date >= todayIso && !desiredDates.has(report.work_date) && isSchoolReport(report))
     .map((report) => report.id);
 
   if (datesToInsert.length) {
@@ -4308,6 +4334,14 @@ function isAutoBlockDayReport(report) {
 
 function isAutoSchoolReport(report) {
   return Number(report?.abz_typ) === 7 && String(report?.notes || '').includes(SCHOOL_REPORT_NOTE_MARKER);
+}
+
+function isSchoolReport(report) {
+  if (isAutoSchoolReport(report)) return true;
+  if (Number(report?.abz_typ) === 7) return true;
+  const projectName = String(report?.project_name || '').toLowerCase();
+  const commissionNumber = String(report?.commission_number || '').toLowerCase();
+  return projectName.includes('berufsschule') || commissionNumber.includes('berufsschule');
 }
 
 function isDateInSchoolVacation(date) {
