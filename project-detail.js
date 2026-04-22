@@ -30,6 +30,7 @@ const state = {
   isDragDockVisible: false,
   contacts: [],
   profiles: [],
+  showHiddenNotes: false,
 };
 
 const elements = {};
@@ -98,6 +99,7 @@ function cacheElements() {
   elements.settingsDocumentsTableBody = document.getElementById('settingsDocumentsTableBody');
   elements.dragDock = document.getElementById('dragDock');
   elements.dragDockInner = document.getElementById('dragDockInner');
+  elements.toggleHiddenNotesButton = document.getElementById('toggleHiddenNotesButton');
 }
 
 function bindEvents() {
@@ -131,6 +133,12 @@ function bindEvents() {
   elements.settingsDocumentsTableBody?.addEventListener('click', handleProjectDocumentsTableClick);
   elements.dragDockInner?.addEventListener('dragover', handleDockDragOver);
   elements.dragDockInner?.addEventListener('drop', handleDockDrop);
+  elements.toggleHiddenNotesButton?.addEventListener('click', handleToggleHiddenNotes);
+}
+
+function handleToggleHiddenNotes() {
+  state.showHiddenNotes = !state.showHiddenNotes;
+  renderBoard();
 }
 
 
@@ -235,7 +243,15 @@ function normalizeNote(rawNote) {
   note.content = normalizeConversation(note.content);
   note.todo_description = String(note.todo_description || '');
   note.color = normalizeNoteColor(note.color);
+  note.visible_from_date = normalizeIsoDateOnly(note.visible_from_date);
   return note;
+}
+
+function normalizeIsoDateOnly(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
 }
 
 function normalizeNoteColor(color) {
@@ -314,6 +330,7 @@ function render() {
 
 function renderBoard() {
   if (!elements.kanbanBoard) return;
+  updateHiddenNotesToggleButtonLabel();
   elements.kanbanBoard.innerHTML = KANBAN_COLUMNS.map((column) => {
     const notes = getNotesByColumn(column.key);
     return `
@@ -348,6 +365,9 @@ function renderCard(note) {
     : `<p class="task-description readonly">${escapeHtml(preview || 'Letzter Eintrag von jemand anderem')}</p>`;
   const todoSection = `<div class="todo-section" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note, { showCompleted: false })}</div>`;
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
+  const hiddenHint = state.showHiddenNotes && !isNoteVisibleToday(note)
+    ? `<p class="task-visibility-hint">Ausgeblendet bis ${escapeHtml(formatDateLabel(note.visible_from_date))}</p>`
+    : '';
 
   return `
     <section class="task-card task-card-${escapeHtml(effectiveColor)}" draggable="true" data-note-id="${escapeHtml(note.id)}" data-note-color="${escapeHtml(effectiveColor)}">
@@ -363,6 +383,7 @@ function renderCard(note) {
       </div>
 
       ${descriptionField}
+      ${hiddenHint}
       ${todoSection}
 
       <button class="attachment-summary" type="button" data-action="open-note-detail" data-note-id="${escapeHtml(note.id)}">
@@ -517,8 +538,28 @@ function renderProjectDocumentsTable() {
 
 function getNotesByColumn(columnKey) {
   return state.notes
+    .filter((note) => state.showHiddenNotes || isNoteVisibleToday(note))
     .filter((note) => String(note.status || 'todo') === columnKey)
     .sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
+}
+
+function isNoteVisibleToday(note) {
+  const visibleFrom = normalizeIsoDateOnly(note?.visible_from_date);
+  if (!visibleFrom) return true;
+  return visibleFrom <= getTodayIsoDate();
+}
+
+function getTodayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function updateHiddenNotesToggleButtonLabel() {
+  if (!elements.toggleHiddenNotesButton) return;
+  if (state.showHiddenNotes) {
+    elements.toggleHiddenNotesButton.textContent = 'Versteckte ausblenden';
+    return;
+  }
+  elements.toggleHiddenNotesButton.textContent = 'Alle inkl. versteckte';
 }
 
 async function handleProjectSettingsSubmit(event) {
@@ -854,6 +895,7 @@ async function createNote({ columnStatus = 'todo' } = {}) {
     counter_description: '',
     attachments: [],
     color: null,
+    visible_from_date: null,
     created_by_uid: state.currentUser?.uid,
     created_by_name: state.currentUser?.name || '',
   };
@@ -929,6 +971,7 @@ async function saveNote(note, { notify = true } = {}) {
     todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
     attachments: Array.isArray(note.attachments) ? note.attachments : [],
     color: normalizeNoteColor(note.color) || null,
+    visible_from_date: normalizeIsoDateOnly(note.visible_from_date) || null,
   };
 
   const { error } = await state.supabase
@@ -1010,6 +1053,13 @@ function renderNoteDetailModal() {
         `).join('')}
       </div>
     </div>
+    <div class="note-visibility-wrap">
+      <label class="note-visibility-label">
+        <span>Unsichtbar bis</span>
+        <input type="date" data-action="change-visible-from-date" data-note-id="${escapeHtml(note.id)}" value="${escapeHtml(note.visible_from_date || '')}" />
+      </label>
+      <button class="task-action" type="button" data-action="clear-visible-from-date" data-note-id="${escapeHtml(note.id)}">Zurücksetzen</button>
+    </div>
   `;
 
   elements.noteDetailTimeline.innerHTML = `
@@ -1058,6 +1108,15 @@ async function handleNoteDetailModalClick(event) {
   const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
   if (!note) return;
 
+  const clearVisibleFromButton = event.target.closest('[data-action="clear-visible-from-date"]');
+  if (clearVisibleFromButton) {
+    note.visible_from_date = '';
+    await saveNote(note, { notify: false });
+    renderBoard();
+    renderNoteDetailModal();
+    return;
+  }
+
   const removeTodoButton = event.target.closest('[data-action="remove-todo"]');
   if (removeTodoButton) {
     const noteId = String(removeTodoButton.dataset.noteId || '');
@@ -1099,6 +1158,15 @@ function handleNoteDetailModalInput(event) {
     const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
     if (!note) return;
     note.color = normalizeNoteColor(event.target.value);
+    void saveNote(note, { notify: false });
+    renderBoard();
+    return;
+  }
+
+  if (event.target.matches('[data-action="change-visible-from-date"]')) {
+    const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
+    if (!note) return;
+    note.visible_from_date = normalizeIsoDateOnly(event.target.value);
     void saveNote(note, { notify: false });
     renderBoard();
   }
@@ -1261,6 +1329,14 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '–';
   return date.toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function formatDateLabel(value) {
+  const isoDate = normalizeIsoDateOnly(value);
+  if (!isoDate) return '–';
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString('de-CH', { dateStyle: 'short' });
 }
 
 function showAlert(message, isError = false) {
