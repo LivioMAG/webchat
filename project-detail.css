@@ -225,6 +225,8 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   cursor: grab;
   display: grid;
   gap: 6px;
+  max-height: min(66vh, calc((100vh - 210px) * 0.66));
+  overflow-y: auto;
 }
 
 .task-card-blue {
@@ -359,7 +361,7 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   border-radius: 16px;
   padding: 18px;
   width: min(1080px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
+  max-height: min(calc(100vh - 24px), 66vh);
   overflow: auto;
   display: grid;
   gap: 14px;
@@ -451,37 +453,96 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   padding-top: 10px;
 }
 
-.note-color-picker-label {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #475569;
+.note-color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.note-color-picker {
+.note-color-option {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.note-color-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.note-color-swatch {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(17, 17, 17, 0.16);
+}
+
+.note-color-option input:checked + .note-color-swatch {
+  outline: 2px solid rgba(17, 17, 17, 0.55);
+  outline-offset: 2px;
+}
+
+.note-color-option-green .note-color-swatch { background: #e9f8ef; }
+.note-color-option-blue .note-color-swatch { background: #eaf4ff; }
+.note-color-option-yellow .note-color-swatch { background: #fff6d9; }
+.note-color-option-red .note-color-swatch { background: #ffe9e7; }
+
+.drag-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translate(-50%, 125%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 220ms ease, opacity 220ms ease;
+  z-index: 1300;
+}
+
+.drag-dock.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drag-dock-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  height: min(10vh, max(8vh, 70px));
+  min-height: 62px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.drag-dock-icon {
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  place-items: center;
+  font-size: 1rem;
+}
+
+.drag-dock-icon.active {
+  outline: 2px solid rgba(59, 130, 246, 0.75);
+  transform: translateY(-2px);
 }
 
 .note-color-option {
   display: flex;
-  gap: 6px;
   align-items: center;
-  border-radius: 10px;
-  padding: 8px 10px;
-  border: 1px solid rgba(17, 17, 17, 0.1);
-  font-size: 0.84rem;
+  justify-content: center;
 }
-
-.note-color-option input {
-  margin: 0;
-}
-
-.note-color-option-green { background: #e9f8ef; }
-.note-color-option-blue { background: #eaf4ff; }
-.note-color-option-yellow { background: #fff6d9; }
-.note-color-option-red { background: #ffe9e7; }
 
 @media (max-width: 900px) {
   .note-detail-layout {

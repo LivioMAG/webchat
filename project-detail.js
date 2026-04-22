@@ -4,6 +4,7 @@ const KANBAN_ATTACHMENT_BUCKET = 'project-kanban-attachments';
 const PROJECT_SETTINGS_DOCUMENT_BUCKET = 'project-settings-documents';
 const MAX_TODOS_PER_NOTE = 6;
 const NOTE_COLOR_OPTIONS = ['green', 'blue', 'yellow', 'red'];
+const DRAG_DOCK_ICONS = ['⭐', '📌', '📁', '🏷️', '🧭', '🔔', '📅', '🗂️', '📤', '🧩'];
 const KANBAN_COLUMNS = [
   { key: 'todo', label: 'Neue Aufträge' },
   { key: 'planned', label: 'AVOR' },
@@ -26,6 +27,7 @@ const state = {
   activeNoteId: '',
   noteEditorDraft: '',
   noteEditorOriginal: '',
+  isDragDockVisible: false,
   contacts: [],
   profiles: [],
 };
@@ -94,6 +96,8 @@ function cacheElements() {
   elements.uploadProjectDocumentButton = document.getElementById('uploadProjectDocumentButton');
   elements.projectDocumentInput = document.getElementById('projectDocumentInput');
   elements.settingsDocumentsTableBody = document.getElementById('settingsDocumentsTableBody');
+  elements.dragDock = document.getElementById('dragDock');
+  elements.dragDockInner = document.getElementById('dragDockInner');
 }
 
 function bindEvents() {
@@ -125,6 +129,8 @@ function bindEvents() {
   elements.uploadProjectDocumentButton?.addEventListener('click', () => elements.projectDocumentInput?.click());
   elements.projectDocumentInput?.addEventListener('change', handleProjectDocumentSelection);
   elements.settingsDocumentsTableBody?.addEventListener('click', handleProjectDocumentsTableClick);
+  elements.dragDockInner?.addEventListener('dragover', handleDockDragOver);
+  elements.dragDockInner?.addEventListener('drop', handleDockDrop);
 }
 
 
@@ -791,7 +797,6 @@ async function handleAttachmentSelection(event) {
     }
     await saveNote(note);
     renderBoard();
-    showAlert('Anhang gespeichert.');
   } catch (error) {
     showAlert(`Upload fehlgeschlagen: ${error.message}`, true);
   }
@@ -802,6 +807,7 @@ function handleDragStart(event) {
   if (!card) return;
   state.draggedNoteId = String(card.dataset.noteId || '');
   card.classList.add('dragging');
+  showDragDock();
 }
 
 function handleDragOver(event) {
@@ -815,6 +821,7 @@ function handleDragEnd() {
   state.draggedNoteId = '';
   document.querySelectorAll('.column-body.drag-over').forEach((node) => node.classList.remove('drag-over'));
   document.querySelectorAll('.task-card.dragging').forEach((node) => node.classList.remove('dragging'));
+  hideDragDock();
 }
 
 async function handleDrop(event) {
@@ -912,7 +919,6 @@ async function resequenceAndPersist() {
   }
 
   renderBoard();
-  showAlert('Kanban gespeichert.');
 }
 
 async function saveNote(note, { notify = true } = {}) {
@@ -935,7 +941,6 @@ async function saveNote(note, { notify = true } = {}) {
     return false;
   }
 
-  if (notify) showAlert('Gespeichert.');
   return true;
 }
 
@@ -991,17 +996,16 @@ function renderNoteDetailModal() {
     <div class="attachments-wrap modal-attachments">
       <div class="modal-attachments-header">
         <h4>Anhänge</h4>
-        <button class="task-action" type="button" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">Anhang hinzufügen</button>
+        <button class="task-icon" type="button" title="Anhang hochladen" aria-label="Anhang hochladen" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">⤴︎</button>
       </div>
       ${renderAttachmentList(Array.isArray(note.attachments) ? note.attachments : [], note.id)}
     </div>
     <div class="note-color-picker-wrap">
-      <p class="note-color-picker-label">Kartenfarbe</p>
       <div class="note-color-picker" role="radiogroup" aria-label="Kartenfarbe auswählen">
         ${NOTE_COLOR_OPTIONS.map((color) => `
           <label class="note-color-option note-color-option-${color}">
             <input type="radio" name="noteColor" value="${color}" data-action="change-note-color" ${note.color === color ? 'checked' : ''} />
-            <span>${getNoteColorLabel(color)}</span>
+            <span class="note-color-swatch" aria-hidden="true"></span>
           </label>
         `).join('')}
       </div>
@@ -1156,21 +1160,6 @@ function getEffectiveNoteColor(note) {
   return isEntryByCurrentUser(getLastConversationEntry(note)) ? 'blue' : 'yellow';
 }
 
-function getNoteColorLabel(color) {
-  switch (color) {
-    case 'green':
-      return 'Grün';
-    case 'blue':
-      return 'Blau';
-    case 'yellow':
-      return 'Gelb';
-    case 'red':
-      return 'Rot';
-    default:
-      return 'Farbe';
-  }
-}
-
 async function uploadAttachment(note, file) {
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${state.projectId}/${note.id}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
@@ -1276,11 +1265,56 @@ function formatDateTime(value) {
 
 function showAlert(message, isError = false) {
   if (!elements.alert) return;
+  if (!isError) {
+    elements.alert.classList.add('hidden');
+    return;
+  }
   elements.alert.textContent = message;
   elements.alert.classList.remove('hidden');
   elements.alert.classList.toggle('error', isError);
   window.clearTimeout(showAlert.timeoutId);
   showAlert.timeoutId = window.setTimeout(() => elements.alert?.classList.add('hidden'), 2200);
+}
+
+function showDragDock() {
+  if (!elements.dragDock || !elements.dragDockInner) return;
+  if (!elements.dragDockInner.childElementCount) {
+    elements.dragDockInner.innerHTML = DRAG_DOCK_ICONS.map((icon, index) => `
+      <button class="drag-dock-icon" type="button" data-dock-slot="${index}" aria-label="Dock Platzhalter ${index + 1}">
+        <span>${icon}</span>
+      </button>
+    `).join('');
+  }
+  state.isDragDockVisible = true;
+  elements.dragDock.classList.add('visible');
+  elements.dragDock.setAttribute('aria-hidden', 'false');
+}
+
+function hideDragDock() {
+  if (!elements.dragDock) return;
+  state.isDragDockVisible = false;
+  elements.dragDock.classList.remove('visible');
+  elements.dragDock.setAttribute('aria-hidden', 'true');
+  elements.dragDock.querySelectorAll('.drag-dock-icon.active').forEach((node) => node.classList.remove('active'));
+}
+
+function handleDockDragOver(event) {
+  if (!state.draggedNoteId || !state.isDragDockVisible) return;
+  event.preventDefault();
+  const icon = event.target.closest('.drag-dock-icon');
+  elements.dragDock?.querySelectorAll('.drag-dock-icon.active').forEach((node) => node.classList.remove('active'));
+  if (icon) icon.classList.add('active');
+}
+
+function handleDockDrop(event) {
+  if (!state.draggedNoteId || !state.isDragDockVisible) return;
+  event.preventDefault();
+  const icon = event.target.closest('.drag-dock-icon');
+  if (!icon) return;
+  const dockSlot = Number(icon.dataset.dockSlot || -1);
+  const noteId = state.draggedNoteId;
+  console.info('Dock placeholder drop:', { dockSlot, noteId });
+  handleDragEnd();
 }
 
 function escapeHtml(value) {
