@@ -218,18 +218,13 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .column-body.drag-over { background: rgba(0, 0, 0, 0.03); }
 
 .task-card {
-  border: 1px solid rgba(215, 0, 21, 0.12);
+  border: none;
   border-radius: 12px;
   background: #f3f4f7;
   padding: 10px;
   cursor: grab;
   display: grid;
   gap: 6px;
-}
-
-.task-card.has-external-latest {
-  background: #fff3e8;
-  border-color: rgba(249, 115, 22, 0.25);
 }
 
 .task-card.dragging { opacity: 0.45; }
@@ -346,10 +341,10 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 
 .note-detail-left,
 .note-detail-right {
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  border-radius: 12px;
-  padding: 12px;
-  background: #fafafa;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .note-conversation-list {
@@ -380,12 +375,12 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .note-primary-input {
   width: 100%;
   min-height: 120px;
-  border: 1px solid rgba(17, 17, 17, 0.15);
-  border-radius: 10px;
+  border: none;
+  border-radius: 0;
   padding: 10px;
   font: inherit;
   resize: vertical;
-  background: #fff;
+  background: #f3f4f7;
 }
 
 .task-preview-hint {

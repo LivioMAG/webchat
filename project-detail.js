@@ -2,6 +2,7 @@ const CONFIG_PATH = './supabase-config.json';
 const KANBAN_TABLE = 'project_kanban_notes';
 const KANBAN_ATTACHMENT_BUCKET = 'project-kanban-attachments';
 const PROJECT_SETTINGS_DOCUMENT_BUCKET = 'project-settings-documents';
+const MAX_TODOS_PER_NOTE = 6;
 const KANBAN_COLUMNS = [
   { key: 'todo', label: 'Neue Aufträge' },
   { key: 'planned', label: 'AVOR' },
@@ -23,6 +24,7 @@ const state = {
   pendingTodoInputFocusNoteId: '',
   activeNoteId: '',
   noteEditorDraft: '',
+  noteEditorOriginal: '',
   contacts: [],
   profiles: [],
 };
@@ -104,6 +106,7 @@ function bindEvents() {
 
   elements.detailNavTabs?.addEventListener('click', handlePageNavigation);
   elements.kanbanBoard?.addEventListener('click', handleBoardClick);
+  elements.kanbanBoard?.addEventListener('dblclick', handleBoardDoubleClick);
   elements.kanbanBoard?.addEventListener('change', handleBoardChange);
   elements.kanbanBoard?.addEventListener('keydown', handleBoardKeydown);
   elements.kanbanBoard?.addEventListener('dragstart', handleDragStart);
@@ -329,15 +332,11 @@ function renderCard(note) {
       placeholder="${isLastByCurrentUser ? 'Notiz hier eingeben ...' : 'Letzter Eintrag von jemand anderem'}"
     >${escapeHtml(preview)}</textarea>
   `;
-  const todoToggleLabel = Array.isArray(note.todo_items) && note.todo_items.length ? `To-dos (${note.todo_items.length})` : 'To-dos';
-  const todoSection = `
-    <button class="button task-action" type="button" data-action="toggle-todos" data-note-id="${escapeHtml(note.id)}">${escapeHtml(todoToggleLabel)}</button>
-    <div class="todo-section hidden" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
-  `;
+  const todoSection = `<div class="todo-section" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note)}</div>`;
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
-    <section class="task-card ${!isLastByCurrentUser && lastEntry ? 'has-external-latest' : ''}" draggable="true" data-note-id="${escapeHtml(note.id)}">
+    <section class="task-card" draggable="true" data-note-id="${escapeHtml(note.id)}">
       <div class="task-header-row">
         <div class="task-type-wrap">
           <span class="task-type-icon">📝</span>
@@ -362,6 +361,7 @@ function renderCard(note) {
 
 function renderTodoList(note) {
   const items = Array.isArray(note.todo_items) ? note.todo_items : [];
+  const isLimitReached = items.length >= MAX_TODOS_PER_NOTE;
   return `
     <div class="todo-list" data-todo-list="${escapeHtml(note.id)}">
       ${items.map((item) => `
@@ -371,7 +371,7 @@ function renderTodoList(note) {
           <button class="todo-remove" type="button" data-action="remove-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}">✕</button>
         </label>
       `).join('')}
-      <input class="todo-add-input" type="text" data-action="add-todo" data-note-id="${escapeHtml(note.id)}" placeholder="To-do hinzufügen und Enter drücken" />
+      <input class="todo-add-input" type="text" data-action="add-todo" data-note-id="${escapeHtml(note.id)}" placeholder="${isLimitReached ? `Maximal ${MAX_TODOS_PER_NOTE} To-dos erreicht` : 'To-do hinzufügen und Enter drücken'}" ${isLimitReached ? 'disabled' : ''} />
     </div>
   `;
 }
@@ -642,14 +642,6 @@ async function handleBoardClick(event) {
     return;
   }
 
-  const toggleTodoButton = event.target.closest('[data-action="toggle-todos"]');
-  if (toggleTodoButton) {
-    const noteId = String(toggleTodoButton.dataset.noteId || '');
-    const section = document.querySelector(`[data-todo-section="${CSS.escape(noteId)}"]`);
-    section?.classList.toggle('hidden');
-    return;
-  }
-
   const deleteButton = event.target.closest('[data-action="delete-note"]');
   if (deleteButton) {
     await deleteNote(String(deleteButton.dataset.noteId || ''));
@@ -687,6 +679,9 @@ async function handleBoardClick(event) {
     return;
   }
 
+}
+
+function handleBoardDoubleClick(event) {
   const card = event.target.closest('.task-card[data-note-id]');
   if (!card) return;
   if (event.target.closest('button, input, textarea, select, a, label')) return;
@@ -744,6 +739,10 @@ async function handleBoardKeydown(event) {
     event.preventDefault();
     const text = String(event.target.value || '').trim();
     if (!text) return;
+    if ((note.todo_items || []).length >= MAX_TODOS_PER_NOTE) {
+      showAlert(`Maximal ${MAX_TODOS_PER_NOTE} To-dos pro Karte.`, true);
+      return;
+    }
     note.todo_items = [...(note.todo_items || []), { id: crypto.randomUUID(), text, done: false }];
     event.target.value = '';
     state.pendingTodoInputFocusNoteId = noteId;
@@ -947,13 +946,16 @@ function openNoteDetailModal(noteId) {
   state.activeNoteId = String(noteId);
   const latestEntry = getLastConversationEntry(note);
   state.noteEditorDraft = latestEntry && isEntryByCurrentUser(latestEntry) ? latestEntry.text : '';
+  state.noteEditorOriginal = state.noteEditorDraft;
   renderNoteDetailModal();
   elements.noteDetailModal?.classList.remove('hidden');
 }
 
-function closeNoteDetailModal() {
+async function closeNoteDetailModal() {
+  await saveActiveNoteDraftIfNeeded();
   state.activeNoteId = '';
   state.noteEditorDraft = '';
+  state.noteEditorOriginal = '';
   elements.noteDetailModal?.classList.add('hidden');
 }
 
@@ -964,13 +966,8 @@ function renderNoteDetailModal() {
   const latestIsMine = isEntryByCurrentUser(latestEntry);
 
   elements.noteDetailEditor.innerHTML = `
-    <p class="task-preview-hint">Aktuellster Eintrag: ${latestEntry ? escapeHtml(getEntryAuthorLabel(latestEntry)) : 'keiner'}</p>
     <textarea class="note-primary-input" data-action="note-editor-input" placeholder="${latestIsMine ? 'Dein letzter Eintrag' : 'Neuen Eintrag schreiben ...'}">${escapeHtml(state.noteEditorDraft)}</textarea>
-    <div class="task-actions">
-      <button type="button" class="button button-primary" data-action="save-note-editor">Speichern</button>
-      <button type="button" class="button" data-action="toggle-todos-in-modal">To-do</button>
-    </div>
-    <div class="todo-modal-wrap hidden" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
+    <div class="todo-modal-wrap" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
   `;
 
   elements.noteDetailTimeline.innerHTML = `
@@ -988,22 +985,11 @@ function renderNoteDetailModal() {
 
 async function handleNoteDetailModalClick(event) {
   if (event.target === elements.noteDetailModal || event.target.closest('[data-action="close-note-detail"]')) {
-    closeNoteDetailModal();
+    await closeNoteDetailModal();
     return;
   }
   const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
   if (!note) return;
-
-  if (event.target.closest('[data-action="toggle-todos-in-modal"]')) {
-    const wrap = elements.noteDetailEditor?.querySelector(`[data-modal-todos="${CSS.escape(note.id)}"]`);
-    wrap?.classList.toggle('hidden');
-    return;
-  }
-
-  if (event.target.closest('[data-action="save-note-editor"]')) {
-    await saveNoteDetailEditor(note);
-    return;
-  }
 
   const removeTodoButton = event.target.closest('[data-action="remove-todo"]');
   if (removeTodoButton) {
@@ -1053,8 +1039,18 @@ async function saveNoteDetailEditor(note) {
     note.content = [...(note.content || []), buildConversationEntry(text)];
   }
   await saveNote(note);
+  state.noteEditorOriginal = text;
   renderBoard();
   renderNoteDetailModal();
+}
+
+async function saveActiveNoteDraftIfNeeded() {
+  const noteId = String(state.activeNoteId || '');
+  if (!noteId) return;
+  if (String(state.noteEditorDraft || '') === String(state.noteEditorOriginal || '')) return;
+  const note = state.notes.find((entry) => String(entry.id) === noteId);
+  if (!note) return;
+  await saveNoteDetailEditor(note);
 }
 
 function getLastConversationEntry(note) {
