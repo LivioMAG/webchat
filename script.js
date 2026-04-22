@@ -4990,9 +4990,10 @@ function renderDispoCell(profileId, date) {
   const weeklyReportItems = getWeeklyReportItems(profileId, date);
   const weeklyAbsenceItems = weeklyReportItems.filter((item) => isAbsenceDispoItem(item?.label));
   const missingReportItem = [{ type: 'missing_report', label: 'Rapport fehlt', start_time: '', end_time: '' }];
+  const shouldShowMissingReport = blockItems.length === 0;
   const fallbackItems = weeklyAbsenceItems.length ? weeklyAbsenceItems : (isLocked ? weeklyReportItems : []);
   const items = isLocked
-    ? (weeklyReportItems.length ? weeklyReportItems : missingReportItem)
+    ? (weeklyReportItems.length ? weeklyReportItems : (shouldShowMissingReport ? missingReportItem : []))
     : (assignmentItems.length ? assignmentItems : fallbackItems);
   const hasAutoAbsenceFromWeeklyReport = !isLocked && !assignmentItems.length && weeklyAbsenceItems.length > 0;
   const addButton = (!hasFullDayBlock && !isLocked && !hasAutoAbsenceFromWeeklyReport)
