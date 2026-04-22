@@ -3900,6 +3900,7 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
   const manualReportDates = new Set(profileReports.filter((report) => !isAutoSchoolReport(report)).map((report) => report.work_date));
   const blockDayDates = new Set(profileReports.filter((report) => isAutoBlockDayReport(report)).map((report) => report.work_date));
   const existingAutoDates = new Set(autoSchoolReports.map((report) => report.work_date));
+  const todayIso = new Date().toISOString().slice(0, 10);
   const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
   profileReports.forEach((report) => {
     if (Number(report.abz_typ) === 5 && report.work_date) {
@@ -3907,9 +3908,15 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
     }
   });
   const datesToInsert = [...desiredDates].filter(
-    (date) => !manualReportDates.has(date) && !existingAutoDates.has(date) && !holidayDates.has(date) && !blockDayDates.has(date),
+    (date) => date >= todayIso
+      && !manualReportDates.has(date)
+      && !existingAutoDates.has(date)
+      && !holidayDates.has(date)
+      && !blockDayDates.has(date),
   );
-  const reportsToDeleteIds = autoSchoolReports.filter((report) => !desiredDates.has(report.work_date)).map((report) => report.id);
+  const reportsToDeleteIds = autoSchoolReports
+    .filter((report) => report.work_date >= todayIso && !desiredDates.has(report.work_date))
+    .map((report) => report.id);
 
   if (datesToInsert.length) {
     const rows = datesToInsert.map((workDate) => {
@@ -3971,7 +3978,10 @@ async function synchronizeBlockDayReportsForYear(profileId, year) {
     profileReports = data || [];
   }
 
-  const idsToDelete = profileReports.filter((report) => isAutoBlockDayReport(report)).map((report) => report.id);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const idsToDelete = profileReports
+    .filter((report) => report.work_date >= todayIso && isAutoBlockDayReport(report))
+    .map((report) => report.id);
   if (idsToDelete.length) {
     if (state.isDemoMode) {
       for (const reportId of idsToDelete) {
