@@ -669,6 +669,30 @@ tbody tr:hover {
   margin-left: auto;
 }
 
+.report-filter-icon-button {
+  width: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border-radius: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.report-filter-icon-button input[type='checkbox'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.report-controlled-toggle.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .employee-filter-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

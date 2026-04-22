@@ -739,6 +739,7 @@ function cacheElements() {
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
   elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.showControlledReportsToggle = document.getElementById('showControlledReportsToggle');
   elements.showControlledReportsInput = document.getElementById('showControlledReportsInput');
   elements.selectedAbsenceEmployeesSummary = document.getElementById('selectedAbsenceEmployeesSummary');
   elements.absenceFilterInput = document.getElementById('absenceFilterInput');
@@ -1790,6 +1791,9 @@ function renderEmployeeFilters() {
   elements.employeeFilterInput.value = state.employeeFilterQuery;
   if (elements.showControlledReportsInput) {
     elements.showControlledReportsInput.checked = state.showControlledReports;
+  }
+  if (elements.showControlledReportsToggle) {
+    elements.showControlledReportsToggle.classList.toggle('is-active', state.showControlledReports);
   }
   const profiles = getReportableProfiles();
   const visibleProfiles = getMatchingProfiles(profiles, state.employeeFilterQuery).slice(0, MAX_VISIBLE_FILTER_OPTIONS);
