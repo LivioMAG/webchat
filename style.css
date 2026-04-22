@@ -858,6 +858,10 @@ tbody tr:hover {
   width: min(520px, calc(100vw - 32px));
 }
 
+.block-day-modal-card {
+  width: min(980px, calc(100vw - 32px));
+}
+
 .report-edit-form {
   display: grid;
   gap: 16px;
