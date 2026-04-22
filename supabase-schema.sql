@@ -983,6 +983,7 @@ alter table public.app_profiles enable row level security;
 alter table public.weekly_reports enable row level security;
 alter table public.holiday_requests enable row level security;
 alter table public.daily_assignments enable row level security;
+alter table public.platform_holidays enable row level security;
 
 -- Vollzugriff nur für Profile mit is_admin = true.
 drop policy if exists "app_profiles own or master" on public.app_profiles;
@@ -1002,6 +1003,8 @@ drop policy if exists "app_profiles delete own or admin" on public.app_profiles;
 drop policy if exists "weekly_reports own or admin" on public.weekly_reports;
 drop policy if exists "holiday_requests own or admin" on public.holiday_requests;
 drop policy if exists "daily_assignments own or admin" on public.daily_assignments;
+drop policy if exists "platform_holidays read authenticated" on public.platform_holidays;
+drop policy if exists "platform_holidays write admin" on public.platform_holidays;
 
 create policy "app_profiles own or admin"
 on public.app_profiles
@@ -1041,6 +1044,17 @@ on public.daily_assignments
 for all
 using (public.is_admin_user() or auth.uid() = profile_id)
 with check (public.is_admin_user() or auth.uid() = profile_id);
+
+create policy "platform_holidays read authenticated"
+on public.platform_holidays
+for select
+using (auth.role() = 'authenticated');
+
+create policy "platform_holidays write admin"
+on public.platform_holidays
+for all
+using (public.is_admin_user())
+with check (public.is_admin_user());
 
 insert into storage.buckets (id, name, public)
 values ('weekly-attachments', 'weekly-attachments', true)
