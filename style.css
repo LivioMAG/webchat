@@ -649,18 +649,14 @@ tbody tr:hover {
 .report-filter-toolbar {
   display: flex;
   justify-content: flex-start;
-  gap: 16px;
+  gap: 12px;
   align-items: flex-end;
+  flex-wrap: nowrap;
 }
 
 .report-filter-search-label {
-  flex: 0 1 360px;
-}
-
-.report-filter-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
+  flex: 1 1 auto;
+  min-width: 260px;
 }
 
 .report-filter-icon-button {
