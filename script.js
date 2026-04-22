@@ -651,6 +651,11 @@ const state = {
   showControlledAbsences: false,
   includeConfirmationHistory: false,
   isConfirmationsModalOpen: false,
+  isBulkConfirmModalOpen: false,
+  bulkConfirmSelectedProjectId: '',
+  isBulkConfirmSaving: false,
+  bulkConfirmResultMessage: '',
+  bulkConfirmResultIsError: false,
   reportsPage: 1,
   reportsPerPage: 20,
   editingReportId: null,
@@ -739,6 +744,7 @@ function cacheElements() {
   elements.employeeFilterList = document.getElementById('employeeFilterList');
   elements.selectAllEmployeesButton = document.getElementById('selectAllEmployeesButton');
   elements.clearEmployeeSelectionButton = document.getElementById('clearEmployeeSelectionButton');
+  elements.reportsToolbarPlaceholderButton = document.getElementById('reportsToolbarPlaceholderButton');
   elements.showControlledReportsToggle = document.getElementById('showControlledReportsToggle');
   elements.showControlledReportsInput = document.getElementById('showControlledReportsInput');
   elements.selectedAbsenceEmployeesSummary = document.getElementById('selectedAbsenceEmployeesSummary');
@@ -750,6 +756,12 @@ function cacheElements() {
   elements.openConfirmationsModalButton = document.getElementById('openConfirmationsModalButton');
   elements.confirmationsModal = document.getElementById('confirmationsModal');
   elements.closeConfirmationsModalButton = document.getElementById('closeConfirmationsModalButton');
+  elements.bulkConfirmModal = document.getElementById('bulkConfirmModal');
+  elements.closeBulkConfirmModalButton = document.getElementById('closeBulkConfirmModalButton');
+  elements.bulkConfirmProjectSelect = document.getElementById('bulkConfirmProjectSelect');
+  elements.bulkConfirmTableBody = document.getElementById('bulkConfirmTableBody');
+  elements.bulkConfirmSubmitButton = document.getElementById('bulkConfirmSubmitButton');
+  elements.bulkConfirmResultMessage = document.getElementById('bulkConfirmResultMessage');
   elements.includeConfirmationHistoryInput = document.getElementById('includeConfirmationHistoryInput');
   elements.exportConfirmationsPdfButton = document.getElementById('exportConfirmationsPdfButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
@@ -908,6 +920,9 @@ function bindEvents() {
   elements.employeeFilterInput.addEventListener('input', handleEmployeeFilterInput);
   elements.selectAllEmployeesButton.addEventListener('click', selectAllEmployees);
   elements.clearEmployeeSelectionButton.addEventListener('click', clearEmployeeSelection);
+  if (elements.reportsToolbarPlaceholderButton) {
+    elements.reportsToolbarPlaceholderButton.addEventListener('click', openBulkConfirmModal);
+  }
   elements.showControlledReportsInput.addEventListener('change', handleShowControlledReportsToggle);
   elements.employeeFilterList.addEventListener('change', handleEmployeeSelectionChange);
   if (elements.absenceFilterInput) elements.absenceFilterInput.addEventListener('input', handleAbsenceFilterInput);
@@ -917,6 +932,15 @@ function bindEvents() {
   if (elements.absenceFilterList) elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
   elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
   elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
+  if (elements.closeBulkConfirmModalButton) {
+    elements.closeBulkConfirmModalButton.addEventListener('click', closeBulkConfirmModal);
+  }
+  if (elements.bulkConfirmProjectSelect) {
+    elements.bulkConfirmProjectSelect.addEventListener('change', handleBulkConfirmProjectSelectionChange);
+  }
+  if (elements.bulkConfirmSubmitButton) {
+    elements.bulkConfirmSubmitButton.addEventListener('click', handleBulkConfirmSubmit);
+  }
   elements.includeConfirmationHistoryInput.addEventListener('change', handleConfirmationHistoryToggle);
   elements.exportConfirmationsPdfButton.addEventListener('click', exportFilteredConfirmationsPdf);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
@@ -993,6 +1017,13 @@ function bindEvents() {
       closeConfirmationsModal();
     }
   });
+  if (elements.bulkConfirmModal) {
+    elements.bulkConfirmModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeBulkConfirmModal === 'true') {
+        closeBulkConfirmModal();
+      }
+    });
+  }
   elements.dispoPreviousWeekButton.addEventListener('click', async () => {
     state.selectedWeek = shiftWeekValue(state.selectedWeek, -1);
     elements.weekPicker.value = state.selectedWeek;
@@ -1668,6 +1699,7 @@ function render() {
   renderReportsTable();
   renderSubmissionLists();
   renderAbsenceTable();
+  renderBulkConfirmModalState();
   renderConfirmationsModalState();
   renderConfirmationsTable();
   renderSaldoTable();
@@ -3250,33 +3282,10 @@ async function handleConfirmReport(reportId) {
     return;
   }
 
-  const controllName = getControllDisplayName();
-  if (!controllName) {
-    alert('Der Name für die Kontrolle konnte nicht ermittelt werden.');
-    return;
-  }
-
   state.isSavingReport = true;
   try {
     await withLongTask('Rapport wird bestätigt …', async () => {
-      const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
-      const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
-
-      if (state.isDemoMode) {
-        updateDemoReport(reportId, { controll: controllName });
-        if (existingReport && !wasAlreadyConfirmed) {
-          applyDemoReportBookingDelta(existingReport, 1);
-        }
-      } else {
-        const { error } = await state.supabase
-          .from('weekly_reports')
-          .update({ controll: controllName })
-          .eq('id', reportId);
-        if (error) throw error;
-        if (existingReport && !wasAlreadyConfirmed) {
-          await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
-        }
-      }
+      await confirmReportUsingSingleConfirmationLogic(reportId);
       await loadData();
     });
   } catch (error) {
@@ -3286,6 +3295,105 @@ async function handleConfirmReport(reportId) {
     state.isSavingReport = false;
     render();
   }
+}
+
+async function confirmReportUsingSingleConfirmationLogic(reportId) {
+  const controllName = getControllDisplayName();
+  if (!controllName) {
+    throw new Error('Der Name für die Kontrolle konnte nicht ermittelt werden.');
+  }
+
+  const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
+  const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
+
+  if (state.isDemoMode) {
+    updateDemoReport(reportId, { controll: controllName });
+    if (existingReport && !wasAlreadyConfirmed) {
+      applyDemoReportBookingDelta(existingReport, 1);
+    }
+    return;
+  }
+
+  const { error } = await state.supabase
+    .from('weekly_reports')
+    .update({ controll: controllName })
+    .eq('id', reportId);
+  if (error) throw error;
+  if (existingReport && !wasAlreadyConfirmed) {
+    await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
+  }
+}
+
+async function handleBulkConfirmSubmit() {
+  if (state.isBulkConfirmSaving || state.isSavingReport) {
+    return;
+  }
+  const selectedProjectId = String(state.bulkConfirmSelectedProjectId || '');
+  if (!selectedProjectId) {
+    state.bulkConfirmResultMessage = 'Bitte zuerst ein Projekt auswählen.';
+    state.bulkConfirmResultIsError = true;
+    renderBulkConfirmModalState();
+    return;
+  }
+
+  const project = state.projects.find((item) => String(item.id) === selectedProjectId);
+  if (!project) {
+    state.bulkConfirmResultMessage = 'Das gewählte Projekt wurde nicht gefunden.';
+    state.bulkConfirmResultIsError = true;
+    renderBulkConfirmModalState();
+    return;
+  }
+
+  const reportsToConfirm = state.weeklyReports.filter((report) => (
+    String(report.commission_number || '').trim() === String(project.commission_number || '').trim()
+    && !String(report.controll || '').trim()
+  ));
+  if (!reportsToConfirm.length) {
+    state.bulkConfirmResultMessage = 'Keine offenen Rapporte zum Bestätigen gefunden.';
+    state.bulkConfirmResultIsError = false;
+    renderBulkConfirmModalState();
+    return;
+  }
+
+  const shouldConfirm = window.confirm(`Möchten Sie alle Rapporte bestätigen? (${reportsToConfirm.length} Einträge)`);
+  if (!shouldConfirm) {
+    return;
+  }
+
+  state.isBulkConfirmSaving = true;
+  state.bulkConfirmResultMessage = '';
+  state.bulkConfirmResultIsError = false;
+  renderBulkConfirmModalState();
+
+  const errors = [];
+  let successCount = 0;
+
+  try {
+    await withLongTask('Sammelbestätigung wird verarbeitet …', async () => {
+      for (const report of reportsToConfirm) {
+        try {
+          await confirmReportUsingSingleConfirmationLogic(report.id);
+          successCount += 1;
+        } catch (error) {
+          errors.push(`${getProfileById(report.profile_id)?.full_name || 'Unbekannt'} (${formatDate(report.work_date)}): ${error.message}`);
+        }
+      }
+      await loadData();
+    });
+  } catch (error) {
+    errors.push(error.message);
+  } finally {
+    state.isBulkConfirmSaving = false;
+  }
+
+  if (!errors.length) {
+    state.bulkConfirmResultMessage = `${successCount} Rapporte erfolgreich bestätigt.`;
+    state.bulkConfirmResultIsError = false;
+  } else {
+    state.bulkConfirmResultMessage = `${successCount} Rapporte bestätigt, ${errors.length} fehlgeschlagen: ${errors.join(' | ')}`;
+    state.bulkConfirmResultIsError = true;
+  }
+  renderBulkConfirmModalState();
 }
 
 async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
@@ -5367,6 +5475,10 @@ function handleGlobalKeydown(event) {
     closeConfirmationsModal();
     return;
   }
+  if (elements.bulkConfirmModal && !elements.bulkConfirmModal.classList.contains('hidden')) {
+    closeBulkConfirmModal();
+    return;
+  }
   if (!elements.reportEditModal.classList.contains('hidden')) {
     closeReportEditModal();
   }
@@ -5381,6 +5493,118 @@ function openConfirmationsModal() {
 function closeConfirmationsModal() {
   state.isConfirmationsModalOpen = false;
   renderConfirmationsModalState();
+}
+
+function getProjectLeadProjects() {
+  const currentProfileId = String(state.currentProfile?.id || '');
+  if (!currentProfileId) {
+    return [];
+  }
+  return state.projects
+    .filter((project) => String(project.project_lead_profile_id || '') === currentProfileId)
+    .sort((left, right) => `${left.commission_number || ''} ${left.name || ''}`.localeCompare(`${right.commission_number || ''} ${right.name || ''}`, 'de'));
+}
+
+function getBulkConfirmProjectSummaries(projectId) {
+  if (!projectId) {
+    return [];
+  }
+  const project = state.projects.find((item) => String(item.id) === String(projectId));
+  if (!project) {
+    return [];
+  }
+  const reports = state.weeklyReports.filter((report) => String(report.commission_number || '').trim() === String(project.commission_number || '').trim());
+  const groupedByProfile = new Map();
+
+  for (const report of reports) {
+    const profileId = String(report.profile_id || '');
+    if (!profileId) continue;
+    const existing = groupedByProfile.get(profileId) || { profileId, totalWorkMinutes: 0, totalAdjustedMinutes: 0, openReports: 0 };
+    existing.totalWorkMinutes += Number(report.total_work_minutes || 0);
+    existing.totalAdjustedMinutes += Number(getAdjustedWorkMinutes(report) || 0);
+    if (!String(report.controll || '').trim()) {
+      existing.openReports += 1;
+    }
+    groupedByProfile.set(profileId, existing);
+  }
+
+  return Array.from(groupedByProfile.values())
+    .map((entry) => ({ ...entry, profile: getProfileById(entry.profileId) }))
+    .sort((left, right) => `${left.profile?.full_name || ''}`.localeCompare(`${right.profile?.full_name || ''}`, 'de'));
+}
+
+function openBulkConfirmModal() {
+  const leadProjects = getProjectLeadProjects();
+  if (!leadProjects.length) {
+    alert('Für dein Profil sind keine Projekte als Projektleiter hinterlegt.');
+    return;
+  }
+  state.isBulkConfirmModalOpen = true;
+  if (!leadProjects.some((project) => String(project.id) === String(state.bulkConfirmSelectedProjectId))) {
+    state.bulkConfirmSelectedProjectId = leadProjects[0].id;
+  }
+  state.bulkConfirmResultMessage = '';
+  state.bulkConfirmResultIsError = false;
+  render();
+}
+
+function closeBulkConfirmModal() {
+  state.isBulkConfirmModalOpen = false;
+  state.isBulkConfirmSaving = false;
+  state.bulkConfirmResultMessage = '';
+  state.bulkConfirmResultIsError = false;
+  renderBulkConfirmModalState();
+}
+
+function handleBulkConfirmProjectSelectionChange(event) {
+  state.bulkConfirmSelectedProjectId = String(event.target.value || '');
+  state.bulkConfirmResultMessage = '';
+  state.bulkConfirmResultIsError = false;
+  renderBulkConfirmModalState();
+}
+
+function renderBulkConfirmModalState() {
+  if (!elements.bulkConfirmModal || !elements.bulkConfirmProjectSelect || !elements.bulkConfirmTableBody || !elements.bulkConfirmSubmitButton) {
+    return;
+  }
+
+  elements.bulkConfirmModal.classList.toggle('hidden', !state.isBulkConfirmModalOpen);
+  const leadProjects = getProjectLeadProjects();
+  if (leadProjects.length && !leadProjects.some((project) => String(project.id) === String(state.bulkConfirmSelectedProjectId))) {
+    state.bulkConfirmSelectedProjectId = leadProjects[0].id;
+  }
+
+  elements.bulkConfirmProjectSelect.innerHTML = leadProjects.length
+    ? leadProjects
+        .map((project) => `<option value="${escapeAttribute(project.id)}">${escapeHtml(`${project.commission_number || '—'} · ${project.name || 'Ohne Bezeichnung'}`)}</option>`)
+        .join('')
+    : '<option value="">Keine Projekte</option>';
+  elements.bulkConfirmProjectSelect.value = state.bulkConfirmSelectedProjectId || '';
+  elements.bulkConfirmProjectSelect.disabled = !leadProjects.length || state.isBulkConfirmSaving;
+
+  const summaries = getBulkConfirmProjectSummaries(state.bulkConfirmSelectedProjectId);
+  elements.bulkConfirmTableBody.innerHTML = summaries.length
+    ? summaries
+        .map((entry) => `
+          <tr>
+            <td>${escapeHtml(entry.profile?.full_name || 'Unbekannt')}</td>
+            <td>${formatMinutes(entry.totalWorkMinutes)}</td>
+            <td>${formatMinutes(entry.totalAdjustedMinutes)}</td>
+            <td>${entry.openReports}</td>
+          </tr>
+        `)
+        .join('')
+    : '<tr><td colspan="4">Keine Rapporte für dieses Projekt in der aktuellen Woche gefunden.</td></tr>';
+
+  const openReportCount = summaries.reduce((sum, entry) => sum + Number(entry.openReports || 0), 0);
+  elements.bulkConfirmSubmitButton.disabled = state.isBulkConfirmSaving || !leadProjects.length || !openReportCount;
+  elements.bulkConfirmSubmitButton.textContent = state.isBulkConfirmSaving ? 'Bestätige …' : 'Bestätigen';
+
+  if (elements.bulkConfirmResultMessage) {
+    elements.bulkConfirmResultMessage.textContent = state.bulkConfirmResultMessage || '';
+    elements.bulkConfirmResultMessage.classList.toggle('bulk-confirm-error', Boolean(state.bulkConfirmResultIsError));
+    elements.bulkConfirmResultMessage.classList.toggle('bulk-confirm-success', Boolean(state.bulkConfirmResultMessage) && !state.bulkConfirmResultIsError);
+  }
 }
 
 async function exportFilteredConfirmationsPdf() {

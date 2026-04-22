@@ -878,6 +878,16 @@ tbody tr:hover {
   padding: 10px 0;
 }
 
+.bulk-confirm-error {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.bulk-confirm-success {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .attachment-list {
   display: grid;
   gap: 6px;

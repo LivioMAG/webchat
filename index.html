@@ -147,7 +147,7 @@
                     <span>Mitarbeiter suchen</span>
                     <input id="employeeFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
                   </label>
-                  <button id="reportsToolbarPlaceholderButton" class="button button-secondary report-filter-icon-button" type="button" title="Platzhalter" aria-label="Platzhalter">＋</button>
+                  <button id="reportsToolbarPlaceholderButton" class="button button-secondary report-filter-icon-button" type="button" title="Sammelbestätigung (Projektleiter)" aria-label="Sammelbestätigung (Projektleiter)">✅</button>
                   <button id="selectAllEmployeesButton" class="button button-secondary report-filter-icon-button" type="button" title="Alle auswählen" aria-label="Alle auswählen">
                     <span aria-hidden="true">☑️</span>
                   </button>
@@ -797,6 +797,46 @@
               </thead>
               <tbody id="confirmationsTableBody"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="bulkConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bulkConfirmModalTitle">
+        <div class="modal-backdrop" data-close-bulk-confirm-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="bulkConfirmModalTitle">Sammelbestätigung Wochenrapporte</h3>
+              <p>Alle offenen Rapporte der aktuellen Woche für ein Projekt gesammelt bestätigen.</p>
+            </div>
+            <button id="closeBulkConfirmModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <div class="report-edit-form">
+            <label>
+              <span>Projekt (Projektleiter)</span>
+              <select id="bulkConfirmProjectSelect"></select>
+            </label>
+
+            <p id="bulkConfirmResultMessage" class="subtle-text" aria-live="polite"></p>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mitarbeiter</th>
+                    <th>Rapportierte Stunden (Woche)</th>
+                    <th>Bereinigte Stunden (Woche)</th>
+                    <th>Offene Rapporte</th>
+                  </tr>
+                </thead>
+                <tbody id="bulkConfirmTableBody"></tbody>
+              </table>
+            </div>
+
+            <div class="modal-actions">
+              <button id="bulkConfirmSubmitButton" class="button button-primary" type="button">Bestätigen</button>
+            </div>
           </div>
         </div>
       </div>
