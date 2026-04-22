@@ -171,6 +171,31 @@ add column if not exists construction_lead_profile_id uuid references public.app
 alter table public.projects
 add column if not exists allow_expenses boolean not null default true;
 
+create table if not exists public.project_kanban_notes (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  status text not null default 'todo' check (status in ('todo', 'planned', 'in_progress', 'review', 'done')),
+  position integer not null default 0,
+  note_type text not null default 'text' check (note_type in ('text', 'todo', 'counter')),
+  content text not null default '',
+  todo_items jsonb not null default '[]'::jsonb,
+  todo_description text not null default '',
+  counter_value integer not null default 0,
+  counter_start_value integer not null default 1,
+  counter_log jsonb not null default '[]'::jsonb,
+  counter_description text not null default '',
+  attachments jsonb not null default '[]'::jsonb,
+  created_by_uid uuid references public.app_profiles(id) on delete set null,
+  created_by_name text not null default '',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists project_kanban_notes_project_status_position_idx
+on public.project_kanban_notes (project_id, status, position);
+
+
+
 create table if not exists public.school_vacations (
   id uuid primary key default gen_random_uuid(),
   start_date date not null,
