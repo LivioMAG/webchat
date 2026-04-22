@@ -10,6 +10,17 @@ as $$
   select nullif(trim(coalesce(p_controll, '')), '') is not null
 $$;
 
+create or replace function public.weekly_report_confirmation_value(p_report public.weekly_reports)
+returns text
+language sql
+immutable
+as $$
+  select coalesce(
+    nullif(trim(coalesce(to_jsonb(p_report)->>'controll', '')), ''),
+    nullif(trim(coalesce(to_jsonb(p_report)->>'control', '')), '')
+  )
+$$;
+
 create or replace function public.weekly_report_matches_keyword(p_report public.weekly_reports, p_keyword text)
 returns boolean
 language sql
@@ -105,11 +116,11 @@ declare
   v_hours numeric(10,2);
   v_is_vacation boolean;
 begin
-  if not public.report_is_confirmed(new.controll) then
+  if not public.report_is_confirmed(public.weekly_report_confirmation_value(new)) then
     return new;
   end if;
 
-  if tg_op = 'UPDATE' and public.report_is_confirmed(old.controll) then
+  if tg_op = 'UPDATE' and public.report_is_confirmed(public.weekly_report_confirmation_value(old)) then
     return new;
   end if;
 
@@ -136,7 +147,7 @@ declare
   v_hours numeric(10,2);
   v_is_vacation boolean;
 begin
-  if not public.report_is_confirmed(old.controll) then
+  if not public.report_is_confirmed(public.weekly_report_confirmation_value(old)) then
     return old;
   end if;
 
@@ -161,7 +172,7 @@ declare
   v_old_payload jsonb;
   v_new_payload jsonb;
 begin
-  if not public.report_is_confirmed(old.controll) then
+  if not public.report_is_confirmed(public.weekly_report_confirmation_value(old)) then
     return new;
   end if;
 
