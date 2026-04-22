@@ -11,6 +11,7 @@ const DISPO_ITEMS_PREFIX = 'dispo_items:';
 const DISPO_ITEMS_LEGACY_PREFIX = '__dispo_items__:';
 const DISPO_DEFAULT_START_TIME = '07:00';
 const DISPO_DEFAULT_END_TIME = '16:30';
+const DEFAULT_MISSING_REPORTS_CALL_WEBHOOK_URL = 'https://n8n.voltlog.cloud/webhook/voice-agent-retell';
 const APP_ROLE_OPTIONS = ['Lehrling', 'Elektroinstallateur', 'Bauleiter', 'Projektleiter', 'Service'];
 const SCHOOL_DAY_OPTIONS = [
   { value: 1, label: 'Montag' },
@@ -680,6 +681,7 @@ const demoPlatformHolidays = [];
 const state = {
   supabase: null,
   supabaseAnonKey: '',
+  missingReportsCallWebhookUrl: DEFAULT_MISSING_REPORTS_CALL_WEBHOOK_URL,
   session: null,
   user: null,
   currentProfile: null,
@@ -723,6 +725,10 @@ const state = {
   isBulkConfirmSaving: false,
   bulkConfirmResultMessage: '',
   bulkConfirmResultIsError: false,
+  isMissingReportsCallModalOpen: false,
+  isMissingReportsCallSubmitting: false,
+  missingReportsCallResultMessage: '',
+  missingReportsCallResultIsError: false,
   reportsPage: 1,
   reportsPerPage: 20,
   editingReportId: null,
@@ -851,6 +857,14 @@ function cacheElements() {
   elements.bulkConfirmTableBody = document.getElementById('bulkConfirmTableBody');
   elements.bulkConfirmSubmitButton = document.getElementById('bulkConfirmSubmitButton');
   elements.bulkConfirmResultMessage = document.getElementById('bulkConfirmResultMessage');
+  elements.openMissingReportsCallModalButton = document.getElementById('openMissingReportsCallModalButton');
+  elements.missingReportsCallModal = document.getElementById('missingReportsCallModal');
+  elements.closeMissingReportsCallModalButton = document.getElementById('closeMissingReportsCallModalButton');
+  elements.cancelMissingReportsCallButton = document.getElementById('cancelMissingReportsCallButton');
+  elements.submitMissingReportsCallButton = document.getElementById('submitMissingReportsCallButton');
+  elements.missingReportsDelegatorPhoneInput = document.getElementById('missingReportsDelegatorPhoneInput');
+  elements.missingReportsWeekInput = document.getElementById('missingReportsWeekInput');
+  elements.missingReportsCallResult = document.getElementById('missingReportsCallResult');
   elements.includeConfirmationHistoryInput = document.getElementById('includeConfirmationHistoryInput');
   elements.exportConfirmationsPdfButton = document.getElementById('exportConfirmationsPdfButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
@@ -1058,6 +1072,18 @@ function bindEvents() {
   if (elements.bulkConfirmSubmitButton) {
     elements.bulkConfirmSubmitButton.addEventListener('click', handleBulkConfirmSubmit);
   }
+  if (elements.openMissingReportsCallModalButton) {
+    elements.openMissingReportsCallModalButton.addEventListener('click', openMissingReportsCallModal);
+  }
+  if (elements.closeMissingReportsCallModalButton) {
+    elements.closeMissingReportsCallModalButton.addEventListener('click', closeMissingReportsCallModal);
+  }
+  if (elements.cancelMissingReportsCallButton) {
+    elements.cancelMissingReportsCallButton.addEventListener('click', closeMissingReportsCallModal);
+  }
+  if (elements.submitMissingReportsCallButton) {
+    elements.submitMissingReportsCallButton.addEventListener('click', handleMissingReportsCallSubmit);
+  }
   elements.includeConfirmationHistoryInput.addEventListener('change', handleConfirmationHistoryToggle);
   elements.exportConfirmationsPdfButton.addEventListener('click', exportFilteredConfirmationsPdf);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
@@ -1138,6 +1164,13 @@ function bindEvents() {
     elements.bulkConfirmModal.addEventListener('click', (event) => {
       if (event.target?.dataset?.closeBulkConfirmModal === 'true') {
         closeBulkConfirmModal();
+      }
+    });
+  }
+  if (elements.missingReportsCallModal) {
+    elements.missingReportsCallModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeMissingReportsCallModal === 'true') {
+        closeMissingReportsCallModal();
       }
     });
   }
@@ -1308,6 +1341,11 @@ async function initializeSupabase() {
     }
 
     state.supabaseAnonKey = String(config.supabaseAnonKey || '').trim();
+    state.missingReportsCallWebhookUrl = String(
+      config?.webhooks?.missingReportsCall
+      || config?.missingReportsCallWebhookUrl
+      || DEFAULT_MISSING_REPORTS_CALL_WEBHOOK_URL,
+    ).trim() || DEFAULT_MISSING_REPORTS_CALL_WEBHOOK_URL;
     state.supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
       auth: {
         persistSession: true,
@@ -1884,6 +1922,7 @@ function render() {
   renderAbsenceFilters();
   renderReportsTable();
   renderSubmissionLists();
+  renderMissingReportsCallModalState();
   renderAbsenceTable();
   renderBulkConfirmModalState();
   renderConfirmationsModalState();
@@ -2280,6 +2319,9 @@ function renderSubmissionLists() {
 
   elements.submissionList.innerHTML = submittedItems.join('') || '<li>In dieser Woche wurde noch kein Rapport erfasst.</li>';
   elements.missingList.innerHTML = missingItems.join('') || '<li>Alle Profile haben abgegeben.</li>';
+  if (elements.openMissingReportsCallModalButton) {
+    elements.openMissingReportsCallModalButton.disabled = !missingItems.length;
+  }
 }
 
 function handleEmployeeFilterInput(event) {
@@ -6043,6 +6085,46 @@ function closeBulkConfirmModal() {
   renderBulkConfirmModalState();
 }
 
+function openMissingReportsCallModal() {
+  const missingProfiles = getIncompleteSubmissionProfiles();
+  if (!missingProfiles.length) {
+    alert('Es gibt keine fehlenden oder unvollständigen Rapporte für die aktuelle Auswahl.');
+    return;
+  }
+  state.isMissingReportsCallModalOpen = true;
+  state.missingReportsCallResultMessage = '';
+  state.missingReportsCallResultIsError = false;
+  renderMissingReportsCallModalState();
+}
+
+function closeMissingReportsCallModal() {
+  state.isMissingReportsCallModalOpen = false;
+  state.isMissingReportsCallSubmitting = false;
+  state.missingReportsCallResultMessage = '';
+  state.missingReportsCallResultIsError = false;
+  renderMissingReportsCallModalState();
+}
+
+function renderMissingReportsCallModalState() {
+  if (!elements.missingReportsCallModal) {
+    return;
+  }
+
+  elements.missingReportsCallModal.classList.toggle('hidden', !state.isMissingReportsCallModalOpen);
+  if (elements.missingReportsWeekInput && !elements.missingReportsWeekInput.value) {
+    elements.missingReportsWeekInput.value = state.selectedWeek || getCurrentWeekValue();
+  }
+  if (elements.submitMissingReportsCallButton) {
+    elements.submitMissingReportsCallButton.disabled = state.isMissingReportsCallSubmitting;
+    elements.submitMissingReportsCallButton.textContent = state.isMissingReportsCallSubmitting ? 'Sende …' : 'Jawohl, delegieren';
+  }
+  if (elements.missingReportsCallResult) {
+    elements.missingReportsCallResult.textContent = state.missingReportsCallResultMessage || '';
+    elements.missingReportsCallResult.classList.toggle('bulk-confirm-error', Boolean(state.missingReportsCallResultIsError));
+    elements.missingReportsCallResult.classList.toggle('bulk-confirm-success', Boolean(state.missingReportsCallResultMessage) && !state.missingReportsCallResultIsError);
+  }
+}
+
 function handleBulkConfirmProjectSelectionChange(event) {
   state.bulkConfirmSelectedProjectId = String(event.target.value || '');
   state.bulkConfirmResultMessage = '';
@@ -6092,6 +6174,112 @@ function renderBulkConfirmModalState() {
     elements.bulkConfirmResultMessage.classList.toggle('bulk-confirm-error', Boolean(state.bulkConfirmResultIsError));
     elements.bulkConfirmResultMessage.classList.toggle('bulk-confirm-success', Boolean(state.bulkConfirmResultMessage) && !state.bulkConfirmResultIsError);
   }
+}
+
+function splitNameParts(fullName) {
+  const normalized = String(fullName || '').trim();
+  if (!normalized) {
+    return { vorname: '', name: '' };
+  }
+  const [vorname, ...rest] = normalized.split(/\s+/);
+  return { vorname: vorname || '', name: rest.join(' ') || '' };
+}
+
+function resolveProfilePhoneNumber(profile) {
+  if (!profile) return '';
+  return String(
+    profile.phone
+    || profile.mobile_phone
+    || profile.mobile
+    || profile.telephone
+    || profile.tel
+    || profile.phone_number
+    || '',
+  ).trim();
+}
+
+async function handleMissingReportsCallSubmit() {
+  if (state.isMissingReportsCallSubmitting) {
+    return;
+  }
+
+  const weekValue = String(elements.missingReportsWeekInput?.value || state.selectedWeek || '').trim();
+  const delegatorPhone = String(elements.missingReportsDelegatorPhoneInput?.value || '').trim();
+  if (!weekValue) {
+    state.missingReportsCallResultMessage = 'Bitte eine Kalenderwoche angeben.';
+    state.missingReportsCallResultIsError = true;
+    renderMissingReportsCallModalState();
+    return;
+  }
+  if (!delegatorPhone) {
+    state.missingReportsCallResultMessage = 'Bitte deine Telefonnummer angeben.';
+    state.missingReportsCallResultIsError = true;
+    renderMissingReportsCallModalState();
+    return;
+  }
+
+  const entries = getIncompleteSubmissionProfiles();
+  if (!entries.length) {
+    state.missingReportsCallResultMessage = 'Keine fehlenden oder unvollständigen Rapporte gefunden.';
+    state.missingReportsCallResultIsError = true;
+    renderMissingReportsCallModalState();
+    return;
+  }
+
+  const unreachableNames = [];
+  const sendErrors = [];
+  state.isMissingReportsCallSubmitting = true;
+  state.missingReportsCallResultMessage = '';
+  state.missingReportsCallResultIsError = false;
+  renderMissingReportsCallModalState();
+
+  for (const entry of entries) {
+    const profile = entry.profile;
+    const fullName = String(profile?.full_name || '').trim();
+    const phone = resolveProfilePhoneNumber(profile);
+    if (!phone) {
+      unreachableNames.push(fullName || profile?.email || 'Unbekannt');
+      continue;
+    }
+
+    const names = splitNameParts(fullName);
+    const payload = {
+      name: names.name || fullName,
+      vorname: names.vorname,
+      full_name: fullName,
+      phone,
+      week: weekValue,
+      delegator_phone: delegatorPhone,
+    };
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await fetch(state.missingReportsCallWebhookUrl || DEFAULT_MISSING_REPORTS_CALL_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      sendErrors.push(`${fullName || 'Unbekannt'} (${error.message})`);
+    }
+  }
+
+  state.isMissingReportsCallSubmitting = false;
+  const parts = [];
+  const sentCount = entries.length - unreachableNames.length - sendErrors.length;
+  parts.push(`${Math.max(0, sentCount)} Webhook(s) gesendet.`);
+  if (unreachableNames.length) {
+    parts.push(`Kein Telefon hinterlegt bei: ${unreachableNames.join(', ')}.`);
+  }
+  if (sendErrors.length) {
+    parts.push(`Fehler bei: ${sendErrors.join(', ')}.`);
+  }
+  state.missingReportsCallResultMessage = parts.join(' ');
+  state.missingReportsCallResultIsError = Boolean(unreachableNames.length || sendErrors.length);
+  renderMissingReportsCallModalState();
 }
 
 async function exportFilteredConfirmationsPdf() {
