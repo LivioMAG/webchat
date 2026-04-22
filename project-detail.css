@@ -258,6 +258,7 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .task-description.readonly {
   color: #c2410c;
   font-weight: 600;
+  min-height: 32px;
 }
 
 .task-actions { display: flex; gap: 6px; align-items: center; }
@@ -284,6 +285,15 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 }
 
 .attachments-wrap { display: grid; gap: 6px; }
+.attachment-summary {
+  border: none;
+  padding: 4px 0 0;
+  text-align: left;
+  background: transparent;
+  color: #475569;
+  font-size: 0.83rem;
+  cursor: pointer;
+}
 .attachment-empty { margin: 0; color: #94a3b8; font-size: 0.85rem; }
 .attachment-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .attachment-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -380,13 +390,27 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   padding: 10px;
   font: inherit;
   resize: vertical;
-  background: #f3f4f7;
+  background: #fff;
 }
 
 .task-preview-hint {
   margin: 0;
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.modal-attachments {
+  margin-top: 4px;
+}
+
+.modal-attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-attachments-header h4 {
+  margin: 0;
 }
 
 @media (max-width: 900px) {
