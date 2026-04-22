@@ -441,6 +441,13 @@ textarea:focus {
   margin: 14px 0 18px;
 }
 
+.settings-form-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
 .crm-form-grid {
   display: grid;
   gap: 12px;

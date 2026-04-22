@@ -518,7 +518,10 @@
                       <span>Bis</span>
                       <input id="schoolVacationEndInput" type="date" required />
                     </label>
-                    <button id="saveSchoolVacationButton" class="button button-primary" type="submit">Ferienzeit hinzufügen</button>
+                    <div class="settings-form-actions">
+                      <button id="saveSchoolVacationButton" class="button button-primary" type="submit">Ferienzeit hinzufügen</button>
+                      <button id="openSchoolVacationImportModalButton" class="button button-secondary" type="button">Ferien aus Schuljahr laden</button>
+                    </div>
                   </form>
                   <div class="table-wrapper">
                     <table>
@@ -755,6 +758,44 @@
             <div class="modal-actions">
               <button id="resetProjectFormButton" class="button button-secondary" type="button">Neu</button>
               <button id="saveProjectButton" class="button button-primary" type="submit">Speichern</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="schoolVacationImportModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="schoolVacationImportTitle">
+        <div class="modal-backdrop" data-close-school-vacation-import-modal="true"></div>
+        <div class="modal-card panel modal-card-compact">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="schoolVacationImportTitle">Berufsschul-Ferien importieren</h3>
+              <p>Kanton und Schuljahr auswählen, danach werden die Ferienzeiten automatisch erfasst.</p>
+            </div>
+            <button id="closeSchoolVacationImportModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+          <form id="schoolVacationImportForm" class="report-edit-form">
+            <label>
+              <span>Kanton</span>
+              <select id="schoolVacationImportCantonInput" required>
+                <option value="LU">Luzern</option>
+                <option value="BE">Bern</option>
+                <option value="SO">Solothurn</option>
+                <option value="ZH">Zürich</option>
+              </select>
+            </label>
+            <label>
+              <span>Schuljahr</span>
+              <select id="schoolVacationImportSchoolYearInput" required>
+                <option value="2025/26">2025/26</option>
+                <option value="2026/27">2026/27</option>
+                <option value="2027/28">2027/28</option>
+                <option value="2028/29">2028/29</option>
+                <option value="2029/30">2029/30</option>
+              </select>
+            </label>
+            <div class="modal-actions">
+              <button id="cancelSchoolVacationImportButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button id="confirmSchoolVacationImportButton" class="button button-primary" type="submit">Hinzufügen</button>
             </div>
           </form>
         </div>

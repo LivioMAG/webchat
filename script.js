@@ -24,6 +24,8 @@ const BLOCK_DAY_REPORT_NOTE_MARKER = 'Automatisch erstellter Blocktag';
 const BLOCK_DAY_TYPE_CODE = 8;
 const BLOCK_DAY_DEFAULT_START = '07:00';
 const BLOCK_DAY_DEFAULT_END = '16:30';
+const SCHOOL_VACATION_IMPORT_CANTONS = new Set(['LU', 'BE', 'SO', 'ZH']);
+const SCHOOL_VACATION_IMPORT_YEARS = new Set(['2025/26', '2026/27', '2027/28', '2028/29', '2029/30']);
 const BLOCK_DAY_LEGACY_MODE_OPTIONS = {
   full: { label: 'Ganzer Tag', start: '07:00', end: '16:30' },
   am: { label: 'Vormittag', start: '07:00', end: '12:00' },
@@ -859,6 +861,13 @@ function cacheElements() {
   elements.schoolVacationForm = document.getElementById('schoolVacationForm');
   elements.schoolVacationStartInput = document.getElementById('schoolVacationStartInput');
   elements.schoolVacationEndInput = document.getElementById('schoolVacationEndInput');
+  elements.openSchoolVacationImportModalButton = document.getElementById('openSchoolVacationImportModalButton');
+  elements.schoolVacationImportModal = document.getElementById('schoolVacationImportModal');
+  elements.schoolVacationImportForm = document.getElementById('schoolVacationImportForm');
+  elements.schoolVacationImportCantonInput = document.getElementById('schoolVacationImportCantonInput');
+  elements.schoolVacationImportSchoolYearInput = document.getElementById('schoolVacationImportSchoolYearInput');
+  elements.closeSchoolVacationImportModalButton = document.getElementById('closeSchoolVacationImportModalButton');
+  elements.cancelSchoolVacationImportButton = document.getElementById('cancelSchoolVacationImportButton');
   elements.blockDayModal = document.getElementById('blockDayModal');
   elements.blockDayForm = document.getElementById('blockDayForm');
   elements.blockDayProfileIdInput = document.getElementById('blockDayProfileIdInput');
@@ -1049,6 +1058,25 @@ function bindEvents() {
   }
   if (elements.schoolVacationForm) {
     elements.schoolVacationForm.addEventListener('submit', handleSchoolVacationFormSubmit);
+  }
+  if (elements.openSchoolVacationImportModalButton) {
+    elements.openSchoolVacationImportModalButton.addEventListener('click', openSchoolVacationImportModal);
+  }
+  if (elements.closeSchoolVacationImportModalButton) {
+    elements.closeSchoolVacationImportModalButton.addEventListener('click', closeSchoolVacationImportModal);
+  }
+  if (elements.cancelSchoolVacationImportButton) {
+    elements.cancelSchoolVacationImportButton.addEventListener('click', closeSchoolVacationImportModal);
+  }
+  if (elements.schoolVacationImportModal) {
+    elements.schoolVacationImportModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeSchoolVacationImportModal === 'true') {
+        closeSchoolVacationImportModal();
+      }
+    });
+  }
+  if (elements.schoolVacationImportForm) {
+    elements.schoolVacationImportForm.addEventListener('submit', handleSchoolVacationImportFormSubmit);
   }
   if (elements.blockDayForm) {
     elements.blockDayForm.addEventListener('submit', handleBlockDayFormSubmit);
@@ -3134,6 +3162,53 @@ async function handleSettingsSchoolVacationsTableClick(event) {
   } catch (error) {
     console.error(error);
     alert(`Ferienzeit konnte nicht entfernt werden: ${error.message}`);
+  } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+function openSchoolVacationImportModal() {
+  if (!elements.schoolVacationImportModal) return;
+  if (elements.schoolVacationImportForm) elements.schoolVacationImportForm.reset();
+  elements.schoolVacationImportModal.classList.remove('hidden');
+}
+
+function closeSchoolVacationImportModal() {
+  if (!elements.schoolVacationImportModal) return;
+  elements.schoolVacationImportModal.classList.add('hidden');
+}
+
+async function handleSchoolVacationImportFormSubmit(event) {
+  event.preventDefault();
+  if (state.isSavingSettings || state.isDemoMode || !state.supabase) return;
+
+  const canton = String(elements.schoolVacationImportCantonInput?.value || '').trim().toUpperCase();
+  const schoolYear = String(elements.schoolVacationImportSchoolYearInput?.value || '').trim();
+  if (!SCHOOL_VACATION_IMPORT_CANTONS.has(canton)) {
+    alert('Bitte einen gültigen Kanton auswählen.');
+    return;
+  }
+  if (!SCHOOL_VACATION_IMPORT_YEARS.has(schoolYear)) {
+    alert('Bitte ein gültiges Schuljahr auswählen.');
+    return;
+  }
+
+  state.isSavingSettings = true;
+  try {
+    const { data, error } = await state.supabase.functions.invoke('import-school-vacations', {
+      body: { canton, schoolYear },
+    });
+    if (error) throw error;
+    const importedCount = Number(data?.importedCount || 0);
+    closeSchoolVacationImportModal();
+    await loadData();
+    await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
+    await loadData();
+    alert(`${importedCount} Ferienzeit(en) wurden aus ${canton} für ${schoolYear} importiert.`);
+  } catch (error) {
+    console.error(error);
+    alert(`Ferienzeiten konnten nicht importiert werden: ${error.message}`);
   } finally {
     state.isSavingSettings = false;
     render();
