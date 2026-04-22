@@ -148,12 +148,16 @@
                     <input id="employeeFilterInput" type="search" placeholder="Nach Vor- oder Nachname suchen" />
                   </label>
                   <div class="report-filter-actions">
-                    <button id="selectAllEmployeesButton" class="button button-secondary" type="button">Alle wählen</button>
-                    <button id="clearEmployeeSelectionButton" class="button button-secondary" type="button">Auswahl leeren</button>
-                    <label class="checkbox-inline with-icon report-controlled-toggle" title="Kontrollierte Rapporte anzeigen">
+                    <label id="showControlledReportsToggle" class="button button-secondary report-filter-icon-button report-controlled-toggle" title="Kontrollierte Rapporte anzeigen" aria-label="Kontrollierte Rapporte anzeigen">
                       <span aria-hidden="true">🛡️</span>
                       <input id="showControlledReportsInput" type="checkbox" />
                     </label>
+                    <button id="selectAllEmployeesButton" class="button button-secondary report-filter-icon-button" type="button" title="Alle auswählen" aria-label="Alle auswählen">
+                      <span aria-hidden="true">☑️</span>
+                    </button>
+                    <button id="clearEmployeeSelectionButton" class="button button-secondary report-filter-icon-button" type="button" title="Auswahl leeren" aria-label="Auswahl leeren">
+                      <span aria-hidden="true">🧹</span>
+                    </button>
                   </div>
                 </div>
                 <div class="employee-directory-heading">
