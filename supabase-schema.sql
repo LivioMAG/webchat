@@ -641,6 +641,18 @@ begin
     raise exception 'Eigenes Profil kann nicht gelöscht werden.';
   end if;
 
+  -- Notes may block profile deletion because sender_uid uses ON DELETE RESTRICT.
+  delete from public.notes
+  where sender_uid = p_profile_id
+     or recipient_uid = p_profile_id;
+
+  -- Remove profile-owned data explicitly (even where FK would cascade) so the
+  -- behavior is deterministic and easy to reason about.
+  delete from public.request_history where profile_id = p_profile_id;
+  delete from public.holiday_requests where profile_id = p_profile_id;
+  delete from public.weekly_reports where profile_id = p_profile_id;
+  delete from public.daily_assignments where profile_id = p_profile_id;
+
   delete from storage.objects
   where bucket_id = 'weekly-attachments'
     and name like p_profile_id::text || '/%';
