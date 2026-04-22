@@ -116,7 +116,7 @@ async function researchSchoolVacations(canton: string, schoolYear: string): Prom
   }
 
   const data = await response.json()
-  const text = String(data?.output_text || '').trim()
+  const text = extractResponseText(data)
   if (!text) {
     throw new Error('OpenAI response did not contain output_text.')
   }
@@ -141,6 +141,42 @@ async function researchSchoolVacations(canton: string, schoolYear: string): Prom
 
 function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
+function extractResponseText(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return ''
+  }
+
+  const record = payload as Record<string, unknown>
+  const directOutputText = typeof record.output_text === 'string' ? record.output_text.trim() : ''
+  if (directOutputText) {
+    return directOutputText
+  }
+
+  const outputs = Array.isArray(record.output) ? record.output : []
+  const textParts: string[] = []
+
+  outputs.forEach((item) => {
+    if (!item || typeof item !== 'object') {
+      return
+    }
+    const content = Array.isArray((item as Record<string, unknown>).content)
+      ? ((item as Record<string, unknown>).content as unknown[])
+      : []
+
+    content.forEach((contentItem) => {
+      if (!contentItem || typeof contentItem !== 'object') {
+        return
+      }
+      const textValue = (contentItem as Record<string, unknown>).text
+      if (typeof textValue === 'string' && textValue.trim()) {
+        textParts.push(textValue.trim())
+      }
+    })
+  })
+
+  return textParts.join('\n').trim()
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
