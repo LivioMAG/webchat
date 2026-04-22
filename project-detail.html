@@ -30,7 +30,6 @@
             <p id="projectMeta" class="subtle-text">Kommissionsnummer: –</p>
           </div>
           <div class="header-actions">
-            <button id="addTaskButton" class="button button-primary" type="button">+ Aufgabe</button>
             <button id="backButton" class="button" type="button">Zurück</button>
           </div>
         </header>
@@ -66,6 +65,16 @@
         </section>
 
         <input id="attachmentInput" class="hidden" type="file" multiple />
+
+        <div id="noteTypeModal" class="note-type-modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteTypeModalTitle">
+          <div class="note-type-modal-content">
+            <p id="noteTypeModalTitle" class="note-type-modal-title">Was hinzufügen?</p>
+            <div class="note-type-modal-actions">
+              <button type="button" class="button" data-action="confirm-add-note-type" data-note-type="text">Notiz</button>
+              <button type="button" class="button" data-action="confirm-add-note-type" data-note-type="todo">To-do</button>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </body>
