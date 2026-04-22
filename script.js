@@ -3179,6 +3179,38 @@ function closeSchoolVacationImportModal() {
   elements.schoolVacationImportModal.classList.add('hidden');
 }
 
+
+async function getFunctionInvokeErrorMessage(error) {
+  const fallbackMessage = String(error?.message || 'Unbekannter Fehler');
+  const context = error?.context;
+  if (!context) return fallbackMessage;
+
+  try {
+    if (typeof context.json === 'function') {
+      const payload = await context.json();
+      if (payload && typeof payload.error === 'string' && payload.error.trim()) {
+        return payload.error.trim();
+      }
+      if (payload && typeof payload.message === 'string' && payload.message.trim()) {
+        return payload.message.trim();
+      }
+    }
+  } catch (parseJsonError) {
+    console.warn('Konnte Edge-Function-Fehlerantwort nicht als JSON lesen.', parseJsonError);
+  }
+
+  try {
+    if (typeof context.text === 'function') {
+      const text = String(await context.text() || '').trim();
+      if (text) return text;
+    }
+  } catch (parseTextError) {
+    console.warn('Konnte Edge-Function-Fehlerantwort nicht als Text lesen.', parseTextError);
+  }
+
+  return fallbackMessage;
+}
+
 async function handleSchoolVacationImportFormSubmit(event) {
   event.preventDefault();
   if (state.isSavingSettings || state.isDemoMode || !state.supabase) return;
@@ -3208,7 +3240,8 @@ async function handleSchoolVacationImportFormSubmit(event) {
     alert(`${importedCount} Ferienzeit(en) wurden aus ${canton} für ${schoolYear} importiert.`);
   } catch (error) {
     console.error(error);
-    alert(`Ferienzeiten konnten nicht importiert werden: ${error.message}`);
+    const errorMessage = await getFunctionInvokeErrorMessage(error);
+    alert(`Ferienzeiten konnten nicht importiert werden: ${errorMessage}`);
   } finally {
     state.isSavingSettings = false;
     render();
