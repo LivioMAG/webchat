@@ -125,7 +125,7 @@ async function researchPublicHolidays(canton: string, year: number): Promise<Pub
     throw new Error('OpenAI response did not contain output_text.')
   }
 
-  const parsed = JSON.parse(text)
+  const parsed = parseModelJson(text)
   const rows = Array.isArray(parsed?.holidays) ? parsed.holidays : []
 
   const unique = new Map<string, PublicHoliday>()
@@ -185,6 +185,41 @@ function extractResponseText(payload: unknown): string {
   })
 
   return textParts.join('\n').trim()
+}
+
+function parseModelJson(rawText: string): Record<string, unknown> {
+  const trimmed = rawText.trim()
+  if (!trimmed) {
+    throw new Error('OpenAI response text was empty.')
+  }
+
+  try {
+    return JSON.parse(trimmed) as Record<string, unknown>
+  } catch {
+    // Continue with fallbacks below.
+  }
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fencedMatch?.[1]) {
+    try {
+      return JSON.parse(fencedMatch[1]) as Record<string, unknown>
+    } catch {
+      // Continue with fallbacks below.
+    }
+  }
+
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const candidate = trimmed.slice(firstBrace, lastBrace + 1)
+    try {
+      return JSON.parse(candidate) as Record<string, unknown>
+    } catch {
+      // Final error thrown below.
+    }
+  }
+
+  throw new Error(`OpenAI response did not contain valid JSON: ${trimmed.slice(0, 180)}`)
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
