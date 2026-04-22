@@ -2,6 +2,6 @@
   "supabaseUrl": "https://xflljuscywgxfhzdtaju.supabase.co",
   "supabaseAnonKey": "sb_publishable_ef81JADdMaBM9V-QGzB_Ug_gCXHwgY0",
   "webhooks": {
-    "missingReportsCall": "https://n8n.voltlog.cloud/webhook/voice-agent-retell"
+    "missingReportsCall": "https://n8n.voltlog.cloud/webhook-test/voice-agent-retell"
   }
 }
