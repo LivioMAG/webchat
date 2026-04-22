@@ -862,8 +862,6 @@ function cacheElements() {
   elements.closeMissingReportsCallModalButton = document.getElementById('closeMissingReportsCallModalButton');
   elements.cancelMissingReportsCallButton = document.getElementById('cancelMissingReportsCallButton');
   elements.submitMissingReportsCallButton = document.getElementById('submitMissingReportsCallButton');
-  elements.missingReportsDelegatorPhoneInput = document.getElementById('missingReportsDelegatorPhoneInput');
-  elements.missingReportsWeekInput = document.getElementById('missingReportsWeekInput');
   elements.missingReportsCallResult = document.getElementById('missingReportsCallResult');
   elements.includeConfirmationHistoryInput = document.getElementById('includeConfirmationHistoryInput');
   elements.exportConfirmationsPdfButton = document.getElementById('exportConfirmationsPdfButton');
@@ -6111,9 +6109,6 @@ function renderMissingReportsCallModalState() {
   }
 
   elements.missingReportsCallModal.classList.toggle('hidden', !state.isMissingReportsCallModalOpen);
-  if (elements.missingReportsWeekInput && !elements.missingReportsWeekInput.value) {
-    elements.missingReportsWeekInput.value = state.selectedWeek || getCurrentWeekValue();
-  }
   if (elements.submitMissingReportsCallButton) {
     elements.submitMissingReportsCallButton.disabled = state.isMissingReportsCallSubmitting;
     elements.submitMissingReportsCallButton.textContent = state.isMissingReportsCallSubmitting ? 'Sende …' : 'Jawohl, delegieren';
@@ -6203,8 +6198,8 @@ async function handleMissingReportsCallSubmit() {
     return;
   }
 
-  const weekValue = String(elements.missingReportsWeekInput?.value || state.selectedWeek || '').trim();
-  const delegatorPhone = String(elements.missingReportsDelegatorPhoneInput?.value || '').trim();
+  const weekValue = String(state.selectedWeek || getCurrentWeekValue() || '').trim();
+  const delegatorPhone = resolveProfilePhoneNumber(state.currentProfile);
   if (!weekValue) {
     state.missingReportsCallResultMessage = 'Bitte eine Kalenderwoche angeben.';
     state.missingReportsCallResultIsError = true;
@@ -6212,7 +6207,7 @@ async function handleMissingReportsCallSubmit() {
     return;
   }
   if (!delegatorPhone) {
-    state.missingReportsCallResultMessage = 'Bitte deine Telefonnummer angeben.';
+    state.missingReportsCallResultMessage = 'In deinem Profil ist keine Telefonnummer hinterlegt.';
     state.missingReportsCallResultIsError = true;
     renderMissingReportsCallModalState();
     return;
