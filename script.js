@@ -3303,14 +3303,8 @@ async function confirmReportUsingSingleConfirmationLogic(reportId) {
     throw new Error('Der Name für die Kontrolle konnte nicht ermittelt werden.');
   }
 
-  const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
-  const wasAlreadyConfirmed = Boolean(String(existingReport?.controll || '').trim());
-
   if (state.isDemoMode) {
     updateDemoReport(reportId, { controll: controllName });
-    if (existingReport && !wasAlreadyConfirmed) {
-      applyDemoReportBookingDelta(existingReport, 1);
-    }
     return;
   }
 
@@ -3319,9 +3313,6 @@ async function confirmReportUsingSingleConfirmationLogic(reportId) {
     .update({ controll: controllName })
     .eq('id', reportId);
   if (error) throw error;
-  if (existingReport && !wasAlreadyConfirmed) {
-    await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, 1));
-  }
 }
 
 async function handleBulkConfirmSubmit() {
@@ -3584,26 +3575,16 @@ async function handleAdjustedMinutesSubmit(event) {
   }
 
   const adjustedMinutes = Math.max(0, Number(elements.adjustedMinutesInput.value || 0));
-  const wasConfirmed = Boolean(String(report.controll || '').trim());
   const baseAdjustedMinutes = shouldApplyHolidayDoubleMinutes(report) ? Math.round(adjustedMinutes / 2) : adjustedMinutes;
   const updates = buildAdjustedMinutesUpdatePayload(report, baseAdjustedMinutes);
-  if (wasConfirmed) {
-    updates.controll = '';
-  }
   state.isSavingReport = true;
 
   try {
     if (state.isDemoMode) {
       updateDemoReport(reportId, updates);
-      if (wasConfirmed) {
-        applyDemoReportBookingDelta(report, -1);
-      }
     } else {
       const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
       if (error) throw error;
-      if (wasConfirmed) {
-        await applyProfileBookingDelta(report.profile_id, getReportBookingDelta(report, -1));
-      }
     }
 
     await loadData();
@@ -3642,7 +3623,6 @@ async function handleReportEditSubmit(event) {
 
   const reportId = state.editingReportId;
   const existingReport = state.weeklyReports.find((item) => String(item.id) === String(reportId));
-  const wasConfirmed = Boolean(String(existingReport?.controll || '').trim());
   syncEditedWorkMinutesWithTimeRange();
   const totalWorkMinutes = Math.max(0, Number(elements.editTotalMinutes.value || 0));
   const pauseMinutes = Math.max(0, Number(elements.editPauseMinutes.value || 0));
@@ -3663,23 +3643,14 @@ async function handleReportEditSubmit(event) {
     other_costs_amount: Number(elements.editOtherCostsAmount.value || 0),
     notes: elements.editNotes.value.trim(),
   };
-  if (wasConfirmed) {
-    updates.controll = '';
-  }
 
   state.isSavingReport = true;
   try {
     if (state.isDemoMode) {
       updateDemoReport(reportId, updates);
-      if (wasConfirmed && existingReport) {
-        applyDemoReportBookingDelta(existingReport, -1);
-      }
     } else {
       const { error } = await state.supabase.from('weekly_reports').update(updates).eq('id', reportId);
       if (error) throw error;
-      if (wasConfirmed && existingReport) {
-        await applyProfileBookingDelta(existingReport.profile_id, getReportBookingDelta(existingReport, -1));
-      }
     }
 
     await loadData();
@@ -3709,7 +3680,6 @@ async function handleDeleteReport(reportId) {
     return;
   }
 
-  const wasConfirmed = Boolean(String(report.controll || '').trim());
   state.isSavingReport = true;
   try {
     if (state.isDemoMode) {
@@ -3717,17 +3687,11 @@ async function handleDeleteReport(reportId) {
       if (index === -1) {
         throw new Error('Demo-Rapport nicht gefunden');
       }
-      const [deletedDemoReport] = demoWeeklyReports.splice(index, 1);
-      if (wasConfirmed) {
-        applyDemoReportBookingDelta(deletedDemoReport, -1);
-      }
+      demoWeeklyReports.splice(index, 1);
     } else {
       await deleteWeeklyReportAttachmentsSafely(report.attachments);
       const { error } = await state.supabase.from('weekly_reports').delete().eq('id', reportId);
       if (error) throw error;
-      if (wasConfirmed) {
-        await applyProfileBookingDelta(report.profile_id, getReportBookingDelta(report, -1));
-      }
     }
 
     await loadData();
@@ -6996,74 +6960,6 @@ function isHolidayMinutesReport(report) {
     .map((value) => normalizeSearchValue(value || ''))
     .join(' ');
   return haystack.includes('feiertag');
-}
-
-function getReportBookingDelta(report, multiplier = 1) {
-  const hours = getAdjustedWorkMinutes(report) / 60;
-  const isVacation = isVacationReport(report);
-  return {
-    reportedHoursDelta: hours * multiplier,
-    bookedVacationHoursDelta: isVacation ? hours * multiplier : 0,
-  };
-}
-
-function isVacationReport(report) {
-  const text = [report?.commission_number, report?.notes, report?.expense_note]
-    .map((value) => String(value || '').toLowerCase())
-    .join(' ');
-  return text.includes('ferien') || text.includes('fehlen');
-}
-
-function applyDemoReportBookingDelta(report, multiplier = 1) {
-  if (!report) {
-    return;
-  }
-  const profile = demoProfiles.find((item) => String(item.id) === String(report.profile_id));
-  if (!profile) {
-    return;
-  }
-
-  const delta = getReportBookingDelta(report, multiplier);
-  profile.reported_hours = Number(profile.reported_hours || 0) + delta.reportedHoursDelta;
-  profile.booked_vacation_hours = Number(profile.booked_vacation_hours || 0) + delta.bookedVacationHoursDelta;
-}
-
-function applyDemoBookingDeltaDifference(profileId, previousDelta, nextDelta) {
-  const profile = demoProfiles.find((item) => String(item.id) === String(profileId));
-  if (!profile) {
-    return;
-  }
-  profile.reported_hours = Number(profile.reported_hours || 0) + Number(nextDelta?.reportedHoursDelta || 0) - Number(previousDelta?.reportedHoursDelta || 0);
-  profile.booked_vacation_hours = Number(profile.booked_vacation_hours || 0) + Number(nextDelta?.bookedVacationHoursDelta || 0) - Number(previousDelta?.bookedVacationHoursDelta || 0);
-}
-
-async function applyProfileBookingDelta(profileId, delta) {
-  if (!profileId || state.isDemoMode || !state.supabase || !delta) {
-    return;
-  }
-
-  const profile = state.profiles.find((item) => String(item.id) === String(profileId));
-  if (!profile) {
-    return;
-  }
-
-  const updates = {
-    reported_hours: Number(profile.reported_hours || 0) + Number(delta.reportedHoursDelta || 0),
-    booked_vacation_hours: Number(profile.booked_vacation_hours || 0) + Number(delta.bookedVacationHoursDelta || 0),
-  };
-
-  const { error } = await state.supabase.from('app_profiles').update(updates).eq('id', profileId);
-  if (error) {
-    throw error;
-  }
-}
-
-async function applyProfileBookingDeltaDifference(profileId, previousDelta, nextDelta) {
-  const difference = {
-    reportedHoursDelta: Number(nextDelta?.reportedHoursDelta || 0) - Number(previousDelta?.reportedHoursDelta || 0),
-    bookedVacationHoursDelta: Number(nextDelta?.bookedVacationHoursDelta || 0) - Number(previousDelta?.bookedVacationHoursDelta || 0),
-  };
-  await applyProfileBookingDelta(profileId, difference);
 }
 
 function buildFallbackProfileFromUser(user) {
