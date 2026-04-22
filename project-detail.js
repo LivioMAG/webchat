@@ -1043,7 +1043,7 @@ function renderNoteDetailModal() {
       </div>
       ${renderAttachmentList(Array.isArray(note.attachments) ? note.attachments : [], note.id)}
     </div>
-    <div class="note-color-picker-wrap">
+    <div class="note-card-controls-row">
       <div class="note-color-picker" role="radiogroup" aria-label="Kartenfarbe auswählen">
         ${NOTE_COLOR_OPTIONS.map((color) => `
           <label class="note-color-option note-color-option-${color}">
@@ -1052,13 +1052,10 @@ function renderNoteDetailModal() {
           </label>
         `).join('')}
       </div>
-    </div>
-    <div class="note-visibility-wrap">
       <label class="note-visibility-label">
         <span>Unsichtbar bis</span>
         <input type="date" data-action="change-visible-from-date" data-note-id="${escapeHtml(note.id)}" value="${escapeHtml(note.visible_from_date || '')}" />
       </label>
-      <button class="task-action" type="button" data-action="clear-visible-from-date" data-note-id="${escapeHtml(note.id)}">Zurücksetzen</button>
     </div>
   `;
 
@@ -1107,15 +1104,6 @@ async function handleNoteDetailModalClick(event) {
 
   const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
   if (!note) return;
-
-  const clearVisibleFromButton = event.target.closest('[data-action="clear-visible-from-date"]');
-  if (clearVisibleFromButton) {
-    note.visible_from_date = '';
-    await saveNote(note, { notify: false });
-    renderBoard();
-    renderNoteDetailModal();
-    return;
-  }
 
   const removeTodoButton = event.target.closest('[data-action="remove-todo"]');
   if (removeTodoButton) {
