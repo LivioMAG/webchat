@@ -17,8 +17,9 @@ const state = {
   draggedNoteId: '',
   currentUser: null,
   pendingAttachmentNoteId: '',
-  todoOpenMap: {},
   currentPage: 'kanban',
+  pendingNewNoteColumn: '',
+  pendingTodoInputFocusNoteId: '',
 };
 
 const elements = {};
@@ -48,9 +49,9 @@ function cacheElements() {
   elements.kanbanBoard = document.getElementById('kanbanBoard');
   elements.backButton = document.getElementById('backButton');
   elements.alert = document.getElementById('alert');
-  elements.addTaskButton = document.getElementById('addTaskButton');
   elements.attachmentInput = document.getElementById('attachmentInput');
   elements.detailNavTabs = document.getElementById('detailNavTabs');
+  elements.noteTypeModal = document.getElementById('noteTypeModal');
 }
 
 function bindEvents() {
@@ -62,7 +63,6 @@ function bindEvents() {
     window.location.href = './index.html';
   });
 
-  elements.addTaskButton?.addEventListener('click', () => createNote('todo'));
   elements.detailNavTabs?.addEventListener('click', handlePageNavigation);
   elements.kanbanBoard?.addEventListener('click', handleBoardClick);
   elements.kanbanBoard?.addEventListener('change', handleBoardChange);
@@ -72,6 +72,7 @@ function bindEvents() {
   elements.kanbanBoard?.addEventListener('drop', handleDrop);
   elements.kanbanBoard?.addEventListener('dragend', handleDragEnd);
   elements.attachmentInput?.addEventListener('change', handleAttachmentSelection);
+  elements.noteTypeModal?.addEventListener('click', handleNoteTypeModalClick);
 }
 
 
@@ -98,9 +99,6 @@ function setActivePage(page) {
     section.classList.toggle('active', isActive);
   });
 
-  if (elements.addTaskButton) {
-    elements.addTaskButton.classList.toggle('hidden', nextPage !== 'kanban');
-  }
 }
 
 function getProjectId() {
@@ -155,31 +153,7 @@ async function loadData() {
     uid: currentUid || null,
     name: profileName || String(userResult.data?.user?.email || '').trim(),
   };
-  loadTodoOpenState();
   render();
-}
-
-
-function loadTodoOpenState() {
-  try {
-    const raw = window.localStorage.getItem('project-kanban-todo-open-state');
-    const parsed = raw ? JSON.parse(raw) : {};
-    state.todoOpenMap = parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (_error) {
-    state.todoOpenMap = {};
-  }
-}
-
-function saveTodoOpenState() {
-  try {
-    window.localStorage.setItem('project-kanban-todo-open-state', JSON.stringify(state.todoOpenMap || {}));
-  } catch (_error) {
-    // ignore localStorage failures
-  }
-}
-
-function isTodoOpen(noteId) {
-  return Boolean(state.todoOpenMap?.[String(noteId)]);
 }
 
 function normalizeNote(rawNote) {
@@ -231,8 +205,7 @@ function renderCard(note) {
   const descriptionField = noteType === 'todo'
     ? `<textarea class="task-description" data-field="todo_description" data-note-id="${escapeHtml(note.id)}" rows="2" placeholder="Beschreibung">${escapeHtml(note.todo_description || '')}</textarea>`
     : `<textarea class="task-description" data-field="content" data-note-id="${escapeHtml(note.id)}" rows="3" placeholder="Notiz hier eingeben ...">${escapeHtml(note.content || '')}</textarea>`;
-  const todoExpanded = noteType === 'todo' ? isTodoOpen(note.id) : false;
-  const todoSection = noteType === 'todo' ? renderTodoList(note, todoExpanded) : '';
+  const todoSection = noteType === 'todo' ? renderTodoList(note) : '';
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
@@ -246,7 +219,6 @@ function renderCard(note) {
           </select>
         </div>
         <div class="task-actions">
-          ${noteType === 'todo' ? `<button class="task-toggle" type="button" data-action="toggle-todo-list" data-note-id="${escapeHtml(note.id)}">${todoExpanded ? 'To-do schließen' : 'To-do öffnen'}</button>` : ''}
           <button class="task-icon" type="button" title="Anhang hinzufügen" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">📎</button>
           <button class="task-icon" type="button" title="Löschen" data-action="delete-note" data-note-id="${escapeHtml(note.id)}">🗑</button>
         </div>
@@ -263,10 +235,10 @@ function renderCard(note) {
   `;
 }
 
-function renderTodoList(note, isExpanded) {
+function renderTodoList(note) {
   const items = Array.isArray(note.todo_items) ? note.todo_items : [];
   return `
-    <div class="todo-list ${isExpanded ? "" : "hidden"}" data-todo-list="${escapeHtml(note.id)}">
+    <div class="todo-list" data-todo-list="${escapeHtml(note.id)}">
       ${items.map((item) => `
         <label class="todo-item">
           <input type="checkbox" data-action="toggle-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}" ${item.done ? 'checked' : ''} />
@@ -312,18 +284,7 @@ function getNotesByColumn(columnKey) {
 async function handleBoardClick(event) {
   const addButton = event.target.closest('[data-action="add-note"]');
   if (addButton) {
-    await createNote(String(addButton.dataset.column || 'todo'));
-    return;
-  }
-
-
-  const toggleTodoListButton = event.target.closest('[data-action="toggle-todo-list"]');
-  if (toggleTodoListButton) {
-    const noteId = String(toggleTodoListButton.dataset.noteId || '');
-    if (!noteId) return;
-    state.todoOpenMap[noteId] = !isTodoOpen(noteId);
-    saveTodoOpenState();
-    renderBoard();
+    openNoteTypeModal(String(addButton.dataset.column || 'todo'));
     return;
   }
 
@@ -420,8 +381,8 @@ async function handleBoardKeydown(event) {
     if (!text) return;
     note.todo_items = [...(note.todo_items || []), { id: crypto.randomUUID(), text, done: false }];
     event.target.value = '';
+    state.pendingTodoInputFocusNoteId = noteId;
     await saveTodoItems(note);
-    renderBoard();
     return;
   }
 
@@ -488,13 +449,14 @@ async function handleDrop(event) {
   handleDragEnd();
 }
 
-async function createNote(status) {
-  const position = getNotesByColumn(status).length;
+async function createNote({ columnStatus = 'todo', noteType = 'text' } = {}) {
+  const normalizedType = noteType === 'todo' ? 'todo' : 'text';
+  const position = getNotesByColumn(columnStatus).length;
   const payload = {
     project_id: state.projectId,
-    status,
+    status: columnStatus,
     position,
-    note_type: 'text',
+    note_type: normalizedType,
     content: '',
     todo_items: [],
     todo_description: '',
@@ -520,6 +482,10 @@ async function createNote(status) {
 
   state.notes.push(normalizeNote(data));
   renderBoard();
+  if (normalizedType === 'todo') {
+    state.pendingTodoInputFocusNoteId = String(data.id || '');
+    focusTodoAddInputIfNeeded();
+  }
   setActivePage(state.currentPage);
 }
 
@@ -608,7 +574,41 @@ async function saveTodoItems(note) {
   }
 
   renderBoard();
+  focusTodoAddInputIfNeeded();
   setActivePage(state.currentPage);
+}
+
+function openNoteTypeModal(column) {
+  state.pendingNewNoteColumn = column || 'todo';
+  elements.noteTypeModal?.classList.remove('hidden');
+}
+
+function closeNoteTypeModal() {
+  state.pendingNewNoteColumn = '';
+  elements.noteTypeModal?.classList.add('hidden');
+}
+
+async function handleNoteTypeModalClick(event) {
+  const confirmButton = event.target.closest('[data-action="confirm-add-note-type"]');
+  if (confirmButton) {
+    const noteType = String(confirmButton.dataset.noteType || 'text');
+    const columnStatus = state.pendingNewNoteColumn || 'todo';
+    closeNoteTypeModal();
+    await createNote({ columnStatus, noteType });
+    return;
+  }
+
+  if (event.target === elements.noteTypeModal) {
+    closeNoteTypeModal();
+  }
+}
+
+function focusTodoAddInputIfNeeded() {
+  if (!state.pendingTodoInputFocusNoteId) return;
+  const noteId = state.pendingTodoInputFocusNoteId;
+  state.pendingTodoInputFocusNoteId = '';
+  const targetInput = document.querySelector(`[data-action="add-todo"][data-note-id="${CSS.escape(noteId)}"]`);
+  targetInput?.focus();
 }
 
 function updateTodoItem(note, itemId, updater) {
