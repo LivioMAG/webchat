@@ -32,6 +32,14 @@ const SCHOOL_VACATION_IMPORT_STEPS = [
   'Lehrlings-Rapporte synchronisieren',
   'Ansicht aktualisieren',
 ];
+const HOLIDAY_IMPORT_CANTONS = new Set(['LU', 'BE', 'SO', 'ZH']);
+const HOLIDAY_IMPORT_YEARS = buildSupportedHolidayImportYears();
+const HOLIDAY_IMPORT_STEPS = [
+  'Import an Edge Function senden',
+  'Feiertage Montag bis Freitag aufbereiten',
+  'Feiertage in der Plattform speichern',
+  'Ansicht aktualisieren',
+];
 const BLOCK_DAY_LEGACY_MODE_OPTIONS = {
   full: { label: 'Ganzer Tag', start: '07:00', end: '16:30' },
   am: { label: 'Vormittag', start: '07:00', end: '12:00' },
@@ -682,6 +690,8 @@ const state = {
   isSavingSettings: false,
   isSchoolVacationImportRunning: false,
   schoolVacationImportStepIndex: -1,
+  isHolidayImportRunning: false,
+  holidayImportStepIndex: -1,
   editingHolidayId: null,
   isLoadingOverlayVisible: false,
   loadingOverlayReason: '',
@@ -704,8 +714,14 @@ const RESUME_REFRESH_COOLDOWN_MS = 1500;
 
 document.addEventListener('DOMContentLoaded', init);
 
+function buildSupportedHolidayImportYears() {
+  const currentYear = new Date().getUTCFullYear();
+  return new Set(Array.from({ length: 5 }, (_, index) => String(currentYear + index)));
+}
+
 async function init() {
   cacheElements();
+  populateHolidayImportYearOptions();
   bindEvents();
   elements.weekPicker.value = state.selectedWeek;
   if (elements.adminSqlPreview) {
@@ -715,6 +731,18 @@ async function init() {
   await initializeSupabase();
   await bootstrapSession();
   render();
+}
+
+function populateHolidayImportYearOptions() {
+  if (!elements.holidayImportYearInput) return;
+  const years = [...HOLIDAY_IMPORT_YEARS].sort((left, right) => Number(left) - Number(right));
+  const selectedValue = years.includes(elements.holidayImportYearInput.value)
+    ? elements.holidayImportYearInput.value
+    : (years[0] || '');
+  elements.holidayImportYearInput.innerHTML = years
+    .map((year) => `<option value="${escapeAttribute(year)}">${escapeHtml(year)}</option>`)
+    .join('');
+  elements.holidayImportYearInput.value = selectedValue;
 }
 
 function cacheElements() {
@@ -867,6 +895,7 @@ function cacheElements() {
   elements.holidayNameInput = document.getElementById('holidayNameInput');
   elements.holidayIsPaidInput = document.getElementById('holidayIsPaidInput');
   elements.saveHolidayButton = document.getElementById('saveHolidayButton');
+  elements.openHolidayImportModalButton = document.getElementById('openHolidayImportModalButton');
   elements.schoolVacationForm = document.getElementById('schoolVacationForm');
   elements.schoolVacationStartInput = document.getElementById('schoolVacationStartInput');
   elements.schoolVacationEndInput = document.getElementById('schoolVacationEndInput');
@@ -881,6 +910,16 @@ function cacheElements() {
   elements.confirmSchoolVacationImportButton = document.getElementById('confirmSchoolVacationImportButton');
   elements.closeSchoolVacationImportModalButton = document.getElementById('closeSchoolVacationImportModalButton');
   elements.cancelSchoolVacationImportButton = document.getElementById('cancelSchoolVacationImportButton');
+  elements.holidayImportModal = document.getElementById('holidayImportModal');
+  elements.holidayImportForm = document.getElementById('holidayImportForm');
+  elements.holidayImportCantonInput = document.getElementById('holidayImportCantonInput');
+  elements.holidayImportYearInput = document.getElementById('holidayImportYearInput');
+  elements.holidayImportProgress = document.getElementById('holidayImportProgress');
+  elements.holidayImportProgressLabel = document.getElementById('holidayImportProgressLabel');
+  elements.holidayImportProgressList = document.getElementById('holidayImportProgressList');
+  elements.confirmHolidayImportButton = document.getElementById('confirmHolidayImportButton');
+  elements.closeHolidayImportModalButton = document.getElementById('closeHolidayImportModalButton');
+  elements.cancelHolidayImportButton = document.getElementById('cancelHolidayImportButton');
   elements.blockDayModal = document.getElementById('blockDayModal');
   elements.blockDayForm = document.getElementById('blockDayForm');
   elements.blockDayProfileIdInput = document.getElementById('blockDayProfileIdInput');
@@ -1065,6 +1104,26 @@ function bindEvents() {
   }
   if (elements.holidayForm) {
     elements.holidayForm.addEventListener('submit', handleHolidayFormSubmit);
+  }
+  if (elements.openHolidayImportModalButton) {
+    elements.openHolidayImportModalButton.addEventListener('click', openHolidayImportModal);
+  }
+  if (elements.closeHolidayImportModalButton) {
+    elements.closeHolidayImportModalButton.addEventListener('click', closeHolidayImportModal);
+  }
+  if (elements.cancelHolidayImportButton) {
+    elements.cancelHolidayImportButton.addEventListener('click', closeHolidayImportModal);
+  }
+  if (elements.holidayImportModal) {
+    elements.holidayImportModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeHolidayImportModal === 'true') {
+        if (state.isHolidayImportRunning) return;
+        closeHolidayImportModal();
+      }
+    });
+  }
+  if (elements.holidayImportForm) {
+    elements.holidayImportForm.addEventListener('submit', handleHolidayImportFormSubmit);
   }
   if (elements.settingsSchoolVacationsTableBody) {
     elements.settingsSchoolVacationsTableBody.addEventListener('click', handleSettingsSchoolVacationsTableClick);
@@ -1430,6 +1489,8 @@ function resetAppState() {
   state.isSavingSettings = false;
   state.isSchoolVacationImportRunning = false;
   state.schoolVacationImportStepIndex = -1;
+  state.isHolidayImportRunning = false;
+  state.holidayImportStepIndex = -1;
   state.hasAdminAccess = false;
   state.isAdminStatusResolved = false;
   state.isLoadingData = false;
@@ -1754,6 +1815,7 @@ function render() {
   renderSettingsUsersTable();
   renderSettingsHolidaysTable();
   renderSettingsSchoolVacationsTable();
+  renderHolidayImportProgress();
   renderSchoolVacationImportProgress();
   renderCrmContactsTable();
   renderCrmContactDetail();
@@ -3181,6 +3243,133 @@ async function handleSettingsSchoolVacationsTableClick(event) {
     console.error(error);
     alert(`Ferienzeit konnte nicht entfernt werden: ${error.message}`);
   } finally {
+    state.isSavingSettings = false;
+    render();
+  }
+}
+
+function openHolidayImportModal() {
+  if (!elements.holidayImportModal) return;
+  if (elements.holidayImportForm) elements.holidayImportForm.reset();
+  populateHolidayImportYearOptions();
+  resetHolidayImportProgress();
+  elements.holidayImportModal.classList.remove('hidden');
+  renderHolidayImportProgress();
+}
+
+function closeHolidayImportModal(force = false) {
+  if (!elements.holidayImportModal) return;
+  if (state.isHolidayImportRunning && !force) return;
+  elements.holidayImportModal.classList.add('hidden');
+  resetHolidayImportProgress();
+}
+
+function resetHolidayImportProgress() {
+  state.isHolidayImportRunning = false;
+  state.holidayImportStepIndex = -1;
+}
+
+function setHolidayImportStep(stepIndex) {
+  state.holidayImportStepIndex = stepIndex;
+  renderHolidayImportProgress();
+}
+
+function renderHolidayImportProgress() {
+  if (!elements.holidayImportProgress || !elements.holidayImportProgressList || !elements.holidayImportProgressLabel) return;
+  const isVisible = state.isHolidayImportRunning;
+  if (elements.holidayImportCantonInput) elements.holidayImportCantonInput.disabled = isVisible;
+  if (elements.holidayImportYearInput) elements.holidayImportYearInput.disabled = isVisible;
+  if (elements.cancelHolidayImportButton) elements.cancelHolidayImportButton.disabled = isVisible;
+  if (elements.closeHolidayImportModalButton) elements.closeHolidayImportModalButton.disabled = isVisible;
+  if (elements.confirmHolidayImportButton) {
+    elements.confirmHolidayImportButton.disabled = isVisible;
+    elements.confirmHolidayImportButton.textContent = isVisible ? 'Wird hinzugefügt …' : 'Hinzufügen';
+  }
+  elements.holidayImportProgress.classList.toggle('hidden', !isVisible);
+  if (!isVisible) {
+    elements.holidayImportProgressList.innerHTML = '';
+    return;
+  }
+
+  const currentIndex = state.holidayImportStepIndex;
+  elements.holidayImportProgressLabel.textContent = currentIndex >= 0
+    ? `Aktuell: ${HOLIDAY_IMPORT_STEPS[currentIndex]}`
+    : 'Import wird vorbereitet …';
+  elements.holidayImportProgressList.innerHTML = HOLIDAY_IMPORT_STEPS.map((step, index) => {
+    const isDone = index < currentIndex;
+    const isActive = index === currentIndex;
+    const classNames = ['import-progress-step'];
+    if (isDone) classNames.push('done');
+    if (isActive) classNames.push('active');
+    return `<li class="${classNames.join(' ')}">${escapeHtml(step)}</li>`;
+  }).join('');
+}
+
+function isWeekdayIsoDate(dateIso) {
+  const date = new Date(`${dateIso}T00:00:00Z`);
+  const day = date.getUTCDay();
+  return day >= 1 && day <= 5;
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+}
+
+async function handleHolidayImportFormSubmit(event) {
+  event.preventDefault();
+  if (state.isSavingSettings || state.isDemoMode || !state.supabase) return;
+
+  const canton = String(elements.holidayImportCantonInput?.value || '').trim().toUpperCase();
+  const year = String(elements.holidayImportYearInput?.value || '').trim();
+  if (!HOLIDAY_IMPORT_CANTONS.has(canton)) {
+    alert('Bitte einen gültigen Kanton auswählen.');
+    return;
+  }
+  if (!HOLIDAY_IMPORT_YEARS.has(year)) {
+    alert('Bitte ein gültiges Jahr auswählen.');
+    return;
+  }
+
+  state.isSavingSettings = true;
+  state.isHolidayImportRunning = true;
+  setHolidayImportStep(0);
+  try {
+    const invokeOptions = {
+      body: { canton, year },
+    };
+    if (state.supabaseAnonKey) {
+      invokeOptions.headers = {
+        Authorization: `Bearer ${state.supabaseAnonKey}`,
+        apikey: state.supabaseAnonKey,
+      };
+    }
+    const { data, error } = await state.supabase.functions.invoke('import-public-holidays', invokeOptions);
+    if (error) throw error;
+
+    const holidays = Array.isArray(data?.holidays) ? data.holidays : [];
+    const weekdayHolidays = holidays.filter((entry) => isIsoDate(String(entry?.holiday_date || '')) && isWeekdayIsoDate(entry.holiday_date));
+    setHolidayImportStep(1);
+
+    let importedCount = 0;
+    for (const entry of weekdayHolidays) {
+      const holidayDate = String(entry?.holiday_date || '').trim();
+      const label = String(entry?.label || 'Feiertag').trim() || 'Feiertag';
+      const isPaid = entry?.is_paid === true;
+      await createPlatformHoliday(holidayDate, label, isPaid);
+      importedCount += 1;
+    }
+    setHolidayImportStep(2);
+    await loadData();
+    setHolidayImportStep(3);
+    closeHolidayImportModal(true);
+    const skipped = Math.max(0, holidays.length - weekdayHolidays.length);
+    alert(`${importedCount} Feiertag(e) wurden aus ${canton} für ${year} importiert.${skipped ? ` ${skipped} Wochenend-Feiertag(e) wurden übersprungen.` : ''}`);
+  } catch (error) {
+    console.error(error);
+    const errorMessage = await getFunctionInvokeErrorMessage(error);
+    alert(`Feiertage konnten nicht importiert werden: ${errorMessage}`);
+  } finally {
+    resetHolidayImportProgress();
     state.isSavingSettings = false;
     render();
   }
