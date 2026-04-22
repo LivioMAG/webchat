@@ -3,6 +3,7 @@ const KANBAN_TABLE = 'project_kanban_notes';
 const KANBAN_ATTACHMENT_BUCKET = 'project-kanban-attachments';
 const PROJECT_SETTINGS_DOCUMENT_BUCKET = 'project-settings-documents';
 const MAX_TODOS_PER_NOTE = 6;
+const NOTE_COLOR_OPTIONS = ['green', 'blue', 'yellow', 'red'];
 const KANBAN_COLUMNS = [
   { key: 'todo', label: 'Neue Aufträge' },
   { key: 'planned', label: 'AVOR' },
@@ -227,7 +228,13 @@ function normalizeNote(rawNote) {
   note.attachments = Array.isArray(note.attachments) ? note.attachments : [];
   note.content = normalizeConversation(note.content);
   note.todo_description = String(note.todo_description || '');
+  note.color = normalizeNoteColor(note.color);
   return note;
+}
+
+function normalizeNoteColor(color) {
+  const normalized = String(color || '').trim().toLowerCase();
+  return NOTE_COLOR_OPTIONS.includes(normalized) ? normalized : '';
 }
 
 function normalizeConversation(rawContent) {
@@ -321,6 +328,7 @@ function renderCard(note) {
   const lastEntry = getLastConversationEntry(note);
   const preview = truncateText(lastEntry?.text || '', 100);
   const isLastByCurrentUser = isEntryByCurrentUser(lastEntry);
+  const effectiveColor = getEffectiveNoteColor(note);
   const descriptionField = isLastByCurrentUser
     ? `
       <textarea
@@ -336,7 +344,7 @@ function renderCard(note) {
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
-    <section class="task-card" draggable="true" data-note-id="${escapeHtml(note.id)}">
+    <section class="task-card task-card-${escapeHtml(effectiveColor)}" draggable="true" data-note-id="${escapeHtml(note.id)}" data-note-color="${escapeHtml(effectiveColor)}">
       <div class="task-header-row">
         <div class="task-type-wrap">
           <span class="task-type-icon">📝</span>
@@ -363,7 +371,7 @@ function renderTodoList(note, { showCompleted = true } = {}) {
   const items = sortTodoItems(Array.isArray(note.todo_items) ? note.todo_items : []);
   const visibleItems = showCompleted ? items : items.filter((item) => !item.done);
   const isLimitReached = items.length >= MAX_TODOS_PER_NOTE;
-  const emptyMessage = showCompleted ? 'Noch keine To-dos' : 'Keine offenen To-dos';
+  const emptyMessage = showCompleted ? 'Noch keine To-dos' : '';
   return `
     <div class="todo-list" data-todo-list="${escapeHtml(note.id)}">
       ${visibleItems.map((item) => `
@@ -373,7 +381,7 @@ function renderTodoList(note, { showCompleted = true } = {}) {
           <button class="todo-remove" type="button" data-action="remove-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}">✕</button>
         </label>
       `).join('')}
-      ${visibleItems.length ? '' : `<p class="attachment-empty">${emptyMessage}</p>`}
+      ${visibleItems.length || !emptyMessage ? '' : `<p class="attachment-empty">${emptyMessage}</p>`}
       <input class="todo-add-input" type="text" data-action="add-todo" data-note-id="${escapeHtml(note.id)}" placeholder="${isLimitReached ? `Maximal ${MAX_TODOS_PER_NOTE} To-dos erreicht` : 'To-do hinzufügen und Enter drücken'}" ${isLimitReached ? 'disabled' : ''} />
     </div>
   `;
@@ -838,6 +846,7 @@ async function createNote({ columnStatus = 'todo' } = {}) {
     counter_log: [],
     counter_description: '',
     attachments: [],
+    color: null,
     created_by_uid: state.currentUser?.uid,
     created_by_name: state.currentUser?.name || '',
   };
@@ -906,13 +915,14 @@ async function resequenceAndPersist() {
   showAlert('Kanban gespeichert.');
 }
 
-async function saveNote(note) {
+async function saveNote(note, { notify = true } = {}) {
   const payload = {
     note_type: 'text',
     content: Array.isArray(note.content) ? note.content : [],
     todo_description: note.todo_description || '',
     todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
     attachments: Array.isArray(note.attachments) ? note.attachments : [],
+    color: normalizeNoteColor(note.color) || null,
   };
 
   const { error } = await state.supabase
@@ -921,11 +931,11 @@ async function saveNote(note) {
     .eq('id', note.id);
 
   if (error) {
-    showAlert(`Speichern fehlgeschlagen: ${error.message}`, true);
+    if (notify) showAlert(`Speichern fehlgeschlagen: ${error.message}`, true);
     return false;
   }
 
-  showAlert('Gespeichert.');
+  if (notify) showAlert('Gespeichert.');
   return true;
 }
 
@@ -984,6 +994,17 @@ function renderNoteDetailModal() {
         <button class="task-action" type="button" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">Anhang hinzufügen</button>
       </div>
       ${renderAttachmentList(Array.isArray(note.attachments) ? note.attachments : [], note.id)}
+    </div>
+    <div class="note-color-picker-wrap">
+      <p class="note-color-picker-label">Kartenfarbe</p>
+      <div class="note-color-picker" role="radiogroup" aria-label="Kartenfarbe auswählen">
+        ${NOTE_COLOR_OPTIONS.map((color) => `
+          <label class="note-color-option note-color-option-${color}">
+            <input type="radio" name="noteColor" value="${color}" data-action="change-note-color" ${note.color === color ? 'checked' : ''} />
+            <span>${getNoteColorLabel(color)}</span>
+          </label>
+        `).join('')}
+      </div>
     </div>
   `;
 
@@ -1067,6 +1088,15 @@ async function removeTodoItem(noteId, itemId) {
 function handleNoteDetailModalInput(event) {
   if (event.target.matches('[data-action="note-editor-input"]')) {
     state.noteEditorDraft = String(event.target.value || '');
+    return;
+  }
+
+  if (event.target.matches('[data-action="change-note-color"]')) {
+    const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
+    if (!note) return;
+    note.color = normalizeNoteColor(event.target.value);
+    void saveNote(note, { notify: false });
+    renderBoard();
   }
 }
 
@@ -1118,6 +1148,27 @@ function truncateText(text, maxLength = 100) {
   const clean = String(text || '').trim();
   if (clean.length <= maxLength) return clean;
   return `${clean.slice(0, maxLength)}...`;
+}
+
+function getEffectiveNoteColor(note) {
+  const selected = normalizeNoteColor(note?.color);
+  if (selected) return selected;
+  return isEntryByCurrentUser(getLastConversationEntry(note)) ? 'blue' : 'yellow';
+}
+
+function getNoteColorLabel(color) {
+  switch (color) {
+    case 'green':
+      return 'Grün';
+    case 'blue':
+      return 'Blau';
+    case 'yellow':
+      return 'Gelb';
+    case 'red':
+      return 'Rot';
+    default:
+      return 'Farbe';
+  }
 }
 
 async function uploadAttachment(note, file) {

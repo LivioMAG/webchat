@@ -185,11 +185,15 @@ create table if not exists public.project_kanban_notes (
   counter_log jsonb not null default '[]'::jsonb,
   counter_description text not null default '',
   attachments jsonb not null default '[]'::jsonb,
+  color text check (color in ('green', 'blue', 'yellow', 'red')),
   created_by_uid uuid references public.app_profiles(id) on delete set null,
   created_by_name text not null default '',
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
+
+alter table public.project_kanban_notes
+add column if not exists color text check (color in ('green', 'blue', 'yellow', 'red'));
 
 create index if not exists project_kanban_notes_project_status_position_idx
 on public.project_kanban_notes (project_id, status, position);
