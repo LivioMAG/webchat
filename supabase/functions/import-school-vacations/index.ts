@@ -11,6 +11,7 @@ type ImportRequest = {
 }
 
 const OPENAI_API_KEY = 'REPLACE_WITH_TEST_API_KEY'
+const OPENAI_MODEL = 'gpt-4.1-mini'
 const SUPPORTED_CANTONS = new Set(['LU', 'BE', 'SO', 'ZH'])
 const SUPPORTED_SCHOOL_YEARS = new Set(['2025/26', '2026/27', '2027/28', '2028/29', '2029/30'])
 
@@ -103,7 +104,7 @@ async function researchSchoolVacations(canton: string, schoolYear: string): Prom
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4.1-mini',
+      model: OPENAI_MODEL,
       tools: [{ type: 'web_search_preview' }],
       input: prompt,
     }),

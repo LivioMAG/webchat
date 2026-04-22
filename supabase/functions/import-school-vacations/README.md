@@ -29,8 +29,8 @@ Unterstützte Schuljahre: `2025/26` bis `2029/30`
 
 ## Wichtige Hinweise
 
-- **Testmodus:** Der OpenAI API-Key ist im File `index.ts` als Konstante vorgesehen (`OPENAI_API_KEY`) und aktuell als Platzhalter gesetzt.
-- Für Produktion sollte der Schlüssel **nicht hardcoded** sein, sondern als Secret/Environment Variable gesetzt werden.
+- Der OpenAI API-Key ist aktuell im File `index.ts` hart codiert (`OPENAI_API_KEY`).
+- Das Modell ist ebenfalls direkt im Code gesetzt (`OPENAI_MODEL = gpt-4.1-mini`).
 - Die Function schreibt die gefundenen Zeiträume direkt in `school_vacations` (Insert).
 
 ## Deploy
