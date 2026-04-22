@@ -17,6 +17,7 @@ const state = {
   draggedNoteId: '',
   currentUser: null,
   pendingAttachmentNoteId: '',
+  todoOpenMap: {},
 };
 
 const elements = {};
@@ -122,7 +123,31 @@ async function loadData() {
     uid: currentUid || null,
     name: profileName || String(userResult.data?.user?.email || '').trim(),
   };
+  loadTodoOpenState();
   render();
+}
+
+
+function loadTodoOpenState() {
+  try {
+    const raw = window.localStorage.getItem('project-kanban-todo-open-state');
+    const parsed = raw ? JSON.parse(raw) : {};
+    state.todoOpenMap = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_error) {
+    state.todoOpenMap = {};
+  }
+}
+
+function saveTodoOpenState() {
+  try {
+    window.localStorage.setItem('project-kanban-todo-open-state', JSON.stringify(state.todoOpenMap || {}));
+  } catch (_error) {
+    // ignore localStorage failures
+  }
+}
+
+function isTodoOpen(noteId) {
+  return Boolean(state.todoOpenMap?.[String(noteId)]);
 }
 
 function normalizeNote(rawNote) {
@@ -173,7 +198,8 @@ function renderCard(note) {
   const descriptionField = noteType === 'todo'
     ? `<textarea class="task-description" data-field="todo_description" data-note-id="${escapeHtml(note.id)}" rows="2" placeholder="Beschreibung">${escapeHtml(note.todo_description || '')}</textarea>`
     : `<textarea class="task-description" data-field="content" data-note-id="${escapeHtml(note.id)}" rows="3" placeholder="Notiz hier eingeben ...">${escapeHtml(note.content || '')}</textarea>`;
-  const todoSection = noteType === 'todo' ? renderTodoList(note) : '';
+  const todoExpanded = noteType === 'todo' ? isTodoOpen(note.id) : false;
+  const todoSection = noteType === 'todo' ? renderTodoList(note, todoExpanded) : '';
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
@@ -187,6 +213,7 @@ function renderCard(note) {
           </select>
         </div>
         <div class="task-actions">
+          ${noteType === 'todo' ? `<button class="task-toggle" type="button" data-action="toggle-todo-list" data-note-id="${escapeHtml(note.id)}">${todoExpanded ? 'To-do schließen' : 'To-do öffnen'}</button>` : ''}
           <button class="task-icon" type="button" title="Anhang hinzufügen" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">📎</button>
           <button class="task-icon" type="button" title="Löschen" data-action="delete-note" data-note-id="${escapeHtml(note.id)}">🗑</button>
         </div>
@@ -199,18 +226,14 @@ function renderCard(note) {
         ${renderAttachmentList(attachments, note.id)}
       </div>
 
-      <div class="task-footer">
-        <span>${escapeHtml(note.created_by_name || state.currentUser?.name || 'unbekannt')}</span>
-        <span>${formatDateTime(note.updated_at || note.created_at)}</span>
-      </div>
     </section>
   `;
 }
 
-function renderTodoList(note) {
+function renderTodoList(note, isExpanded) {
   const items = Array.isArray(note.todo_items) ? note.todo_items : [];
   return `
-    <div class="todo-list" data-todo-list="${escapeHtml(note.id)}">
+    <div class="todo-list ${isExpanded ? "" : "hidden"}" data-todo-list="${escapeHtml(note.id)}">
       ${items.map((item) => `
         <label class="todo-item">
           <input type="checkbox" data-action="toggle-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}" ${item.done ? 'checked' : ''} />
@@ -257,6 +280,17 @@ async function handleBoardClick(event) {
   const addButton = event.target.closest('[data-action="add-note"]');
   if (addButton) {
     await createNote(String(addButton.dataset.column || 'todo'));
+    return;
+  }
+
+
+  const toggleTodoListButton = event.target.closest('[data-action="toggle-todo-list"]');
+  if (toggleTodoListButton) {
+    const noteId = String(toggleTodoListButton.dataset.noteId || '');
+    if (!noteId) return;
+    state.todoOpenMap[noteId] = !isTodoOpen(noteId);
+    saveTodoOpenState();
+    renderBoard();
     return;
   }
 
@@ -636,19 +670,6 @@ async function removeStorageObjects(attachments = []) {
       showAlert(`Datei konnte nicht entfernt werden: ${error.message}`, true);
     }
   }
-}
-
-function formatDateTime(value) {
-  if (!value) return '–';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '–';
-  return new Intl.DateTimeFormat('de-CH', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function formatFileSize(bytes) {
