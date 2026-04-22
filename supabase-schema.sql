@@ -478,6 +478,26 @@ drop column if exists disco_scheduled_for;
 alter table public.notes
 drop column if exists disco_done_at;
 
+create table if not exists public.project_kanban_notes (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  status text not null default 'todo' check (status in ('todo', 'planned', 'in_progress', 'review', 'done')) ,
+  position integer not null default 0,
+  note_type text not null default 'text' check (note_type in ('text', 'todo', 'counter')) ,
+  content text not null default '',
+  todo_items jsonb not null default '[]'::jsonb,
+  todo_description text not null default '',
+  counter_value integer not null default 0,
+  counter_start_value integer not null default 1,
+  counter_log jsonb not null default '[]'::jsonb,
+  counter_description text not null default '',
+  attachments jsonb not null default '[]'::jsonb,
+  created_by_uid uuid references public.app_profiles(id) on delete set null,
+  created_by_name text not null default '',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
 create table if not exists public.project_disco_layers (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,
@@ -520,6 +540,7 @@ add column if not exists construction_lead_profile_id uuid references public.app
 alter table public.projects
 add column if not exists allow_expenses boolean not null default true;
 
+
 create unique index if not exists projects_commission_number_idx
 on public.projects (commission_number);
 
@@ -537,10 +558,26 @@ alter table public.notes enable row level security;
 alter table public.school_vacations enable row level security;
 alter table public.project_disco_layers enable row level security;
 alter table public.project_disco_entries enable row level security;
+alter table public.project_kanban_notes enable row level security;
 
 drop policy if exists "projects own or admin" on public.projects;
 create policy "projects own or admin"
 on public.projects
+for all
+to authenticated
+using (public.is_admin_user())
+with check (public.is_admin_user());
+
+drop policy if exists "project_kanban_notes read authenticated" on public.project_kanban_notes;
+create policy "project_kanban_notes read authenticated"
+on public.project_kanban_notes
+for select
+to authenticated
+using (true);
+
+drop policy if exists "project_kanban_notes write admin" on public.project_kanban_notes;
+create policy "project_kanban_notes write admin"
+on public.project_kanban_notes
 for all
 to authenticated
 using (public.is_admin_user())
@@ -918,6 +955,7 @@ create index if not exists crm_contacts_last_name_idx on public.crm_contacts (la
 create index if not exists notes_target_uid_created_at_idx on public.notes (target_uid, created_at desc);
 create index if not exists project_disco_layers_project_week_idx on public.project_disco_layers (project_id, week_start_date, sort_order);
 create index if not exists project_disco_entries_project_note_idx on public.project_disco_entries (project_id, note_id);
+create index if not exists project_kanban_notes_project_status_position_idx on public.project_kanban_notes (project_id, status, position);
 
 drop trigger if exists set_updated_at_app_profiles on public.app_profiles;
 create trigger set_updated_at_app_profiles
@@ -970,6 +1008,12 @@ execute function public.set_updated_at();
 drop trigger if exists set_updated_at_crm_contacts on public.crm_contacts;
 create trigger set_updated_at_crm_contacts
 before update on public.crm_contacts
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists set_updated_at_project_kanban_notes on public.project_kanban_notes;
+create trigger set_updated_at_project_kanban_notes
+before update on public.project_kanban_notes
 for each row
 execute function public.set_updated_at();
 
@@ -1064,6 +1108,12 @@ insert into storage.buckets (id, name, public)
 values ('crm-note-attachments', 'crm-note-attachments', true)
 on conflict (id) do nothing;
 
+insert into storage.buckets (id, name, public)
+values ('project-kanban-attachments', 'project-kanban-attachments', true)
+on conflict (id) do nothing;
+
+
+
 drop policy if exists "weekly attachment read own or master" on storage.objects;
 drop policy if exists "weekly attachment write own or master" on storage.objects;
 drop policy if exists "authenticated attachment read" on storage.objects;
@@ -1072,6 +1122,8 @@ drop policy if exists "weekly attachment read own or admin" on storage.objects;
 drop policy if exists "weekly attachment write own or admin" on storage.objects;
 drop policy if exists "crm note attachment read own or admin" on storage.objects;
 drop policy if exists "crm note attachment write own or admin" on storage.objects;
+drop policy if exists "project kanban attachment read own or admin" on storage.objects;
+drop policy if exists "project kanban attachment write own or admin" on storage.objects;
 
 create policy "weekly attachment read own or admin"
 on storage.objects
@@ -1125,6 +1177,36 @@ using (
 )
 with check (
   bucket_id = 'crm-note-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+);
+
+
+create policy "project kanban attachment read own or admin"
+on storage.objects
+for select
+using (
+  bucket_id = 'project-kanban-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+);
+
+create policy "project kanban attachment write own or admin"
+on storage.objects
+for all
+using (
+  bucket_id = 'project-kanban-attachments'
+  and (
+    public.is_admin_user()
+    or auth.uid()::text = split_part(name, '/', 1)
+  )
+)
+with check (
+  bucket_id = 'project-kanban-attachments'
   and (
     public.is_admin_user()
     or auth.uid()::text = split_part(name, '/', 1)

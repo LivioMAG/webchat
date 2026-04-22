@@ -3,26 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Projektübersicht</title>
+    <title>Projektdetails · Kanban</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./project-detail.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="./project-detail.js"></script>
   </head>
   <body>
-    <div class="detail-shell">
-      <aside class="detail-sidebar" aria-label="Projektnavigation">
-        <div class="nav-icon-list"></div>
-        <div class="nav-icon-footer">
-          <button id="backIconButton" class="nav-icon-button" type="button" title="Zurück" aria-label="Zurück">
-            <span class="icon" aria-hidden="true">↩️</span>
-            <span class="nav-label">Zurück</span>
-          </button>
+    <main class="detail-shell">
+      <header class="panel detail-header">
+        <div>
+          <span class="eyebrow">Projektdetails</span>
+          <h1 id="projectTitle">Projekt</h1>
+          <p id="projectMeta" class="subtle-text">Kommissionsnummer: –</p>
         </div>
-      </aside>
+        <div class="header-actions">
+          <button id="addTaskButton" class="button button-primary" type="button">+ Aufgabe</button>
+          <button id="backButton" class="button" type="button">Zurück</button>
+        </div>
+      </header>
 
-      <main class="detail-content" aria-label="Leeres Projektlayout"></main>
-    </div>
+      <div id="alert" class="alert hidden"></div>
+
+      <section class="kanban-grid" id="kanbanBoard" aria-label="Kanban Board"></section>
+    </main>
   </body>
 </html>
