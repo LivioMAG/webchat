@@ -209,6 +209,15 @@
                     <h3>Fehlende Rapporte</h3>
                     <p>Diese Profile haben in der gewählten Woche noch nichts eingereicht.</p>
                   </div>
+                  <button
+                    id="openMissingReportsCallModalButton"
+                    class="button button-secondary button-icon"
+                    type="button"
+                    title="Telefon-Delegation für fehlende Rapporte"
+                    aria-label="Telefon-Delegation für fehlende Rapporte"
+                  >
+                    📞
+                  </button>
                 </div>
                 <ul id="missingList" class="status-list"></ul>
               </div>
@@ -946,6 +955,34 @@
 
             <div class="modal-actions">
               <button id="bulkConfirmSubmitButton" class="button button-primary" type="button">Bestätigen</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="missingReportsCallModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="missingReportsCallModalTitle">
+        <div class="modal-backdrop" data-close-missing-reports-call-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="missingReportsCallModalTitle">Fehlende Wochenrapporte telefonieren</h3>
+              <p>Möchtest du das delegieren? Dann werden pro Person einzelne Webhooks gesendet.</p>
+            </div>
+            <button id="closeMissingReportsCallModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+          <div class="report-edit-form">
+            <label>
+              <span>Deine Telefonnummer</span>
+              <input id="missingReportsDelegatorPhoneInput" type="tel" placeholder="+41791234567" />
+            </label>
+            <label>
+              <span>Kalenderwoche</span>
+              <input id="missingReportsWeekInput" type="week" />
+            </label>
+            <p id="missingReportsCallResult" class="subtle-text" aria-live="polite"></p>
+            <div class="modal-actions">
+              <button id="cancelMissingReportsCallButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button id="submitMissingReportsCallButton" class="button button-primary" type="button">Jawohl, delegieren</button>
             </div>
           </div>
         </div>
