@@ -218,13 +218,18 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .column-body.drag-over { background: rgba(0, 0, 0, 0.03); }
 
 .task-card {
-  border: none;
+  border: 1px solid rgba(215, 0, 21, 0.12);
   border-radius: 12px;
-  background: var(--panel-strong);
+  background: #f3f4f7;
   padding: 10px;
   cursor: grab;
   display: grid;
   gap: 6px;
+}
+
+.task-card.has-external-latest {
+  background: #fff3e8;
+  border-color: rgba(249, 115, 22, 0.25);
 }
 
 .task-card.dragging { opacity: 0.45; }
@@ -253,6 +258,11 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   padding: 6px 2px;
   resize: vertical;
   background: transparent;
+}
+
+.task-description.readonly {
+  color: #c2410c;
+  font-weight: 600;
 }
 
 .task-actions { display: flex; gap: 6px; align-items: center; }
@@ -298,7 +308,7 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 
 .empty-column { color: #94a3b8; font-size: 0.92rem; padding: 2px; }
 
-.note-type-modal {
+.note-detail-modal {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.26);
@@ -307,24 +317,87 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   z-index: 1200;
 }
 
-.note-type-modal-content {
+.note-detail-modal-content {
   background: #fff;
   border-radius: 16px;
   padding: 18px;
-  width: min(360px, calc(100vw - 24px));
+  width: min(1080px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
   display: grid;
   gap: 14px;
 }
 
-.note-type-modal-title {
-  margin: 0;
-  font-weight: 700;
+.note-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.note-type-modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
+.note-detail-header h3 {
+  margin: 0;
+}
+
+.note-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 16px;
+}
+
+.note-detail-left,
+.note-detail-right {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fafafa;
+}
+
+.note-conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.note-conversation-item {
+  margin: 0;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  padding: 8px;
+}
+
+.note-conversation-meta {
+  font-size: 0.78rem;
+  color: #64748b;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.note-conversation-item.external {
+  border-color: rgba(249, 115, 22, 0.25);
+  background: #fff7ed;
+}
+
+.note-primary-input {
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid rgba(17, 17, 17, 0.15);
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+  resize: vertical;
+  background: #fff;
+}
+
+.task-preview-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+@media (max-width: 900px) {
+  .note-detail-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-layout {
