@@ -18,10 +18,6 @@ begin
     raise exception 'Eigenes Profil kann nicht gelöscht werden.';
   end if;
 
-  -- Notes may block profile deletion because sender_uid uses ON DELETE RESTRICT.
-  delete from public.notes
-  where sender_uid = p_profile_id
-     or recipient_uid = p_profile_id;
 
   -- Remove profile-owned data explicitly (even where FK would cascade) so the
   -- behavior is deterministic and easy to reason about.
