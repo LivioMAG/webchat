@@ -106,7 +106,6 @@ function bindEvents() {
 
   elements.detailNavTabs?.addEventListener('click', handlePageNavigation);
   elements.kanbanBoard?.addEventListener('click', handleBoardClick);
-  elements.kanbanBoard?.addEventListener('dblclick', handleBoardDoubleClick);
   elements.kanbanBoard?.addEventListener('change', handleBoardChange);
   elements.kanbanBoard?.addEventListener('keydown', handleBoardKeydown);
   elements.kanbanBoard?.addEventListener('dragstart', handleDragStart);
@@ -322,17 +321,18 @@ function renderCard(note) {
   const lastEntry = getLastConversationEntry(note);
   const preview = truncateText(lastEntry?.text || '', 100);
   const isLastByCurrentUser = isEntryByCurrentUser(lastEntry);
-  const descriptionField = `
-    <textarea
-      class="task-description ${!isLastByCurrentUser ? 'readonly' : ''}"
-      data-field="latest_text"
-      data-note-id="${escapeHtml(note.id)}"
-      rows="3"
-      ${isLastByCurrentUser ? '' : 'readonly'}
-      placeholder="${isLastByCurrentUser ? 'Notiz hier eingeben ...' : 'Letzter Eintrag von jemand anderem'}"
-    >${escapeHtml(preview)}</textarea>
-  `;
-  const todoSection = `<div class="todo-section" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note)}</div>`;
+  const descriptionField = isLastByCurrentUser
+    ? `
+      <textarea
+        class="task-description"
+        data-field="latest_text"
+        data-note-id="${escapeHtml(note.id)}"
+        rows="3"
+        placeholder="Notiz hier eingeben ..."
+      >${escapeHtml(preview)}</textarea>
+    `
+    : `<p class="task-description readonly">${escapeHtml(preview || 'Letzter Eintrag von jemand anderem')}</p>`;
+  const todoSection = `<div class="todo-section" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note, { showCompleted: false })}</div>`;
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
@@ -351,29 +351,36 @@ function renderCard(note) {
       ${descriptionField}
       ${todoSection}
 
-      <div class="attachments-wrap">
-        ${renderAttachmentList(attachments, note.id)}
-      </div>
+      <button class="attachment-summary" type="button" data-action="open-note-detail" data-note-id="${escapeHtml(note.id)}">
+        ${attachments.length ? `${attachments.length} Anhang${attachments.length === 1 ? '' : 'e'} anzeigen` : 'Keine Anhänge'}
+      </button>
 
     </section>
   `;
 }
 
-function renderTodoList(note) {
-  const items = Array.isArray(note.todo_items) ? note.todo_items : [];
+function renderTodoList(note, { showCompleted = true } = {}) {
+  const items = sortTodoItems(Array.isArray(note.todo_items) ? note.todo_items : []);
+  const visibleItems = showCompleted ? items : items.filter((item) => !item.done);
   const isLimitReached = items.length >= MAX_TODOS_PER_NOTE;
+  const emptyMessage = showCompleted ? 'Noch keine To-dos' : 'Keine offenen To-dos';
   return `
     <div class="todo-list" data-todo-list="${escapeHtml(note.id)}">
-      ${items.map((item) => `
+      ${visibleItems.map((item) => `
         <label class="todo-item">
           <input type="checkbox" data-action="toggle-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}" ${item.done ? 'checked' : ''} />
           <input class="todo-text ${item.done ? 'done' : ''}" type="text" value="${escapeHtml(item.text)}" data-action="edit-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}" />
           <button class="todo-remove" type="button" data-action="remove-todo" data-note-id="${escapeHtml(note.id)}" data-item-id="${escapeHtml(item.id)}">✕</button>
         </label>
       `).join('')}
+      ${visibleItems.length ? '' : `<p class="attachment-empty">${emptyMessage}</p>`}
       <input class="todo-add-input" type="text" data-action="add-todo" data-note-id="${escapeHtml(note.id)}" placeholder="${isLimitReached ? `Maximal ${MAX_TODOS_PER_NOTE} To-dos erreicht` : 'To-do hinzufügen und Enter drücken'}" ${isLimitReached ? 'disabled' : ''} />
     </div>
   `;
+}
+
+function sortTodoItems(items) {
+  return [...items].sort((a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done)));
 }
 
 function renderAttachmentList(attachments, noteId) {
@@ -679,9 +686,12 @@ async function handleBoardClick(event) {
     return;
   }
 
-}
+  const openDetailButton = event.target.closest('[data-action="open-note-detail"]');
+  if (openDetailButton) {
+    openNoteDetailModal(String(openDetailButton.dataset.noteId || ''));
+    return;
+  }
 
-function handleBoardDoubleClick(event) {
   const card = event.target.closest('.task-card[data-note-id]');
   if (!card) return;
   if (event.target.closest('button, input, textarea, select, a, label')) return;
@@ -689,12 +699,13 @@ function handleBoardDoubleClick(event) {
 }
 
 async function handleBoardChange(event) {
-  const field = String(event.target.dataset.field || '');
   const noteId = String(event.target.dataset.noteId || '');
-  if (!field || !noteId) return;
+  if (!noteId) return;
 
   const note = state.notes.find((entry) => String(entry.id) === noteId);
   if (!note) return;
+  const field = String(event.target.dataset.field || '');
+  const action = String(event.target.dataset.action || '');
 
   if (field === 'todo_description') {
     const value = event.target.value || '';
@@ -711,7 +722,6 @@ async function handleBoardChange(event) {
     return;
   }
 
-  const action = String(event.target.dataset.action || '');
   if (action === 'toggle-todo') {
     const itemId = String(event.target.dataset.itemId || '');
     updateTodoItem(note, itemId, (item) => ({ ...item, done: event.target.checked }));
@@ -967,7 +977,14 @@ function renderNoteDetailModal() {
 
   elements.noteDetailEditor.innerHTML = `
     <textarea class="note-primary-input" data-action="note-editor-input" placeholder="${latestIsMine ? 'Dein letzter Eintrag' : 'Neuen Eintrag schreiben ...'}">${escapeHtml(state.noteEditorDraft)}</textarea>
-    <div class="todo-modal-wrap" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
+    <div class="todo-modal-wrap" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note, { showCompleted: true })}</div>
+    <div class="attachments-wrap modal-attachments">
+      <div class="modal-attachments-header">
+        <h4>Anhänge</h4>
+        <button class="task-action" type="button" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">Anhang hinzufügen</button>
+      </div>
+      ${renderAttachmentList(Array.isArray(note.attachments) ? note.attachments : [], note.id)}
+    </div>
   `;
 
   elements.noteDetailTimeline.innerHTML = `
@@ -988,6 +1005,31 @@ async function handleNoteDetailModalClick(event) {
     await closeNoteDetailModal();
     return;
   }
+
+  const addAttachmentButton = event.target.closest('[data-action="open-attachments"]');
+  if (addAttachmentButton) {
+    state.pendingAttachmentNoteId = String(addAttachmentButton.dataset.noteId || '');
+    elements.attachmentInput?.click();
+    return;
+  }
+
+  const deleteAttachmentButton = event.target.closest('[data-action="delete-attachment"]');
+  if (deleteAttachmentButton) {
+    const noteId = String(deleteAttachmentButton.dataset.noteId || '');
+    const attachmentIndex = Number(deleteAttachmentButton.dataset.attachmentIndex || -1);
+    await removeAttachment(noteId, attachmentIndex);
+    renderNoteDetailModal();
+    return;
+  }
+
+  const downloadAttachmentButton = event.target.closest('[data-action="download-attachment"]');
+  if (downloadAttachmentButton) {
+    const noteId = String(downloadAttachmentButton.dataset.noteId || '');
+    const attachmentIndex = Number(downloadAttachmentButton.dataset.attachmentIndex || -1);
+    await downloadAttachment(noteId, attachmentIndex);
+    return;
+  }
+
   const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
   if (!note) return;
 
