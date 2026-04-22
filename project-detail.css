@@ -218,13 +218,33 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .column-body.drag-over { background: rgba(0, 0, 0, 0.03); }
 
 .task-card {
-  border: none;
+  border: 1px solid rgba(17, 17, 17, 0.08);
   border-radius: 12px;
-  background: #f3f4f7;
+  background: #eff6ff;
   padding: 10px;
   cursor: grab;
   display: grid;
   gap: 6px;
+}
+
+.task-card-blue {
+  background: #eaf4ff;
+  border-color: #bfdcff;
+}
+
+.task-card-green {
+  background: #e9f8ef;
+  border-color: #bde7ca;
+}
+
+.task-card-yellow {
+  background: #fff6d9;
+  border-color: #f2dd9c;
+}
+
+.task-card-red {
+  background: #ffe9e7;
+  border-color: #f5c1bd;
 }
 
 .task-card.dragging { opacity: 0.45; }
@@ -256,9 +276,16 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 }
 
 .task-description.readonly {
-  color: #c2410c;
-  font-weight: 600;
+  color: #334155;
+  font-weight: 500;
   min-height: 32px;
+}
+
+.task-card-yellow .task-description,
+.task-card-red .task-description,
+.task-card-yellow .task-preview-hint,
+.task-card-red .task-preview-hint {
+  color: #4b5563;
 }
 
 .task-actions { display: flex; gap: 6px; align-items: center; }
@@ -270,6 +297,11 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.96);
   cursor: pointer;
+}
+
+.task-card-yellow .task-icon,
+.task-card-red .task-icon {
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .todo-list { display: grid; gap: 6px; }
@@ -412,6 +444,44 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .modal-attachments-header h4 {
   margin: 0;
 }
+
+.note-color-picker-wrap {
+  margin-top: 8px;
+  border-top: 1px solid rgba(17, 17, 17, 0.08);
+  padding-top: 10px;
+}
+
+.note-color-picker-label {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.note-color-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.note-color-option {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  border-radius: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  font-size: 0.84rem;
+}
+
+.note-color-option input {
+  margin: 0;
+}
+
+.note-color-option-green { background: #e9f8ef; }
+.note-color-option-blue { background: #eaf4ff; }
+.note-color-option-yellow { background: #fff6d9; }
+.note-color-option-red { background: #ffe9e7; }
 
 @media (max-width: 900px) {
   .note-detail-layout {
