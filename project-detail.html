@@ -12,23 +12,61 @@
     <script defer src="./project-detail.js"></script>
   </head>
   <body>
-    <main class="detail-shell">
-      <header class="panel detail-header">
-        <div>
-          <span class="eyebrow">Projektdetails</span>
-          <h1 id="projectTitle">Projekt</h1>
-          <p id="projectMeta" class="subtle-text">Kommissionsnummer: –</p>
-        </div>
-        <div class="header-actions">
-          <button id="addTaskButton" class="button button-primary" type="button">+ Aufgabe</button>
-          <button id="backButton" class="button" type="button">Zurück</button>
-        </div>
-      </header>
+    <main class="detail-shell detail-dashboard">
+      <aside class="detail-sidebar panel" aria-label="Detailnavigation">
+        <nav class="detail-nav-tabs" id="detailNavTabs">
+          <button class="detail-nav-tab active" type="button" data-page="kanban" aria-controls="kanbanPage">🏁<span>Dashboard</span></button>
+          <button class="detail-nav-tab" type="button" data-page="dispo" aria-controls="dispoPage">🗓️<span>Dispo</span></button>
+          <button class="detail-nav-tab" type="button" data-page="docs" aria-controls="docsPage">📁<span>Docs</span></button>
+          <button class="detail-nav-tab" type="button" data-page="journal" aria-controls="journalPage">📓<span>Journal</span></button>
+        </nav>
+      </aside>
 
-      <div id="alert" class="alert hidden"></div>
+      <div class="detail-content-area">
+        <header class="panel detail-header">
+          <div>
+            <span class="eyebrow">Projektdetails</span>
+            <h1 id="projectTitle">Projekt</h1>
+            <p id="projectMeta" class="subtle-text">Kommissionsnummer: –</p>
+          </div>
+          <div class="header-actions">
+            <button id="addTaskButton" class="button button-primary" type="button">+ Aufgabe</button>
+            <button id="backButton" class="button" type="button">Zurück</button>
+          </div>
+        </header>
 
-      <section class="kanban-grid" id="kanbanBoard" aria-label="Kanban Board"></section>
-      <input id="attachmentInput" class="hidden" type="file" multiple />
+        <div id="alert" class="alert hidden"></div>
+
+        <section id="kanbanPage" class="detail-page active" aria-label="Kanban">
+          <section class="kanban-grid" id="kanbanBoard" aria-label="Kanban Board"></section>
+        </section>
+
+        <section id="dispoPage" class="detail-page hidden" aria-label="Dispo">
+          <article class="panel placeholder-panel">
+            <span class="eyebrow">Dispo</span>
+            <h2>Dispo</h2>
+            <p class="subtle-text">Hier kommt dein Dispo-Inhalt als Platzhalter hinein.</p>
+          </article>
+        </section>
+
+        <section id="docsPage" class="detail-page hidden" aria-label="Docs">
+          <article class="panel placeholder-panel">
+            <span class="eyebrow">Docs</span>
+            <h2>Dokumentenablage</h2>
+            <p class="subtle-text">Hier kommt die Dokumentenablage als Platzhalter hinein.</p>
+          </article>
+        </section>
+
+        <section id="journalPage" class="detail-page hidden" aria-label="Journal">
+          <article class="panel placeholder-panel">
+            <span class="eyebrow">Journal</span>
+            <h2>Journal</h2>
+            <p class="subtle-text">Hier kommt dein Journal-Inhalt als Platzhalter hinein.</p>
+          </article>
+        </section>
+
+        <input id="attachmentInput" class="hidden" type="file" multiple />
+      </div>
     </main>
   </body>
 </html>

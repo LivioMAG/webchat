@@ -34,6 +34,16 @@ textarea {
   width: calc(100vw - 32px);
   margin: 0 auto;
   padding: 16px 0 24px;
+}
+
+.detail-dashboard {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.detail-content-area {
   display: grid;
   gap: 20px;
 }
@@ -45,6 +55,50 @@ textarea {
   border-radius: 28px;
   box-shadow: var(--shadow);
   padding: 26px;
+}
+
+
+.detail-sidebar {
+  padding: 20px 14px;
+  position: sticky;
+  top: 16px;
+}
+
+.detail-nav-tabs {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-nav-tab {
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: rgba(247, 247, 248, 1);
+  padding: 12px 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.detail-nav-tab.active {
+  color: var(--accent);
+  border-color: rgba(215, 0, 21, 0.2);
+  background: rgba(215, 0, 21, 0.08);
+}
+
+.detail-page.hidden {
+  display: none !important;
+}
+
+.placeholder-panel {
+  min-height: calc(100vh - 210px);
+  display: grid;
+  align-content: start;
+}
+
+.placeholder-panel h2 {
+  margin: 12px 0 8px;
 }
 
 .detail-header {
@@ -256,9 +310,26 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   .kanban-grid { grid-template-columns: repeat(3, minmax(240px, 1fr)); }
 }
 
+@media (max-width: 1100px) {
+  .detail-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-sidebar {
+    position: static;
+  }
+
+  .detail-nav-tabs {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+}
+
 @media (max-width: 980px) {
   .kanban-grid { grid-template-columns: 1fr; }
   .detail-shell { width: calc(100vw - 20px); padding: 10px 0; }
   .detail-header { flex-direction: column; align-items: flex-start; }
   .kanban-column { min-height: 320px; }
+  .detail-nav-tabs {
+    grid-template-columns: 1fr;
+  }
 }

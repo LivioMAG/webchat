@@ -18,6 +18,7 @@ const state = {
   currentUser: null,
   pendingAttachmentNoteId: '',
   todoOpenMap: {},
+  currentPage: 'kanban',
 };
 
 const elements = {};
@@ -49,6 +50,7 @@ function cacheElements() {
   elements.alert = document.getElementById('alert');
   elements.addTaskButton = document.getElementById('addTaskButton');
   elements.attachmentInput = document.getElementById('attachmentInput');
+  elements.detailNavTabs = document.getElementById('detailNavTabs');
 }
 
 function bindEvents() {
@@ -61,6 +63,7 @@ function bindEvents() {
   });
 
   elements.addTaskButton?.addEventListener('click', () => createNote('todo'));
+  elements.detailNavTabs?.addEventListener('click', handlePageNavigation);
   elements.kanbanBoard?.addEventListener('click', handleBoardClick);
   elements.kanbanBoard?.addEventListener('change', handleBoardChange);
   elements.kanbanBoard?.addEventListener('keydown', handleBoardKeydown);
@@ -69,6 +72,35 @@ function bindEvents() {
   elements.kanbanBoard?.addEventListener('drop', handleDrop);
   elements.kanbanBoard?.addEventListener('dragend', handleDragEnd);
   elements.attachmentInput?.addEventListener('change', handleAttachmentSelection);
+}
+
+
+function handlePageNavigation(event) {
+  const button = event.target.closest('[data-page]');
+  if (!button) return;
+
+  const page = String(button.dataset.page || 'kanban');
+  setActivePage(page);
+}
+
+function setActivePage(page) {
+  const allowedPages = ['kanban', 'dispo', 'docs', 'journal'];
+  const nextPage = allowedPages.includes(page) ? page : 'kanban';
+  state.currentPage = nextPage;
+
+  document.querySelectorAll('.detail-nav-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.page === nextPage);
+  });
+
+  document.querySelectorAll('.detail-page').forEach((section) => {
+    const isActive = section.id === `${nextPage}Page`;
+    section.classList.toggle('hidden', !isActive);
+    section.classList.toggle('active', isActive);
+  });
+
+  if (elements.addTaskButton) {
+    elements.addTaskButton.classList.toggle('hidden', nextPage !== 'kanban');
+  }
 }
 
 function getProjectId() {
@@ -173,6 +205,7 @@ function render() {
   elements.projectTitle.textContent = state.project.name || 'Projekt';
   elements.projectMeta.textContent = `Kommissionsnummer: ${state.project.commission_number || '–'}`;
   renderBoard();
+  setActivePage(state.currentPage);
 }
 
 function renderBoard() {
@@ -487,6 +520,7 @@ async function createNote(status) {
 
   state.notes.push(normalizeNote(data));
   renderBoard();
+  setActivePage(state.currentPage);
 }
 
 async function deleteNote(noteId) {
@@ -574,6 +608,7 @@ async function saveTodoItems(note) {
   }
 
   renderBoard();
+  setActivePage(state.currentPage);
 }
 
 function updateTodoItem(note, itemId, updater) {
@@ -624,6 +659,7 @@ async function removeAttachment(noteId, attachmentIndex) {
   note.attachments = attachments;
   await saveNote(note);
   renderBoard();
+  setActivePage(state.currentPage);
 }
 
 async function downloadAttachment(noteId, attachmentIndex) {
