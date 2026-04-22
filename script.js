@@ -4989,9 +4989,12 @@ function renderDispoCell(profileId, date) {
   const assignmentItems = getDispoItemsForEntry(entry);
   const weeklyReportItems = getWeeklyReportItems(profileId, date);
   const weeklyAbsenceItems = weeklyReportItems.filter((item) => isAbsenceDispoItem(item?.label));
+  const missingReportItem = [{ type: 'missing_report', label: 'Rapport fehlt', start_time: '', end_time: '' }];
   const fallbackItems = weeklyAbsenceItems.length ? weeklyAbsenceItems : (isLocked ? weeklyReportItems : []);
-  const items = assignmentItems.length ? assignmentItems : fallbackItems;
-  const hasAutoAbsenceFromWeeklyReport = !assignmentItems.length && weeklyAbsenceItems.length > 0;
+  const items = isLocked
+    ? (weeklyReportItems.length ? weeklyReportItems : missingReportItem)
+    : (assignmentItems.length ? assignmentItems : fallbackItems);
+  const hasAutoAbsenceFromWeeklyReport = !isLocked && !assignmentItems.length && weeklyAbsenceItems.length > 0;
   const addButton = (!hasFullDayBlock && !isLocked && !hasAutoAbsenceFromWeeklyReport)
     ? `<button class="button button-secondary button-icon-only" type="button" data-action="assign-dispo" data-profile-id="${escapeAttribute(profileId)}" data-date="${escapeAttribute(date)}" title="Dispo hinzufügen" aria-label="Dispo hinzufügen">＋</button>`
     : '';
@@ -5032,6 +5035,7 @@ function renderDispoItemCard(item, assignmentId, index, allowDelete = true) {
 function getDispoCardThemeClass(label) {
   const normalized = normalizeSearchValue(label || '');
   if (normalized.includes('divers')) return 'dispo-item-card-dark';
+  if (normalized.includes('rapport fehlt')) return 'dispo-item-card-orange';
   if (normalized.includes('feiertag') || normalized.includes('ferien')) return 'dispo-item-card-red';
   if (normalized.includes('krankheit') || normalized.includes('unfall')) return 'dispo-item-card-orange';
   if (normalized.includes('militaer') || normalized.includes('zivildienst')) return 'dispo-item-card-green';
@@ -5043,7 +5047,7 @@ function getDispoItemLineLabel(item) {
 }
 
 function getDispoItemTimeLabel(item) {
-  if (isAbsenceDispoItem(item?.label)) return '';
+  if (isAbsenceDispoItem(item?.label) || item?.type === 'missing_report') return '';
   const startTime = normalizeDispoTimeValue(item?.start_time, DISPO_DEFAULT_START_TIME);
   const endTime = normalizeDispoTimeValue(item?.end_time, DISPO_DEFAULT_END_TIME);
   return `${startTime} – ${endTime}`;
