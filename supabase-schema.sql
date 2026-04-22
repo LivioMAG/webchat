@@ -493,7 +493,7 @@ create table if not exists public.project_kanban_notes (
   status text not null default 'todo' check (status in ('todo', 'planned', 'in_progress', 'review', 'done')) ,
   position integer not null default 0,
   note_type text not null default 'text' check (note_type in ('text', 'todo', 'counter')) ,
-  content text not null default '',
+  content jsonb not null default '[]'::jsonb,
   todo_items jsonb not null default '[]'::jsonb,
   todo_description text not null default '',
   counter_value integer not null default 0,

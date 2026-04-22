@@ -222,12 +222,15 @@
         <input id="attachmentInput" class="hidden" type="file" multiple />
         <input id="projectDocumentInput" class="hidden" type="file" multiple />
 
-        <div id="noteTypeModal" class="note-type-modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteTypeModalTitle">
-          <div class="note-type-modal-content">
-            <p id="noteTypeModalTitle" class="note-type-modal-title">Was hinzufügen?</p>
-            <div class="note-type-modal-actions">
-              <button type="button" class="button" data-action="confirm-add-note-type" data-note-type="text">Notiz</button>
-              <button type="button" class="button" data-action="confirm-add-note-type" data-note-type="todo">To-do</button>
+        <div id="noteDetailModal" class="note-detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteDetailModalTitle">
+          <div class="note-detail-modal-content">
+            <header class="note-detail-header">
+              <h3 id="noteDetailModalTitle">Karte bearbeiten</h3>
+              <button type="button" class="task-icon" data-action="close-note-detail" aria-label="Schliessen">✕</button>
+            </header>
+            <div class="note-detail-layout">
+              <section class="note-detail-left" id="noteDetailEditor"></section>
+              <aside class="note-detail-right" id="noteDetailTimeline"></aside>
             </div>
           </div>
         </div>

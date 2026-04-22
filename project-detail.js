@@ -21,6 +21,8 @@ const state = {
   currentPage: 'kanban',
   pendingNewNoteColumn: '',
   pendingTodoInputFocusNoteId: '',
+  activeNoteId: '',
+  noteEditorDraft: '',
   contacts: [],
   profiles: [],
 };
@@ -54,7 +56,9 @@ function cacheElements() {
   elements.alert = document.getElementById('alert');
   elements.attachmentInput = document.getElementById('attachmentInput');
   elements.detailNavTabs = document.getElementById('detailNavTabs');
-  elements.noteTypeModal = document.getElementById('noteTypeModal');
+  elements.noteDetailModal = document.getElementById('noteDetailModal');
+  elements.noteDetailEditor = document.getElementById('noteDetailEditor');
+  elements.noteDetailTimeline = document.getElementById('noteDetailTimeline');
   elements.projectSettingsForm = document.getElementById('projectSettingsForm');
   elements.settingsCommissionInput = document.getElementById('settingsCommissionInput');
   elements.settingsProjectNameInput = document.getElementById('settingsProjectNameInput');
@@ -107,7 +111,10 @@ function bindEvents() {
   elements.kanbanBoard?.addEventListener('drop', handleDrop);
   elements.kanbanBoard?.addEventListener('dragend', handleDragEnd);
   elements.attachmentInput?.addEventListener('change', handleAttachmentSelection);
-  elements.noteTypeModal?.addEventListener('click', handleNoteTypeModalClick);
+  elements.noteDetailModal?.addEventListener('click', handleNoteDetailModalClick);
+  elements.noteDetailModal?.addEventListener('input', handleNoteDetailModalInput);
+  elements.noteDetailModal?.addEventListener('change', handleBoardChange);
+  elements.noteDetailModal?.addEventListener('keydown', handleBoardKeydown);
   elements.projectSettingsForm?.addEventListener('submit', handleProjectSettingsSubmit);
   elements.addExistingContactButton?.addEventListener('click', handleAddExistingContact);
   elements.createContactButton?.addEventListener('click', handleCreateContact);
@@ -213,12 +220,64 @@ async function loadData() {
 
 function normalizeNote(rawNote) {
   const note = { ...rawNote };
-  note.note_type = ['text', 'todo'].includes(note.note_type) ? note.note_type : 'text';
+  note.note_type = 'text';
   note.todo_items = Array.isArray(note.todo_items) ? note.todo_items.map(normalizeTodoItem) : [];
   note.attachments = Array.isArray(note.attachments) ? note.attachments : [];
-  note.content = String(note.content || '');
+  note.content = normalizeConversation(note.content);
   note.todo_description = String(note.todo_description || '');
   return note;
+}
+
+function normalizeConversation(rawContent) {
+  if (Array.isArray(rawContent)) {
+    return rawContent.map(normalizeConversationEntry).filter((entry) => entry.text);
+  }
+  if (typeof rawContent === 'string') {
+    const trimmed = rawContent.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map(normalizeConversationEntry).filter((entry) => entry.text);
+      }
+    } catch (_error) {
+      return [buildConversationEntry(trimmed)];
+    }
+    return [buildConversationEntry(trimmed)];
+  }
+  return [];
+}
+
+function normalizeConversationEntry(entry) {
+  const firstName = String(entry?.first_name || '').trim();
+  const lastName = String(entry?.last_name || '').trim();
+  const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+  return {
+    id: String(entry?.id || crypto.randomUUID()),
+    author_type: String(entry?.author_type || 'user'),
+    user_id: entry?.user_id ? String(entry.user_id) : null,
+    uid: entry?.uid ? String(entry.uid) : null,
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName || String(entry?.full_name || entry?.created_by_name || '').trim(),
+    text: String(entry?.text || '').trim(),
+    created_at: String(entry?.created_at || new Date().toISOString()),
+  };
+}
+
+function buildConversationEntry(text = '') {
+  const authorName = String(state.currentUser?.name || '').trim();
+  const [firstName = '', ...rest] = authorName.split(' ');
+  return normalizeConversationEntry({
+    author_type: 'user',
+    user_id: state.currentUser?.uid || null,
+    uid: state.currentUser?.uid || null,
+    first_name: firstName,
+    last_name: rest.join(' ').trim(),
+    full_name: authorName,
+    text,
+    created_at: new Date().toISOString(),
+  });
 }
 
 function normalizeTodoItem(item) {
@@ -257,22 +316,32 @@ function renderBoard() {
 }
 
 function renderCard(note) {
-  const noteType = note.note_type || 'text';
-  const descriptionField = noteType === 'todo'
-    ? `<textarea class="task-description" data-field="todo_description" data-note-id="${escapeHtml(note.id)}" rows="2" placeholder="Beschreibung">${escapeHtml(note.todo_description || '')}</textarea>`
-    : `<textarea class="task-description" data-field="content" data-note-id="${escapeHtml(note.id)}" rows="3" placeholder="Notiz hier eingeben ...">${escapeHtml(note.content || '')}</textarea>`;
-  const todoSection = noteType === 'todo' ? renderTodoList(note) : '';
+  const lastEntry = getLastConversationEntry(note);
+  const preview = truncateText(lastEntry?.text || '', 100);
+  const isLastByCurrentUser = isEntryByCurrentUser(lastEntry);
+  const descriptionField = `
+    <textarea
+      class="task-description ${!isLastByCurrentUser ? 'readonly' : ''}"
+      data-field="latest_text"
+      data-note-id="${escapeHtml(note.id)}"
+      rows="3"
+      ${isLastByCurrentUser ? '' : 'readonly'}
+      placeholder="${isLastByCurrentUser ? 'Notiz hier eingeben ...' : 'Letzter Eintrag von jemand anderem'}"
+    >${escapeHtml(preview)}</textarea>
+  `;
+  const todoToggleLabel = Array.isArray(note.todo_items) && note.todo_items.length ? `To-dos (${note.todo_items.length})` : 'To-dos';
+  const todoSection = `
+    <button class="button task-action" type="button" data-action="toggle-todos" data-note-id="${escapeHtml(note.id)}">${escapeHtml(todoToggleLabel)}</button>
+    <div class="todo-section hidden" data-todo-section="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
+  `;
   const attachments = Array.isArray(note.attachments) ? note.attachments : [];
 
   return `
-    <section class="task-card" draggable="true" data-note-id="${escapeHtml(note.id)}">
+    <section class="task-card ${!isLastByCurrentUser && lastEntry ? 'has-external-latest' : ''}" draggable="true" data-note-id="${escapeHtml(note.id)}">
       <div class="task-header-row">
         <div class="task-type-wrap">
-          <span class="task-type-icon">${noteType === 'todo' ? '☑' : '📝'}</span>
-          <select class="task-type-select" data-field="note_type" data-note-id="${escapeHtml(note.id)}">
-            <option value="text" ${noteType === 'text' ? 'selected' : ''}>Notiz</option>
-            <option value="todo" ${noteType === 'todo' ? 'selected' : ''}>To-do</option>
-          </select>
+          <span class="task-type-icon">📝</span>
+          <p class="task-preview-hint">${lastEntry ? `Letzter Eintrag: ${escapeHtml(getEntryAuthorLabel(lastEntry))}` : 'Noch kein Eintrag'}</p>
         </div>
         <div class="task-actions">
           <button class="task-icon" type="button" title="Anhang hinzufügen" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">📎</button>
@@ -569,7 +638,15 @@ async function handleProjectDocumentsTableClick(event) {
 async function handleBoardClick(event) {
   const addButton = event.target.closest('[data-action="add-note"]');
   if (addButton) {
-    openNoteTypeModal(String(addButton.dataset.column || 'todo'));
+    await createNote({ columnStatus: String(addButton.dataset.column || 'todo') });
+    return;
+  }
+
+  const toggleTodoButton = event.target.closest('[data-action="toggle-todos"]');
+  if (toggleTodoButton) {
+    const noteId = String(toggleTodoButton.dataset.noteId || '');
+    const section = document.querySelector(`[data-todo-section="${CSS.escape(noteId)}"]`);
+    section?.classList.toggle('hidden');
     return;
   }
 
@@ -607,7 +684,13 @@ async function handleBoardClick(event) {
     const noteId = String(removeTodoButton.dataset.noteId || '');
     const itemId = String(removeTodoButton.dataset.itemId || '');
     await removeTodoItem(noteId, itemId);
+    return;
   }
+
+  const card = event.target.closest('.task-card[data-note-id]');
+  if (!card) return;
+  if (event.target.closest('button, input, textarea, select, a, label')) return;
+  openNoteDetailModal(String(card.dataset.noteId || ''));
 }
 
 async function handleBoardChange(event) {
@@ -618,21 +701,18 @@ async function handleBoardChange(event) {
   const note = state.notes.find((entry) => String(entry.id) === noteId);
   if (!note) return;
 
-  if (field === 'content' || field === 'todo_description') {
+  if (field === 'todo_description') {
     const value = event.target.value || '';
     note[field] = value;
     await saveNote(note);
     return;
   }
 
-  if (field === 'note_type') {
-    const nextType = event.target.value === 'todo' ? 'todo' : 'text';
-    note.note_type = nextType;
-    if (nextType === 'todo' && !Array.isArray(note.todo_items)) {
-      note.todo_items = [];
-    }
+  if (field === 'latest_text') {
+    const latestEntry = getLastConversationEntry(note);
+    if (!latestEntry || !isEntryByCurrentUser(latestEntry)) return;
+    latestEntry.text = String(event.target.value || '');
     await saveNote(note);
-    renderBoard();
     return;
   }
 
@@ -734,15 +814,14 @@ async function handleDrop(event) {
   handleDragEnd();
 }
 
-async function createNote({ columnStatus = 'todo', noteType = 'text' } = {}) {
-  const normalizedType = noteType === 'todo' ? 'todo' : 'text';
+async function createNote({ columnStatus = 'todo' } = {}) {
   const position = getNotesByColumn(columnStatus).length;
   const payload = {
     project_id: state.projectId,
     status: columnStatus,
     position,
-    note_type: normalizedType,
-    content: '',
+    note_type: 'text',
+    content: [],
     todo_items: [],
     todo_description: '',
     counter_value: 0,
@@ -767,10 +846,6 @@ async function createNote({ columnStatus = 'todo', noteType = 'text' } = {}) {
 
   state.notes.push(normalizeNote(data));
   renderBoard();
-  if (normalizedType === 'todo') {
-    state.pendingTodoInputFocusNoteId = String(data.id || '');
-    focusTodoAddInputIfNeeded();
-  }
   setActivePage(state.currentPage);
 }
 
@@ -824,8 +899,8 @@ async function resequenceAndPersist() {
 
 async function saveNote(note) {
   const payload = {
-    note_type: note.note_type || 'text',
-    content: note.content || '',
+    note_type: 'text',
+    content: Array.isArray(note.content) ? note.content : [],
     todo_description: note.todo_description || '',
     todo_items: Array.isArray(note.todo_items) ? note.todo_items : [],
     attachments: Array.isArray(note.attachments) ? note.attachments : [],
@@ -859,32 +934,83 @@ async function saveTodoItems(note) {
   }
 
   renderBoard();
+  if (state.activeNoteId && String(state.activeNoteId) === String(note.id)) {
+    renderNoteDetailModal();
+  }
   focusTodoAddInputIfNeeded();
   setActivePage(state.currentPage);
 }
 
-function openNoteTypeModal(column) {
-  state.pendingNewNoteColumn = column || 'todo';
-  elements.noteTypeModal?.classList.remove('hidden');
+function openNoteDetailModal(noteId) {
+  const note = state.notes.find((entry) => String(entry.id) === String(noteId));
+  if (!note) return;
+  state.activeNoteId = String(noteId);
+  const latestEntry = getLastConversationEntry(note);
+  state.noteEditorDraft = latestEntry && isEntryByCurrentUser(latestEntry) ? latestEntry.text : '';
+  renderNoteDetailModal();
+  elements.noteDetailModal?.classList.remove('hidden');
 }
 
-function closeNoteTypeModal() {
-  state.pendingNewNoteColumn = '';
-  elements.noteTypeModal?.classList.add('hidden');
+function closeNoteDetailModal() {
+  state.activeNoteId = '';
+  state.noteEditorDraft = '';
+  elements.noteDetailModal?.classList.add('hidden');
 }
 
-async function handleNoteTypeModalClick(event) {
-  const confirmButton = event.target.closest('[data-action="confirm-add-note-type"]');
-  if (confirmButton) {
-    const noteType = String(confirmButton.dataset.noteType || 'text');
-    const columnStatus = state.pendingNewNoteColumn || 'todo';
-    closeNoteTypeModal();
-    await createNote({ columnStatus, noteType });
+function renderNoteDetailModal() {
+  const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
+  if (!note || !elements.noteDetailEditor || !elements.noteDetailTimeline) return;
+  const latestEntry = getLastConversationEntry(note);
+  const latestIsMine = isEntryByCurrentUser(latestEntry);
+
+  elements.noteDetailEditor.innerHTML = `
+    <p class="task-preview-hint">Aktuellster Eintrag: ${latestEntry ? escapeHtml(getEntryAuthorLabel(latestEntry)) : 'keiner'}</p>
+    <textarea class="note-primary-input" data-action="note-editor-input" placeholder="${latestIsMine ? 'Dein letzter Eintrag' : 'Neuen Eintrag schreiben ...'}">${escapeHtml(state.noteEditorDraft)}</textarea>
+    <div class="task-actions">
+      <button type="button" class="button button-primary" data-action="save-note-editor">Speichern</button>
+      <button type="button" class="button" data-action="toggle-todos-in-modal">To-do</button>
+    </div>
+    <div class="todo-modal-wrap hidden" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note)}</div>
+  `;
+
+  elements.noteDetailTimeline.innerHTML = `
+    <h4>Gesprächsverlauf</h4>
+    <div class="note-conversation-list">
+      ${(note.content || []).map((entry) => `
+        <article class="note-conversation-item ${isEntryByCurrentUser(entry) ? '' : 'external'}">
+          <span class="note-conversation-meta">${escapeHtml(getEntryAuthorLabel(entry))} · ${escapeHtml(formatDateTime(entry.created_at))}</span>
+          <p>${escapeHtml(entry.text || '')}</p>
+        </article>
+      `).join('') || '<p class="subtle-text">Noch kein Verlauf vorhanden.</p>'}
+    </div>
+  `;
+}
+
+async function handleNoteDetailModalClick(event) {
+  if (event.target === elements.noteDetailModal || event.target.closest('[data-action="close-note-detail"]')) {
+    closeNoteDetailModal();
+    return;
+  }
+  const note = state.notes.find((entry) => String(entry.id) === String(state.activeNoteId));
+  if (!note) return;
+
+  if (event.target.closest('[data-action="toggle-todos-in-modal"]')) {
+    const wrap = elements.noteDetailEditor?.querySelector(`[data-modal-todos="${CSS.escape(note.id)}"]`);
+    wrap?.classList.toggle('hidden');
     return;
   }
 
-  if (event.target === elements.noteTypeModal) {
-    closeNoteTypeModal();
+  if (event.target.closest('[data-action="save-note-editor"]')) {
+    await saveNoteDetailEditor(note);
+    return;
+  }
+
+  const removeTodoButton = event.target.closest('[data-action="remove-todo"]');
+  if (removeTodoButton) {
+    const noteId = String(removeTodoButton.dataset.noteId || '');
+    const itemId = String(removeTodoButton.dataset.itemId || '');
+    await removeTodoItem(noteId, itemId);
+    renderNoteDetailModal();
   }
 }
 
@@ -908,6 +1034,52 @@ async function removeTodoItem(noteId, itemId) {
   if (!note) return;
   note.todo_items = (note.todo_items || []).filter((item) => String(item.id) !== String(itemId));
   await saveTodoItems(note);
+}
+
+function handleNoteDetailModalInput(event) {
+  if (event.target.matches('[data-action="note-editor-input"]')) {
+    state.noteEditorDraft = String(event.target.value || '');
+  }
+}
+
+async function saveNoteDetailEditor(note) {
+  const text = String(state.noteEditorDraft || '').trim();
+  if (!text) return;
+  const latestEntry = getLastConversationEntry(note);
+  if (latestEntry && isEntryByCurrentUser(latestEntry)) {
+    latestEntry.text = text;
+    latestEntry.created_at = new Date().toISOString();
+  } else {
+    note.content = [...(note.content || []), buildConversationEntry(text)];
+  }
+  await saveNote(note);
+  renderBoard();
+  renderNoteDetailModal();
+}
+
+function getLastConversationEntry(note) {
+  const history = Array.isArray(note?.content) ? note.content : [];
+  if (!history.length) return null;
+  return history[history.length - 1];
+}
+
+function getEntryAuthorLabel(entry) {
+  if (!entry) return 'Unbekannt';
+  if (entry.author_type === 'ai') return 'AI';
+  return entry.full_name || [entry.first_name, entry.last_name].filter(Boolean).join(' ') || 'User';
+}
+
+function isEntryByCurrentUser(entry) {
+  if (!entry) return false;
+  const currentUid = String(state.currentUser?.uid || '');
+  const entryUid = String(entry.uid || entry.user_id || '');
+  return Boolean(currentUid) && currentUid === entryUid;
+}
+
+function truncateText(text, maxLength = 100) {
+  const clean = String(text || '').trim();
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength)}...`;
 }
 
 async function uploadAttachment(note, file) {
