@@ -615,6 +615,7 @@ const demoPlatformHolidays = [];
 
 const state = {
   supabase: null,
+  supabaseAnonKey: '',
   session: null,
   user: null,
   currentProfile: null,
@@ -1154,6 +1155,7 @@ async function initializeSupabase() {
       throw new Error('supabase-config.json ist unvollständig. Demo-Modus aktiv.');
     }
 
+    state.supabaseAnonKey = String(config.supabaseAnonKey || '').trim();
     state.supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
       auth: {
         persistSession: true,
@@ -3228,9 +3230,16 @@ async function handleSchoolVacationImportFormSubmit(event) {
 
   state.isSavingSettings = true;
   try {
-    const { data, error } = await state.supabase.functions.invoke('import-school-vacations', {
+    const invokeOptions = {
       body: { canton, schoolYear },
-    });
+    };
+    if (state.supabaseAnonKey) {
+      invokeOptions.headers = {
+        Authorization: `Bearer ${state.supabaseAnonKey}`,
+        apikey: state.supabaseAnonKey,
+      };
+    }
+    const { data, error } = await state.supabase.functions.invoke('import-school-vacations', invokeOptions);
     if (error) throw error;
     const importedCount = Number(data?.importedCount || 0);
     closeSchoolVacationImportModal();
