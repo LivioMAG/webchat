@@ -82,7 +82,8 @@ create table if not exists public.request_history (
   created_at timestamptz not null default timezone('utc', now()),
   profile_id uuid not null references public.app_profiles(id) on delete cascade,
   request text not null,
-  context text not null
+  context text not null,
+  linked_weekly_report_ids jsonb not null default '[]'::jsonb
 );
 
 create table if not exists public.daily_assignments (
@@ -143,6 +144,9 @@ add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.app_profiles
 add column if not exists target_revenue numeric(12,2) not null default 0;
+
+alter table public.request_history
+add column if not exists linked_weekly_report_ids jsonb not null default '[]'::jsonb;
 
 alter table public.app_profiles
 add column if not exists school_day_1 smallint;
@@ -228,6 +232,7 @@ declare
   current_request public.holiday_requests%rowtype;
   updated_request public.holiday_requests%rowtype;
   archive_context text;
+  v_linked_report_ids jsonb;
 begin
   if p_field_name not in ('controll_pl', 'controll_gl') then
     raise exception 'Ungültiges Freigabefeld: %', p_field_name;
@@ -257,67 +262,73 @@ begin
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
-    insert into public.weekly_reports (
-      profile_id,
-      work_date,
-      year,
-      kw,
-      project_name,
-      commission_number,
-      abz_typ,
-      start_time,
-      end_time,
-      lunch_break_minutes,
-      additional_break_minutes,
-      total_work_minutes,
-      adjusted_work_minutes,
-      expenses_amount,
-      other_costs_amount,
-      expense_note,
-      notes,
-      controll,
-      attachments
+    with inserted_reports as (
+      insert into public.weekly_reports (
+        profile_id,
+        work_date,
+        year,
+        kw,
+        project_name,
+        commission_number,
+        abz_typ,
+        start_time,
+        end_time,
+        lunch_break_minutes,
+        additional_break_minutes,
+        total_work_minutes,
+        adjusted_work_minutes,
+        expenses_amount,
+        other_costs_amount,
+        expense_note,
+        notes,
+        controll,
+        attachments
+      )
+      select
+        updated_request.profile_id,
+        work_day::date,
+        extract(isoyear from work_day)::integer,
+        extract(week from work_day)::integer,
+        initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+        initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
+        case lower(coalesce(updated_request.request_type, ''))
+          when 'ferien' then 1
+          when 'fehlen' then 1
+          when 'krankheit' then 2
+          when 'militaer' then 3
+          when 'zivildienst' then 3
+          when 'unfall' then 4
+          when 'feiertag' then 5
+          when 'uk' then 6
+          when 'ük' then 6
+          when 'berufsschule' then 7
+          else 0
+        end,
+        '07:00'::time,
+        '16:30'::time,
+        60,
+        30,
+        480,
+        480,
+        0,
+        0,
+        '',
+        format('Automatisch aus bestätigter Absenz (%s).', initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' '))),
+        coalesce(nullif(trim(updated_request.controll_gl), ''), nullif(trim(updated_request.controll_pl), ''), 'System'),
+        '[]'::jsonb
+      from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
+      where extract(isodow from work_day) between 1 and 5
+        and not exists (
+          select 1
+          from public.weekly_reports existing
+          where existing.profile_id = updated_request.profile_id
+            and existing.work_date = work_day::date
+        )
+      returning id
     )
-    select
-      updated_request.profile_id,
-      work_day::date,
-      extract(isoyear from work_day)::integer,
-      extract(week from work_day)::integer,
-      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
-      initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' ')),
-      case lower(coalesce(updated_request.request_type, ''))
-        when 'ferien' then 1
-        when 'fehlen' then 1
-        when 'krankheit' then 2
-        when 'militaer' then 3
-        when 'zivildienst' then 3
-        when 'unfall' then 4
-        when 'feiertag' then 5
-        when 'uk' then 6
-        when 'ük' then 6
-        when 'berufsschule' then 7
-        else 0
-      end,
-      '07:00'::time,
-      '16:30'::time,
-      60,
-      30,
-      480,
-      480,
-      0,
-      0,
-      '',
-      format('Automatisch aus bestätigter Absenz (%s).', initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' '))),
-      '',
-      '[]'::jsonb
-    from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
-    where extract(isodow from work_day) between 1 and 5
-      and not exists (
-        select 1
-        from public.weekly_reports existing
-        where existing.profile_id = updated_request.profile_id
-          and existing.work_date = work_day::date
-      );
+    select coalesce(jsonb_agg(id), '[]'::jsonb)
+    into v_linked_report_ids
+    from inserted_reports;
 
     archive_context := format(
       'Bestätigt durch PL: %s | GL: %s',
@@ -325,11 +336,12 @@ begin
       updated_request.controll_gl
     );
 
-    insert into public.request_history (profile_id, request, context)
+    insert into public.request_history (profile_id, request, context, linked_weekly_report_ids)
     values (
       updated_request.profile_id,
       public.build_holiday_request_history_text(updated_request),
-      archive_context
+      archive_context,
+      coalesce(v_linked_report_ids, '[]'::jsonb)
     );
 
     delete from public.holiday_requests
@@ -789,6 +801,82 @@ begin
 end;
 $$;
 
+create or replace function public.cleanup_confirmed_request_history_booking()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_linked_ids uuid[];
+  v_request_type text;
+  v_date_range text;
+  v_start_date date;
+  v_end_date date;
+  v_expected_abz integer;
+begin
+  if old.profile_id is null then
+    return old;
+  end if;
+
+  if old.context not like 'Bestätigt durch PL:%' then
+    return old;
+  end if;
+
+  select array_agg(value::uuid)
+  into v_linked_ids
+  from jsonb_array_elements_text(coalesce(old.linked_weekly_report_ids, '[]'::jsonb));
+
+  if coalesce(array_length(v_linked_ids, 1), 0) > 0 then
+    delete from public.weekly_reports
+    where profile_id = old.profile_id
+      and id = any(v_linked_ids);
+    return old;
+  end if;
+
+  -- Fallback für alte Historieneinträge ohne linked_weekly_report_ids.
+  v_request_type := lower(trim(split_part(old.request, '|', 1)));
+  v_date_range := trim(split_part(old.request, '|', 2));
+
+  if v_date_range like '% bis %' then
+    if trim(split_part(v_date_range, ' bis ', 1)) ~ '^\d{4}-\d{2}-\d{2}$' then
+      v_start_date := trim(split_part(v_date_range, ' bis ', 1))::date;
+    end if;
+    if trim(split_part(v_date_range, ' bis ', 2)) ~ '^\d{4}-\d{2}-\d{2}$' then
+      v_end_date := trim(split_part(v_date_range, ' bis ', 2))::date;
+    end if;
+  end if;
+
+  if v_start_date is null or v_end_date is null then
+    return old;
+  end if;
+
+  v_expected_abz := case v_request_type
+    when 'ferien' then 1
+    when 'fehlen' then 1
+    when 'krankheit' then 2
+    when 'militaer' then 3
+    when 'zivildienst' then 3
+    when 'unfall' then 4
+    when 'feiertag' then 5
+    when 'uk' then 6
+    when 'ük' then 6
+    when 'berufsschule' then 7
+    else null
+  end;
+
+  delete from public.weekly_reports
+  where profile_id = old.profile_id
+    and work_date between v_start_date and v_end_date
+    and controll is not null
+    and nullif(trim(controll), '') is not null
+    and notes like 'Automatisch aus bestätigter Absenz (%)%'
+    and (v_expected_abz is null or abz_typ = v_expected_abz);
+
+  return old;
+end;
+$$;
+
 create or replace function public.prevent_confirmed_weekly_report_changes()
 returns trigger
 language plpgsql
@@ -851,6 +939,12 @@ create trigger weekly_report_revert_confirmation_booking
 after delete on public.weekly_reports
 for each row
 execute function public.weekly_report_revert_confirmation_booking();
+
+drop trigger if exists cleanup_confirmed_request_history_booking on public.request_history;
+create trigger cleanup_confirmed_request_history_booking
+after delete on public.request_history
+for each row
+execute function public.cleanup_confirmed_request_history_booking();
 
 drop trigger if exists set_updated_at_holiday_requests on public.holiday_requests;
 create trigger set_updated_at_holiday_requests
