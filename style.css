@@ -973,6 +973,56 @@ tbody tr:hover {
   animation: spin 0.7s linear infinite;
 }
 
+.import-progress {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.02);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.import-progress p {
+  margin: 0;
+}
+
+.import-progress-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.import-progress-step {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.import-progress-step::before {
+  content: '○';
+  font-weight: 700;
+  color: rgba(17, 17, 17, 0.45);
+}
+
+.import-progress-step.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.import-progress-step.active::before {
+  content: '●';
+  color: var(--accent);
+}
+
+.import-progress-step.done::before {
+  content: '✓';
+  color: #0a8a47;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

@@ -26,6 +26,12 @@ const BLOCK_DAY_DEFAULT_START = '07:00';
 const BLOCK_DAY_DEFAULT_END = '16:30';
 const SCHOOL_VACATION_IMPORT_CANTONS = new Set(['LU', 'BE', 'SO', 'ZH']);
 const SCHOOL_VACATION_IMPORT_YEARS = new Set(['2025/26', '2026/27', '2027/28', '2028/29', '2029/30']);
+const SCHOOL_VACATION_IMPORT_STEPS = [
+  'Import an Edge Function senden',
+  'Ferienzeiten aus dem Kanton abrufen',
+  'Lehrlings-Rapporte synchronisieren',
+  'Ansicht aktualisieren',
+];
 const BLOCK_DAY_LEGACY_MODE_OPTIONS = {
   full: { label: 'Ganzer Tag', start: '07:00', end: '16:30' },
   am: { label: 'Vormittag', start: '07:00', end: '12:00' },
@@ -674,6 +680,8 @@ const state = {
   isSavingConfirmation: false,
   isSavingSaldo: false,
   isSavingSettings: false,
+  isSchoolVacationImportRunning: false,
+  schoolVacationImportStepIndex: -1,
   editingHolidayId: null,
   isLoadingOverlayVisible: false,
   loadingOverlayReason: '',
@@ -867,6 +875,10 @@ function cacheElements() {
   elements.schoolVacationImportForm = document.getElementById('schoolVacationImportForm');
   elements.schoolVacationImportCantonInput = document.getElementById('schoolVacationImportCantonInput');
   elements.schoolVacationImportSchoolYearInput = document.getElementById('schoolVacationImportSchoolYearInput');
+  elements.schoolVacationImportProgress = document.getElementById('schoolVacationImportProgress');
+  elements.schoolVacationImportProgressLabel = document.getElementById('schoolVacationImportProgressLabel');
+  elements.schoolVacationImportProgressList = document.getElementById('schoolVacationImportProgressList');
+  elements.confirmSchoolVacationImportButton = document.getElementById('confirmSchoolVacationImportButton');
   elements.closeSchoolVacationImportModalButton = document.getElementById('closeSchoolVacationImportModalButton');
   elements.cancelSchoolVacationImportButton = document.getElementById('cancelSchoolVacationImportButton');
   elements.blockDayModal = document.getElementById('blockDayModal');
@@ -1072,6 +1084,7 @@ function bindEvents() {
   if (elements.schoolVacationImportModal) {
     elements.schoolVacationImportModal.addEventListener('click', (event) => {
       if (event.target?.dataset?.closeSchoolVacationImportModal === 'true') {
+        if (state.isSchoolVacationImportRunning) return;
         closeSchoolVacationImportModal();
       }
     });
@@ -1415,6 +1428,8 @@ function resetAppState() {
   state.isSavingProject = false;
   state.isSavingDispo = false;
   state.isSavingSettings = false;
+  state.isSchoolVacationImportRunning = false;
+  state.schoolVacationImportStepIndex = -1;
   state.hasAdminAccess = false;
   state.isAdminStatusResolved = false;
   state.isLoadingData = false;
@@ -1739,6 +1754,7 @@ function render() {
   renderSettingsUsersTable();
   renderSettingsHolidaysTable();
   renderSettingsSchoolVacationsTable();
+  renderSchoolVacationImportProgress();
   renderCrmContactsTable();
   renderCrmContactDetail();
   renderCrmNotesPanel();
@@ -3173,12 +3189,57 @@ async function handleSettingsSchoolVacationsTableClick(event) {
 function openSchoolVacationImportModal() {
   if (!elements.schoolVacationImportModal) return;
   if (elements.schoolVacationImportForm) elements.schoolVacationImportForm.reset();
+  resetSchoolVacationImportProgress();
   elements.schoolVacationImportModal.classList.remove('hidden');
+  renderSchoolVacationImportProgress();
 }
 
-function closeSchoolVacationImportModal() {
+function closeSchoolVacationImportModal(force = false) {
   if (!elements.schoolVacationImportModal) return;
+  if (state.isSchoolVacationImportRunning && !force) return;
   elements.schoolVacationImportModal.classList.add('hidden');
+  resetSchoolVacationImportProgress();
+}
+
+function resetSchoolVacationImportProgress() {
+  state.isSchoolVacationImportRunning = false;
+  state.schoolVacationImportStepIndex = -1;
+}
+
+function setSchoolVacationImportStep(stepIndex) {
+  state.schoolVacationImportStepIndex = stepIndex;
+  renderSchoolVacationImportProgress();
+}
+
+function renderSchoolVacationImportProgress() {
+  if (!elements.schoolVacationImportProgress || !elements.schoolVacationImportProgressList || !elements.schoolVacationImportProgressLabel) return;
+  const isVisible = state.isSchoolVacationImportRunning;
+  if (elements.schoolVacationImportCantonInput) elements.schoolVacationImportCantonInput.disabled = isVisible;
+  if (elements.schoolVacationImportSchoolYearInput) elements.schoolVacationImportSchoolYearInput.disabled = isVisible;
+  if (elements.cancelSchoolVacationImportButton) elements.cancelSchoolVacationImportButton.disabled = isVisible;
+  if (elements.closeSchoolVacationImportModalButton) elements.closeSchoolVacationImportModalButton.disabled = isVisible;
+  if (elements.confirmSchoolVacationImportButton) {
+    elements.confirmSchoolVacationImportButton.disabled = isVisible;
+    elements.confirmSchoolVacationImportButton.textContent = isVisible ? 'Wird hinzugefügt …' : 'Hinzufügen';
+  }
+  elements.schoolVacationImportProgress.classList.toggle('hidden', !isVisible);
+  if (!isVisible) {
+    elements.schoolVacationImportProgressList.innerHTML = '';
+    return;
+  }
+
+  const currentIndex = state.schoolVacationImportStepIndex;
+  elements.schoolVacationImportProgressLabel.textContent = currentIndex >= 0
+    ? `Aktuell: ${SCHOOL_VACATION_IMPORT_STEPS[currentIndex]}`
+    : 'Import wird vorbereitet …';
+  elements.schoolVacationImportProgressList.innerHTML = SCHOOL_VACATION_IMPORT_STEPS.map((step, index) => {
+    const isDone = index < currentIndex;
+    const isActive = index === currentIndex;
+    const classNames = ['import-progress-step'];
+    if (isDone) classNames.push('done');
+    if (isActive) classNames.push('active');
+    return `<li class="${classNames.join(' ')}">${escapeHtml(step)}</li>`;
+  }).join('');
 }
 
 
@@ -3229,6 +3290,8 @@ async function handleSchoolVacationImportFormSubmit(event) {
   }
 
   state.isSavingSettings = true;
+  state.isSchoolVacationImportRunning = true;
+  setSchoolVacationImportStep(0);
   try {
     const invokeOptions = {
       body: { canton, schoolYear },
@@ -3242,16 +3305,20 @@ async function handleSchoolVacationImportFormSubmit(event) {
     const { data, error } = await state.supabase.functions.invoke('import-school-vacations', invokeOptions);
     if (error) throw error;
     const importedCount = Number(data?.importedCount || 0);
-    closeSchoolVacationImportModal();
+    setSchoolVacationImportStep(1);
     await loadData();
+    setSchoolVacationImportStep(2);
     await synchronizeAllApprenticeSchoolReportsForYears(getSchoolReportSyncYears());
+    setSchoolVacationImportStep(3);
     await loadData();
+    closeSchoolVacationImportModal(true);
     alert(`${importedCount} Ferienzeit(en) wurden aus ${canton} für ${schoolYear} importiert.`);
   } catch (error) {
     console.error(error);
     const errorMessage = await getFunctionInvokeErrorMessage(error);
     alert(`Ferienzeiten konnten nicht importiert werden: ${errorMessage}`);
   } finally {
+    resetSchoolVacationImportProgress();
     state.isSavingSettings = false;
     render();
   }
