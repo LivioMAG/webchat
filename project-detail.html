@@ -17,6 +17,7 @@
         <nav class="detail-nav-tabs" id="detailNavTabs">
           <button class="detail-nav-tab active" type="button" data-page="kanban" aria-controls="kanbanPage">🏁<span>Dashboard</span></button>
           <button class="detail-nav-tab" type="button" data-page="dispo" aria-controls="dispoPage">🗓️<span>Dispo</span></button>
+          <button class="detail-nav-tab" type="button" data-page="settings" aria-controls="settingsPage">⚙️<span>Einstellungen</span></button>
           <button class="detail-nav-tab" type="button" data-page="docs" aria-controls="docsPage">📁<span>Docs</span></button>
           <button class="detail-nav-tab" type="button" data-page="journal" aria-controls="journalPage">📓<span>Journal</span></button>
         </nav>
@@ -48,6 +49,160 @@
           </article>
         </section>
 
+        <section id="settingsPage" class="detail-page hidden" aria-label="Einstellungen">
+          <article class="panel">
+            <span class="eyebrow">Projekt</span>
+            <h2>Einstellungen</h2>
+            <form id="projectSettingsForm" class="settings-layout">
+              <div class="settings-grid-columns">
+                <label>
+                  <span>Kommissionsnummer</span>
+                  <input id="settingsCommissionInput" type="text" disabled />
+                </label>
+                <label>
+                  <span>Projektname</span>
+                  <input id="settingsProjectNameInput" type="text" disabled />
+                </label>
+                <label>
+                  <span>Projektleiter</span>
+                  <select id="settingsProjectLeadSelect"></select>
+                </label>
+                <label>
+                  <span>Bauleiter</span>
+                  <select id="settingsConstructionLeadSelect"></select>
+                </label>
+              </div>
+
+              <h3>Adresse</h3>
+              <div class="settings-grid-columns">
+                <label>
+                  <span>Strasse</span>
+                  <input id="settingsStreetInput" type="text" />
+                </label>
+                <label>
+                  <span>Postleitzahl</span>
+                  <input id="settingsPostalCodeInput" type="text" />
+                </label>
+                <label>
+                  <span>Ortschaft</span>
+                  <input id="settingsCityInput" type="text" />
+                </label>
+              </div>
+
+              <h3>Baustelleninfos</h3>
+              <div class="settings-grid-columns">
+                <label class="checkbox-row">
+                  <input id="settingsHasBarrackInput" type="checkbox" />
+                  <span>Gibt es eine Baracke?</span>
+                </label>
+                <label class="checkbox-row">
+                  <input id="settingsHasLunchBreakInput" type="checkbox" />
+                  <span>Gibt es eine Mittagspause?</span>
+                </label>
+                <label>
+                  <span>Arbeitsbeginn</span>
+                  <input id="settingsWorkdayStartInput" type="time" />
+                </label>
+                <label>
+                  <span>Arbeitsende</span>
+                  <input id="settingsWorkdayEndInput" type="time" />
+                </label>
+              </div>
+
+              <h3>CRM-Kontakte für dieses Projekt</h3>
+              <div class="project-contact-toolbar">
+                <select id="settingsContactSelect"></select>
+                <select id="settingsRoleSelect">
+                  <option value="kunde">Kunde</option>
+                  <option value="planer">Planer</option>
+                  <option value="architekt">Architekt</option>
+                  <option value="bauleitung">Bauleitung</option>
+                  <option value="unternehmer">Unternehmer</option>
+                </select>
+                <label class="checkbox-row compact">
+                  <input id="settingsContactKeyValueInput" type="checkbox" />
+                  <span>Für Rapporte (Key-Value)</span>
+                </label>
+                <button id="addExistingContactButton" class="button" type="button">Kontakt hinzufügen</button>
+              </div>
+              <table class="settings-table">
+                <thead>
+                  <tr>
+                    <th>Rolle</th>
+                    <th>Kontakt</th>
+                    <th>Kategorie</th>
+                    <th>Key-Value</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="settingsContactsTableBody">
+                  <tr><td colspan="5">Noch keine Kontakte zugewiesen.</td></tr>
+                </tbody>
+              </table>
+
+              <details>
+                <summary>Neuen Kontakt anlegen (wird direkt im CRM gespeichert)</summary>
+                <div class="settings-grid-columns">
+                  <label><span>Vorname *</span><input id="newContactFirstNameInput" type="text" /></label>
+                  <label><span>Nachname *</span><input id="newContactLastNameInput" type="text" /></label>
+                  <label><span>Firma</span><input id="newContactCompanyInput" type="text" /></label>
+                  <label>
+                    <span>CRM-Kategorie *</span>
+                    <select id="newContactCategoryInput">
+                      <option value="kunde">Kunde</option>
+                      <option value="lieferant">Lieferant</option>
+                      <option value="elektroplaner">Elektroplaner</option>
+                      <option value="subunternehmer">Subunternehmer</option>
+                      <option value="unternehmer">Unternehmer</option>
+                    </select>
+                  </label>
+                  <label><span>Telefon</span><input id="newContactPhoneInput" type="text" /></label>
+                  <label><span>E-Mail</span><input id="newContactEmailInput" type="email" /></label>
+                  <label><span>Strasse</span><input id="newContactStreetInput" type="text" /></label>
+                  <label><span>PLZ</span><input id="newContactPostalCodeInput" type="text" /></label>
+                  <label><span>Ortschaft</span><input id="newContactCityInput" type="text" /></label>
+                  <label>
+                    <span>Projektrolle</span>
+                    <select id="newContactRoleInput">
+                      <option value="kunde">Kunde</option>
+                      <option value="planer">Planer</option>
+                      <option value="architekt">Architekt</option>
+                      <option value="bauleitung">Bauleitung</option>
+                      <option value="unternehmer">Unternehmer</option>
+                    </select>
+                  </label>
+                  <label class="checkbox-row">
+                    <input id="newContactKeyValueInput" type="checkbox" />
+                    <span>Für Rapporte (Key-Value)</span>
+                  </label>
+                </div>
+                <button id="createContactButton" class="button" type="button">Neuen Kontakt erstellen</button>
+              </details>
+
+              <h3>Dokumentenablage</h3>
+              <div class="project-contact-toolbar">
+                <button id="uploadProjectDocumentButton" class="button" type="button">Dokument hochladen</button>
+              </div>
+              <table class="settings-table">
+                <thead>
+                  <tr>
+                    <th>Datei</th>
+                    <th>Erstellt am</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="settingsDocumentsTableBody">
+                  <tr><td colspan="3">Keine Dokumente vorhanden.</td></tr>
+                </tbody>
+              </table>
+
+              <div class="header-actions">
+                <button class="button button-primary" type="submit">Einstellungen speichern</button>
+              </div>
+            </form>
+          </article>
+        </section>
+
         <section id="docsPage" class="detail-page hidden" aria-label="Docs">
           <article class="panel placeholder-panel">
             <span class="eyebrow">Docs</span>
@@ -65,6 +220,7 @@
         </section>
 
         <input id="attachmentInput" class="hidden" type="file" multiple />
+        <input id="projectDocumentInput" class="hidden" type="file" multiple />
 
         <div id="noteTypeModal" class="note-type-modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteTypeModalTitle">
           <div class="note-type-modal-content">

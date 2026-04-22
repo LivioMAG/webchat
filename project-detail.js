@@ -1,6 +1,7 @@
 const CONFIG_PATH = './supabase-config.json';
 const KANBAN_TABLE = 'project_kanban_notes';
 const KANBAN_ATTACHMENT_BUCKET = 'project-kanban-attachments';
+const PROJECT_SETTINGS_DOCUMENT_BUCKET = 'project-settings-documents';
 const KANBAN_COLUMNS = [
   { key: 'todo', label: 'Neue Aufträge' },
   { key: 'planned', label: 'AVOR' },
@@ -20,6 +21,8 @@ const state = {
   currentPage: 'kanban',
   pendingNewNoteColumn: '',
   pendingTodoInputFocusNoteId: '',
+  contacts: [],
+  profiles: [],
 };
 
 const elements = {};
@@ -52,6 +55,38 @@ function cacheElements() {
   elements.attachmentInput = document.getElementById('attachmentInput');
   elements.detailNavTabs = document.getElementById('detailNavTabs');
   elements.noteTypeModal = document.getElementById('noteTypeModal');
+  elements.projectSettingsForm = document.getElementById('projectSettingsForm');
+  elements.settingsCommissionInput = document.getElementById('settingsCommissionInput');
+  elements.settingsProjectNameInput = document.getElementById('settingsProjectNameInput');
+  elements.settingsProjectLeadSelect = document.getElementById('settingsProjectLeadSelect');
+  elements.settingsConstructionLeadSelect = document.getElementById('settingsConstructionLeadSelect');
+  elements.settingsStreetInput = document.getElementById('settingsStreetInput');
+  elements.settingsPostalCodeInput = document.getElementById('settingsPostalCodeInput');
+  elements.settingsCityInput = document.getElementById('settingsCityInput');
+  elements.settingsHasBarrackInput = document.getElementById('settingsHasBarrackInput');
+  elements.settingsHasLunchBreakInput = document.getElementById('settingsHasLunchBreakInput');
+  elements.settingsWorkdayStartInput = document.getElementById('settingsWorkdayStartInput');
+  elements.settingsWorkdayEndInput = document.getElementById('settingsWorkdayEndInput');
+  elements.settingsContactSelect = document.getElementById('settingsContactSelect');
+  elements.settingsRoleSelect = document.getElementById('settingsRoleSelect');
+  elements.settingsContactKeyValueInput = document.getElementById('settingsContactKeyValueInput');
+  elements.addExistingContactButton = document.getElementById('addExistingContactButton');
+  elements.settingsContactsTableBody = document.getElementById('settingsContactsTableBody');
+  elements.createContactButton = document.getElementById('createContactButton');
+  elements.newContactFirstNameInput = document.getElementById('newContactFirstNameInput');
+  elements.newContactLastNameInput = document.getElementById('newContactLastNameInput');
+  elements.newContactCompanyInput = document.getElementById('newContactCompanyInput');
+  elements.newContactCategoryInput = document.getElementById('newContactCategoryInput');
+  elements.newContactPhoneInput = document.getElementById('newContactPhoneInput');
+  elements.newContactEmailInput = document.getElementById('newContactEmailInput');
+  elements.newContactStreetInput = document.getElementById('newContactStreetInput');
+  elements.newContactPostalCodeInput = document.getElementById('newContactPostalCodeInput');
+  elements.newContactCityInput = document.getElementById('newContactCityInput');
+  elements.newContactRoleInput = document.getElementById('newContactRoleInput');
+  elements.newContactKeyValueInput = document.getElementById('newContactKeyValueInput');
+  elements.uploadProjectDocumentButton = document.getElementById('uploadProjectDocumentButton');
+  elements.projectDocumentInput = document.getElementById('projectDocumentInput');
+  elements.settingsDocumentsTableBody = document.getElementById('settingsDocumentsTableBody');
 }
 
 function bindEvents() {
@@ -73,6 +108,13 @@ function bindEvents() {
   elements.kanbanBoard?.addEventListener('dragend', handleDragEnd);
   elements.attachmentInput?.addEventListener('change', handleAttachmentSelection);
   elements.noteTypeModal?.addEventListener('click', handleNoteTypeModalClick);
+  elements.projectSettingsForm?.addEventListener('submit', handleProjectSettingsSubmit);
+  elements.addExistingContactButton?.addEventListener('click', handleAddExistingContact);
+  elements.createContactButton?.addEventListener('click', handleCreateContact);
+  elements.settingsContactsTableBody?.addEventListener('click', handleProjectContactsTableClick);
+  elements.uploadProjectDocumentButton?.addEventListener('click', () => elements.projectDocumentInput?.click());
+  elements.projectDocumentInput?.addEventListener('change', handleProjectDocumentSelection);
+  elements.settingsDocumentsTableBody?.addEventListener('click', handleProjectDocumentsTableClick);
 }
 
 
@@ -85,7 +127,7 @@ function handlePageNavigation(event) {
 }
 
 function setActivePage(page) {
-  const allowedPages = ['kanban', 'dispo', 'docs', 'journal'];
+  const allowedPages = ['kanban', 'dispo', 'settings', 'docs', 'journal'];
   const nextPage = allowedPages.includes(page) ? page : 'kanban';
   state.currentPage = nextPage;
 
@@ -119,10 +161,10 @@ async function initializeSupabase() {
 }
 
 async function loadData() {
-  const [projectResult, notesResult, userResult] = await Promise.all([
+  const [projectResult, notesResult, contactsResult, profilesResult, userResult] = await Promise.all([
     state.supabase
       .from('projects')
-      .select('id, commission_number, name')
+      .select('id, commission_number, name, project_lead_profile_id, construction_lead_profile_id, street, postal_code, city, has_barrack, has_lunch_break, workday_start_time, workday_end_time, project_contacts, project_documents')
       .eq('id', state.projectId)
       .single(),
     state.supabase
@@ -130,11 +172,22 @@ async function loadData() {
       .select('*')
       .eq('project_id', state.projectId)
       .order('position', { ascending: true }),
+    state.supabase
+      .from('crm_contacts')
+      .select('id, category, company_name, first_name, last_name, email')
+      .order('last_name', { ascending: true }),
+    state.supabase
+      .from('app_profiles')
+      .select('id, full_name, email')
+      .eq('is_active', true)
+      .order('full_name', { ascending: true }),
     state.supabase.auth.getUser(),
   ]);
 
   if (projectResult.error) throw projectResult.error;
   if (notesResult.error) throw notesResult.error;
+  if (contactsResult.error) throw contactsResult.error;
+  if (profilesResult.error) throw profilesResult.error;
 
   const currentUid = String(userResult.data?.user?.id || '').trim();
   let profileName = '';
@@ -149,6 +202,8 @@ async function loadData() {
 
   state.project = projectResult.data;
   state.notes = (notesResult.data || []).map(normalizeNote);
+  state.contacts = contactsResult.data || [];
+  state.profiles = profilesResult.data || [];
   state.currentUser = {
     uid: currentUid || null,
     name: profileName || String(userResult.data?.user?.email || '').trim(),
@@ -179,6 +234,7 @@ function render() {
   elements.projectTitle.textContent = state.project.name || 'Projekt';
   elements.projectMeta.textContent = `Kommissionsnummer: ${state.project.commission_number || '–'}`;
   renderBoard();
+  renderSettings();
   setActivePage(state.currentPage);
 }
 
@@ -275,10 +331,239 @@ function renderAttachmentList(attachments, noteId) {
   `;
 }
 
+function renderSettings() {
+  if (!state.project) return;
+  renderLeadSelectOptions();
+  renderContactOptions();
+  renderProjectContactsTable();
+  renderProjectDocumentsTable();
+  elements.settingsCommissionInput && (elements.settingsCommissionInput.value = state.project.commission_number || '');
+  elements.settingsProjectNameInput && (elements.settingsProjectNameInput.value = state.project.name || '');
+  elements.settingsStreetInput && (elements.settingsStreetInput.value = state.project.street || '');
+  elements.settingsPostalCodeInput && (elements.settingsPostalCodeInput.value = state.project.postal_code || '');
+  elements.settingsCityInput && (elements.settingsCityInput.value = state.project.city || '');
+  elements.settingsHasBarrackInput && (elements.settingsHasBarrackInput.checked = Boolean(state.project.has_barrack));
+  elements.settingsHasLunchBreakInput && (elements.settingsHasLunchBreakInput.checked = Boolean(state.project.has_lunch_break));
+  elements.settingsWorkdayStartInput && (elements.settingsWorkdayStartInput.value = normalizeTimeInput(state.project.workday_start_time, '07:00'));
+  elements.settingsWorkdayEndInput && (elements.settingsWorkdayEndInput.value = normalizeTimeInput(state.project.workday_end_time, '16:30'));
+}
+
+function renderLeadSelectOptions() {
+  const options = ['<option value="">Bitte wählen</option>']
+    .concat(state.profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`))
+    .join('');
+  if (elements.settingsProjectLeadSelect) {
+    elements.settingsProjectLeadSelect.innerHTML = options;
+    elements.settingsProjectLeadSelect.value = String(state.project?.project_lead_profile_id || '');
+  }
+  if (elements.settingsConstructionLeadSelect) {
+    elements.settingsConstructionLeadSelect.innerHTML = options;
+    elements.settingsConstructionLeadSelect.value = String(state.project?.construction_lead_profile_id || '');
+  }
+}
+
+function renderContactOptions() {
+  if (!elements.settingsContactSelect) return;
+  if (!state.contacts.length) {
+    elements.settingsContactSelect.innerHTML = '<option value="">Keine CRM-Kontakte vorhanden</option>';
+    return;
+  }
+  elements.settingsContactSelect.innerHTML = state.contacts
+    .map((contact) => `<option value="${escapeHtml(contact.id)}">${escapeHtml(getContactLabel(contact))}</option>`)
+    .join('');
+}
+
+function getContactLabel(contact) {
+  const person = `${contact?.first_name || ''} ${contact?.last_name || ''}`.trim();
+  return [person, contact?.company_name, contact?.email].filter(Boolean).join(' · ');
+}
+
+function getProjectContacts() {
+  return Array.isArray(state.project?.project_contacts) ? state.project.project_contacts : [];
+}
+
+function renderProjectContactsTable() {
+  if (!elements.settingsContactsTableBody) return;
+  const rows = getProjectContacts();
+  if (!rows.length) {
+    elements.settingsContactsTableBody.innerHTML = '<tr><td colspan="5">Noch keine Kontakte zugewiesen.</td></tr>';
+    return;
+  }
+  elements.settingsContactsTableBody.innerHTML = rows.map((entry, index) => {
+    const contact = state.contacts.find((item) => String(item.id) === String(entry.crm_contact_id));
+    return `<tr>
+      <td>${escapeHtml(entry.role || '—')}</td>
+      <td>${escapeHtml(contact ? getContactLabel(contact) : 'Kontakt nicht gefunden')}</td>
+      <td>${escapeHtml(contact?.category || '—')}</td>
+      <td>${entry.include_in_reports ? 'Ja' : 'Nein'}</td>
+      <td><button class="button task-action danger" type="button" data-action="remove-project-contact" data-index="${index}">Entfernen</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function getProjectDocuments() {
+  return Array.isArray(state.project?.project_documents) ? state.project.project_documents : [];
+}
+
+function renderProjectDocumentsTable() {
+  if (!elements.settingsDocumentsTableBody) return;
+  const docs = getProjectDocuments();
+  if (!docs.length) {
+    elements.settingsDocumentsTableBody.innerHTML = '<tr><td colspan="3">Keine Dokumente vorhanden.</td></tr>';
+    return;
+  }
+  elements.settingsDocumentsTableBody.innerHTML = docs.map((doc, index) => `
+    <tr>
+      <td>${escapeHtml(doc.name || `Dokument ${index + 1}`)}</td>
+      <td>${escapeHtml(formatDateTime(doc.created_at))}</td>
+      <td>
+        <button class="button task-action" type="button" data-action="view-project-document" data-index="${index}">Ansehen</button>
+        <button class="button task-action" type="button" data-action="download-project-document" data-index="${index}">Download</button>
+        <button class="button task-action danger" type="button" data-action="delete-project-document" data-index="${index}">Löschen</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
 function getNotesByColumn(columnKey) {
   return state.notes
     .filter((note) => String(note.status || 'todo') === columnKey)
     .sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
+}
+
+async function handleProjectSettingsSubmit(event) {
+  event.preventDefault();
+  if (!state.projectId) return;
+  const payload = {
+    project_lead_profile_id: elements.settingsProjectLeadSelect?.value || null,
+    construction_lead_profile_id: elements.settingsConstructionLeadSelect?.value || null,
+    street: elements.settingsStreetInput?.value.trim() || null,
+    postal_code: elements.settingsPostalCodeInput?.value.trim() || null,
+    city: elements.settingsCityInput?.value.trim() || null,
+    has_barrack: elements.settingsHasBarrackInput?.checked === true,
+    has_lunch_break: elements.settingsHasLunchBreakInput?.checked === true,
+    workday_start_time: elements.settingsWorkdayStartInput?.value || null,
+    workday_end_time: elements.settingsWorkdayEndInput?.value || null,
+    project_contacts: getProjectContacts(),
+    project_documents: getProjectDocuments(),
+  };
+  const { error } = await state.supabase.from('projects').update(payload).eq('id', state.projectId);
+  if (error) {
+    showAlert(error.message || 'Einstellungen konnten nicht gespeichert werden.', true);
+    return;
+  }
+  state.project = { ...state.project, ...payload };
+  renderSettings();
+  showAlert('Einstellungen gespeichert.');
+}
+
+function handleAddExistingContact() {
+  const contactId = String(elements.settingsContactSelect?.value || '');
+  const role = String(elements.settingsRoleSelect?.value || '').trim();
+  if (!contactId || !role) return;
+  const next = [...getProjectContacts(), {
+    crm_contact_id: contactId,
+    role,
+    include_in_reports: elements.settingsContactKeyValueInput?.checked === true,
+  }];
+  state.project.project_contacts = next;
+  renderProjectContactsTable();
+}
+
+async function handleCreateContact() {
+  const firstName = elements.newContactFirstNameInput?.value.trim();
+  const lastName = elements.newContactLastNameInput?.value.trim();
+  const category = elements.newContactCategoryInput?.value;
+  if (!firstName || !lastName || !category) {
+    showAlert('Vorname, Nachname und CRM-Kategorie sind Pflicht.', true);
+    return;
+  }
+  const payload = {
+    first_name: firstName,
+    last_name: lastName,
+    category,
+    company_name: elements.newContactCompanyInput?.value.trim() || null,
+    phone: elements.newContactPhoneInput?.value.trim() || null,
+    email: elements.newContactEmailInput?.value.trim() || null,
+    street: elements.newContactStreetInput?.value.trim() || null,
+    postal_code: elements.newContactPostalCodeInput?.value.trim() || null,
+    city: elements.newContactCityInput?.value.trim() || null,
+  };
+  const { data, error } = await state.supabase.from('crm_contacts').insert(payload).select('*').single();
+  if (error) {
+    showAlert(error.message || 'CRM-Kontakt konnte nicht erstellt werden.', true);
+    return;
+  }
+  state.contacts = [data, ...state.contacts];
+  renderContactOptions();
+  const next = [...getProjectContacts(), {
+    crm_contact_id: data.id,
+    role: String(elements.newContactRoleInput?.value || 'kunde'),
+    include_in_reports: elements.newContactKeyValueInput?.checked === true,
+  }];
+  state.project.project_contacts = next;
+  renderProjectContactsTable();
+  showAlert('Kontakt erstellt und zum Projekt hinzugefügt.');
+}
+
+function handleProjectContactsTableClick(event) {
+  const button = event.target.closest('[data-action="remove-project-contact"]');
+  if (!button) return;
+  const index = Number(button.dataset.index || -1);
+  if (index < 0) return;
+  state.project.project_contacts = getProjectContacts().filter((_, itemIndex) => itemIndex !== index);
+  renderProjectContactsTable();
+}
+
+async function handleProjectDocumentSelection(event) {
+  const files = Array.from(event.target.files || []);
+  if (!files.length || !state.projectId) return;
+  try {
+    const uploaded = [];
+    for (const file of files) {
+      const path = `${state.projectId}/${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name}`;
+      const { error } = await state.supabase.storage.from(PROJECT_SETTINGS_DOCUMENT_BUCKET).upload(path, file, { upsert: false });
+      if (error) throw error;
+      uploaded.push({
+        name: file.name,
+        size: file.size,
+        path,
+        created_at: new Date().toISOString(),
+      });
+    }
+    state.project.project_documents = [...getProjectDocuments(), ...uploaded];
+    renderProjectDocumentsTable();
+    showAlert('Dokument(e) hochgeladen. Zum endgültigen Speichern bitte "Einstellungen speichern" klicken.');
+  } catch (error) {
+    showAlert(error.message || 'Dokumente konnten nicht hochgeladen werden.', true);
+  } finally {
+    event.target.value = '';
+  }
+}
+
+async function handleProjectDocumentsTableClick(event) {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const index = Number(button.dataset.index || -1);
+  const docs = getProjectDocuments();
+  const doc = docs[index];
+  if (!doc) return;
+  if (button.dataset.action === 'delete-project-document') {
+    const { error } = await state.supabase.storage.from(PROJECT_SETTINGS_DOCUMENT_BUCKET).remove([doc.path]);
+    if (error) {
+      showAlert(error.message || 'Dokument konnte nicht gelöscht werden.', true);
+      return;
+    }
+    state.project.project_documents = docs.filter((_, docIndex) => docIndex !== index);
+    renderProjectDocumentsTable();
+    return;
+  }
+  const { data, error } = await state.supabase.storage.from(PROJECT_SETTINGS_DOCUMENT_BUCKET).createSignedUrl(doc.path, 60);
+  if (error || !data?.signedUrl) {
+    showAlert(error?.message || 'Dokument konnte nicht geöffnet werden.', true);
+    return;
+  }
+  window.open(data.signedUrl, '_blank', 'noopener');
 }
 
 async function handleBoardClick(event) {
@@ -713,6 +998,19 @@ function formatFileSize(bytes) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function normalizeTimeInput(value, fallback = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  return raw.length >= 5 ? raw.slice(0, 5) : raw;
+}
+
+function formatDateTime(value) {
+  if (!value) return '–';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '–';
+  return date.toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function showAlert(message, isError = false) {
