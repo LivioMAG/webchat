@@ -653,10 +653,7 @@ begin
   delete from public.weekly_reports where profile_id = p_profile_id;
   delete from public.daily_assignments where profile_id = p_profile_id;
 
-  delete from storage.objects
-  where bucket_id = 'weekly-attachments'
-    and name like p_profile_id::text || '/%';
-
+  -- Storage files must be deleted through the Storage API (client-side/admin flow).
   delete from auth.users
   where id = p_profile_id;
 end;
