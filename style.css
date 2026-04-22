@@ -400,10 +400,8 @@ textarea:focus {
 .settings-grid {
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-areas:
-    'users users'
-    'vacations holidays';
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'users';
 }
 
 .stats-grid {
@@ -433,6 +431,27 @@ textarea:focus {
 
 .settings-vacations-card {
   grid-area: vacations;
+}
+
+.settings-manage-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-manage-button {
+  border: 1px solid transparent;
+}
+
+.settings-manage-button.is-missing {
+  color: var(--accent);
+  background: rgba(215, 0, 21, 0.12);
+}
+
+.settings-manage-button.is-complete {
+  color: var(--success);
+  background: rgba(19, 115, 51, 0.12);
 }
 
 .settings-form {

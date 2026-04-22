@@ -853,6 +853,8 @@ function cacheElements() {
     dispo: document.getElementById('dispoPage'),
     crm: document.getElementById('crmPage'),
     settings: document.getElementById('settingsPage'),
+    settingsSchoolVacations: document.getElementById('settingsSchoolVacationsPage'),
+    settingsHolidays: document.getElementById('settingsHolidaysPage'),
   };
   elements.projectForm = document.getElementById('projectForm');
   elements.projectIdInput = document.getElementById('projectIdInput');
@@ -902,6 +904,10 @@ function cacheElements() {
   elements.navTabs = Array.from(document.querySelectorAll('.nav-tab'));
   elements.adminSqlPreview = document.getElementById('adminSqlPreview');
   elements.settingsUsersTableBody = document.getElementById('settingsUsersTableBody');
+  elements.openSettingsSchoolVacationsPageButton = document.getElementById('openSettingsSchoolVacationsPageButton');
+  elements.openSettingsHolidaysPageButton = document.getElementById('openSettingsHolidaysPageButton');
+  elements.backToSettingsFromVacationsButton = document.getElementById('backToSettingsFromVacationsButton');
+  elements.backToSettingsFromHolidaysButton = document.getElementById('backToSettingsFromHolidaysButton');
   elements.settingsHolidaysTableBody = document.getElementById('settingsHolidaysTableBody');
   elements.settingsSchoolVacationsTableBody = document.getElementById('settingsSchoolVacationsTableBody');
   elements.holidayForm = document.getElementById('holidayForm');
@@ -1141,6 +1147,30 @@ function bindEvents() {
   }
   if (elements.settingsSchoolVacationsTableBody) {
     elements.settingsSchoolVacationsTableBody.addEventListener('click', handleSettingsSchoolVacationsTableClick);
+  }
+  if (elements.openSettingsSchoolVacationsPageButton) {
+    elements.openSettingsSchoolVacationsPageButton.addEventListener('click', () => {
+      state.currentPage = 'settingsSchoolVacations';
+      render();
+    });
+  }
+  if (elements.openSettingsHolidaysPageButton) {
+    elements.openSettingsHolidaysPageButton.addEventListener('click', () => {
+      state.currentPage = 'settingsHolidays';
+      render();
+    });
+  }
+  if (elements.backToSettingsFromVacationsButton) {
+    elements.backToSettingsFromVacationsButton.addEventListener('click', () => {
+      state.currentPage = 'settings';
+      render();
+    });
+  }
+  if (elements.backToSettingsFromHolidaysButton) {
+    elements.backToSettingsFromHolidaysButton.addEventListener('click', () => {
+      state.currentPage = 'settings';
+      render();
+    });
   }
   if (elements.schoolVacationForm) {
     elements.schoolVacationForm.addEventListener('submit', handleSchoolVacationFormSubmit);
@@ -1827,6 +1857,7 @@ function render() {
   renderProjectsTable();
   renderDispoPlanner();
   renderSettingsUsersTable();
+  renderSettingsManagementButtons();
   renderSettingsHolidaysTable();
   renderSettingsSchoolVacationsTable();
   renderHolidayImportProgress();
@@ -1905,6 +1936,8 @@ function renderPages() {
     dispo: 'Dispo / Wochenplanung',
     crm: 'CRM',
     settings: 'Einstellungen',
+    settingsSchoolVacations: 'Ferienzeit verwalten',
+    settingsHolidays: 'Feiertage verwalten',
   };
 
   elements.pageTitle.textContent = pageTitles[state.currentPage];
@@ -4797,6 +4830,24 @@ function renderSettingsUsersTable() {
       </td>
     </tr>`;
   }).join('');
+}
+
+function renderSettingsManagementButtons() {
+  const vacationsButton = elements.openSettingsSchoolVacationsPageButton;
+  if (vacationsButton) {
+    const hasEntries = state.schoolVacations.length > 0;
+    vacationsButton.textContent = hasEntries ? 'Ferienzeit verwalten' : 'Fehlende Ferienzeit';
+    vacationsButton.classList.toggle('is-complete', hasEntries);
+    vacationsButton.classList.toggle('is-missing', !hasEntries);
+  }
+
+  const holidaysButton = elements.openSettingsHolidaysPageButton;
+  if (holidaysButton) {
+    const hasEntries = state.platformHolidays.length > 0;
+    holidaysButton.textContent = hasEntries ? 'Feiertage verwalten' : 'Fehlende Feiertage';
+    holidaysButton.classList.toggle('is-complete', hasEntries);
+    holidaysButton.classList.toggle('is-missing', !hasEntries);
+  }
 }
 
 function renderSettingsHolidaysTable() {

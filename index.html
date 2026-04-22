@@ -438,6 +438,10 @@
                   <h3>Einstellungen</h3>
                   <p>Benutzer aktivieren/deaktivieren und Feiertage zentral verwalten.</p>
                 </div>
+                <div class="settings-manage-actions">
+                  <button id="openSettingsSchoolVacationsPageButton" class="button button-small settings-manage-button" type="button"></button>
+                  <button id="openSettingsHolidaysPageButton" class="button button-small settings-manage-button" type="button"></button>
+                </div>
               </div>
               <div class="settings-grid">
                 <article class="mini-card settings-card settings-users-card">
@@ -464,82 +468,98 @@
                     </table>
                   </div>
                 </article>
-
-                <article class="mini-card settings-card settings-holidays-card">
-                  <h4>Feiertage</h4>
-                  <p class="subtle-text">
-                    Feiertage blockieren alle Absenzen (inkl. Berufsschule) und haben immer Priorität;
-                    normale Arbeitsrapporte können am Feiertag zusätzlich erfasst werden.
-                  </p>
-                  <form id="holidayForm" class="settings-form">
-                    <label>
-                      <span>Datum</span>
-                      <input id="holidayDateInput" type="date" required />
-                    </label>
-                    <label>
-                      <span>Bezeichnung</span>
-                      <input id="holidayNameInput" type="text" maxlength="120" placeholder="z. B. Ostermontag" required />
-                    </label>
-                    <label>
-                      <span>Vergütung</span>
-                      <select id="holidayIsPaidInput">
-                        <option value="true" selected>Bezahlt</option>
-                        <option value="false">Unbezahlt</option>
-                      </select>
-                    </label>
-                    <div class="settings-form-actions">
-                      <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
-                      <button id="openHolidayImportModalButton" class="button button-secondary" type="button">Feiertage aus Jahr laden</button>
-                    </div>
-                  </form>
-                  <div class="table-wrapper">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Datum</th>
-                          <th>Bezeichnung</th>
-                          <th>Vergütung</th>
-                          <th>Aktion</th>
-                        </tr>
-                      </thead>
-                      <tbody id="settingsHolidaysTableBody"></tbody>
-                    </table>
-                  </div>
-                </article>
-
-                <article class="mini-card settings-card settings-vacations-card">
-                  <h4>Ferienzeit (Berufsschule pausieren)</h4>
-                  <p class="subtle-text">
-                    In diesen Zeitfenstern werden keine automatischen Berufsschultage eingetragen.
-                  </p>
-                  <form id="schoolVacationForm" class="settings-form">
-                    <label>
-                      <span>Von</span>
-                      <input id="schoolVacationStartInput" type="date" required />
-                    </label>
-                    <label>
-                      <span>Bis</span>
-                      <input id="schoolVacationEndInput" type="date" required />
-                    </label>
-                    <div class="settings-form-actions">
-                      <button id="saveSchoolVacationButton" class="button button-primary" type="submit">Ferienzeit hinzufügen</button>
-                      <button id="openSchoolVacationImportModalButton" class="button button-secondary" type="button">Ferien aus Schuljahr laden</button>
-                    </div>
-                  </form>
-                  <div class="table-wrapper">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Von</th>
-                          <th>Bis</th>
-                          <th>Aktion</th>
-                        </tr>
-                      </thead>
-                      <tbody id="settingsSchoolVacationsTableBody"></tbody>
-                    </table>
-                  </div>
-                </article>
               </div>
+            </div>
+          </section>
+
+          <section id="settingsSchoolVacationsPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Ferienzeit (Berufsschule pausieren)</h3>
+                  <p>In diesen Zeitfenstern werden keine automatischen Berufsschultage eingetragen.</p>
+                </div>
+                <button id="backToSettingsFromVacationsButton" class="button button-secondary button-small" type="button">Zurück zu Einstellungen</button>
+              </div>
+              <article class="mini-card settings-card settings-vacations-card">
+                <form id="schoolVacationForm" class="settings-form">
+                  <label>
+                    <span>Von</span>
+                    <input id="schoolVacationStartInput" type="date" required />
+                  </label>
+                  <label>
+                    <span>Bis</span>
+                    <input id="schoolVacationEndInput" type="date" required />
+                  </label>
+                  <div class="settings-form-actions">
+                    <button id="saveSchoolVacationButton" class="button button-primary" type="submit">Ferienzeit hinzufügen</button>
+                    <button id="openSchoolVacationImportModalButton" class="button button-secondary" type="button">Ferien aus Schuljahr laden</button>
+                  </div>
+                </form>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Von</th>
+                        <th>Bis</th>
+                        <th>Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody id="settingsSchoolVacationsTableBody"></tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="settingsHolidaysPage" class="page hidden">
+            <div class="panel table-panel">
+              <div class="section-heading">
+                <div>
+                  <h3>Feiertage</h3>
+                  <p>Feiertage blockieren alle Absenzen (inkl. Berufsschule) und haben immer Priorität.</p>
+                </div>
+                <button id="backToSettingsFromHolidaysButton" class="button button-secondary button-small" type="button">Zurück zu Einstellungen</button>
+              </div>
+              <article class="mini-card settings-card settings-holidays-card">
+                <p class="subtle-text">
+                  Normale Arbeitsrapporte können am Feiertag zusätzlich erfasst werden.
+                </p>
+                <form id="holidayForm" class="settings-form">
+                  <label>
+                    <span>Datum</span>
+                    <input id="holidayDateInput" type="date" required />
+                  </label>
+                  <label>
+                    <span>Bezeichnung</span>
+                    <input id="holidayNameInput" type="text" maxlength="120" placeholder="z. B. Ostermontag" required />
+                  </label>
+                  <label>
+                    <span>Vergütung</span>
+                    <select id="holidayIsPaidInput">
+                      <option value="true" selected>Bezahlt</option>
+                      <option value="false">Unbezahlt</option>
+                    </select>
+                  </label>
+                  <div class="settings-form-actions">
+                    <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
+                    <button id="openHolidayImportModalButton" class="button button-secondary" type="button">Feiertage aus Jahr laden</button>
+                  </div>
+                </form>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Datum</th>
+                        <th>Bezeichnung</th>
+                        <th>Vergütung</th>
+                        <th>Aktion</th>
+                      </tr>
+                    </thead>
+                    <tbody id="settingsHolidaysTableBody"></tbody>
+                  </table>
+                </div>
+              </article>
             </div>
           </section>
         </main>
