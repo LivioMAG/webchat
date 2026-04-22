@@ -327,6 +327,66 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   justify-content: flex-end;
 }
 
+.settings-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-layout h3 {
+  margin: 8px 0 0;
+}
+
+.settings-grid-columns {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.settings-layout label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.settings-layout input,
+.settings-layout select {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.checkbox-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  padding-top: 24px;
+}
+
+.checkbox-row.compact {
+  padding-top: 0;
+}
+
+.project-contact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.settings-table th,
+.settings-table td {
+  border-bottom: 1px solid rgba(17, 17, 17, 0.08);
+  text-align: left;
+  padding: 8px;
+  font-size: 0.88rem;
+}
+
 @media (max-width: 1500px) {
   .kanban-grid { grid-template-columns: repeat(3, minmax(240px, 1fr)); }
 }

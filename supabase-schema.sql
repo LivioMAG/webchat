@@ -359,6 +359,15 @@ create table if not exists public.projects (
   allow_expenses boolean not null default true,
   project_lead_profile_id uuid references public.app_profiles(id) on delete set null,
   construction_lead_profile_id uuid references public.app_profiles(id) on delete set null,
+  street text,
+  postal_code text,
+  city text,
+  has_barrack boolean not null default false,
+  has_lunch_break boolean not null default false,
+  workday_start_time time,
+  workday_end_time time,
+  project_contacts jsonb not null default '[]'::jsonb,
+  project_documents jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );
@@ -539,6 +548,33 @@ add column if not exists construction_lead_profile_id uuid references public.app
 
 alter table public.projects
 add column if not exists allow_expenses boolean not null default true;
+
+alter table public.projects
+add column if not exists street text;
+
+alter table public.projects
+add column if not exists postal_code text;
+
+alter table public.projects
+add column if not exists city text;
+
+alter table public.projects
+add column if not exists has_barrack boolean not null default false;
+
+alter table public.projects
+add column if not exists has_lunch_break boolean not null default false;
+
+alter table public.projects
+add column if not exists workday_start_time time;
+
+alter table public.projects
+add column if not exists workday_end_time time;
+
+alter table public.projects
+add column if not exists project_contacts jsonb not null default '[]'::jsonb;
+
+alter table public.projects
+add column if not exists project_documents jsonb not null default '[]'::jsonb;
 
 
 create unique index if not exists projects_commission_number_idx
