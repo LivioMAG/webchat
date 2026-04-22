@@ -487,7 +487,10 @@
                         <option value="false">Unbezahlt</option>
                       </select>
                     </label>
-                    <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
+                    <div class="settings-form-actions">
+                      <button id="saveHolidayButton" class="button button-primary" type="submit">Feiertag hinzufügen</button>
+                      <button id="openHolidayImportModalButton" class="button button-secondary" type="button">Feiertage aus Jahr laden</button>
+                    </div>
                   </form>
                   <div class="table-wrapper">
                     <table>
@@ -800,6 +803,48 @@
             <div class="modal-actions">
               <button id="cancelSchoolVacationImportButton" class="button button-secondary" type="button">Abbrechen</button>
               <button id="confirmSchoolVacationImportButton" class="button button-primary" type="submit">Hinzufügen</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="holidayImportModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="holidayImportTitle">
+        <div class="modal-backdrop" data-close-holiday-import-modal="true"></div>
+        <div class="modal-card panel modal-card-compact">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="holidayImportTitle">Feiertage importieren</h3>
+              <p>Kanton und Jahr auswählen, danach werden Montag–Freitag Feiertage automatisch erfasst.</p>
+            </div>
+            <button id="closeHolidayImportModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+          <form id="holidayImportForm" class="report-edit-form">
+            <label>
+              <span>Kanton</span>
+              <select id="holidayImportCantonInput" required>
+                <option value="LU">Luzern</option>
+                <option value="BE">Bern</option>
+                <option value="SO">Solothurn</option>
+                <option value="ZH">Zürich</option>
+              </select>
+            </label>
+            <label>
+              <span>Jahr</span>
+              <select id="holidayImportYearInput" required>
+                <option value="2026">2026</option>
+                <option value="2027">2027</option>
+                <option value="2028">2028</option>
+                <option value="2029">2029</option>
+                <option value="2030">2030</option>
+              </select>
+            </label>
+            <div id="holidayImportProgress" class="import-progress hidden" aria-live="polite">
+              <p id="holidayImportProgressLabel" class="subtle-text">Import wird vorbereitet …</p>
+              <ol id="holidayImportProgressList" class="import-progress-list"></ol>
+            </div>
+            <div class="modal-actions">
+              <button id="cancelHolidayImportButton" class="button button-secondary" type="button">Abbrechen</button>
+              <button id="confirmHolidayImportButton" class="button button-primary" type="submit">Hinzufügen</button>
             </div>
           </form>
         </div>
