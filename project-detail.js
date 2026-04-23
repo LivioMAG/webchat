@@ -48,6 +48,9 @@ const state = {
   dispo: null,
   dispoLayers: [],
   dispoItems: [],
+  dispoMainAssignments: [],
+  selectedDispoWeek: getCurrentWeekValue(),
+  draggedDispoItemId: '',
   journalEntries: [],
   dispoItemContext: null,
   journalPendingFiles: [],
@@ -123,6 +126,10 @@ function cacheElements() {
   elements.dispoMatrixHead = document.getElementById('dispoMatrixHead');
   elements.dispoMatrixBody = document.getElementById('dispoMatrixBody');
   elements.addDispoLayerButton = document.getElementById('addDispoLayerButton');
+  elements.dispoPreviousWeekButton = document.getElementById('dispoPreviousWeekButton');
+  elements.dispoNextWeekButton = document.getElementById('dispoNextWeekButton');
+  elements.dispoWeekLabel = document.getElementById('dispoWeekLabel');
+  elements.dispoWeekDateRange = document.getElementById('dispoWeekDateRange');
   elements.dispoLayerModal = document.getElementById('dispoLayerModal');
   elements.dispoLayerForm = document.getElementById('dispoLayerForm');
   elements.dispoLayerTypeSelect = document.getElementById('dispoLayerTypeSelect');
@@ -134,6 +141,7 @@ function cacheElements() {
   elements.cancelDispoLayerButton = document.getElementById('cancelDispoLayerButton');
   elements.dispoItemModal = document.getElementById('dispoItemModal');
   elements.dispoItemForm = document.getElementById('dispoItemForm');
+  elements.dispoItemStatusFilterSelect = document.getElementById('dispoItemStatusFilterSelect');
   elements.dispoItemNoteSelect = document.getElementById('dispoItemNoteSelect');
   elements.closeDispoItemModalButton = document.getElementById('closeDispoItemModalButton');
   elements.cancelDispoItemButton = document.getElementById('cancelDispoItemButton');
@@ -190,7 +198,23 @@ function bindEvents() {
     if (event.target === elements.dispoLayerModal) closeDispoLayerModal();
   });
   elements.dispoMatrixBody?.addEventListener('click', handleDispoMatrixClick);
+  elements.dispoMatrixBody?.addEventListener('dragstart', handleDispoItemDragStart);
+  elements.dispoMatrixBody?.addEventListener('dragover', handleDispoItemDragOver);
+  elements.dispoMatrixBody?.addEventListener('drop', handleDispoItemDrop);
+  elements.dispoMatrixBody?.addEventListener('dragend', handleDispoItemDragEnd);
   elements.dispoItemForm?.addEventListener('submit', handleDispoItemSubmit);
+  elements.dispoItemStatusFilterSelect?.addEventListener('change', () => {
+    if (elements.dispoItemModal?.classList.contains('hidden')) return;
+    renderDispoNoteOptions();
+  });
+  elements.dispoPreviousWeekButton?.addEventListener('click', () => {
+    state.selectedDispoWeek = shiftWeekValue(state.selectedDispoWeek, -1);
+    void refreshDispoWeekAssignments();
+  });
+  elements.dispoNextWeekButton?.addEventListener('click', () => {
+    state.selectedDispoWeek = shiftWeekValue(state.selectedDispoWeek, 1);
+    void refreshDispoWeekAssignments();
+  });
   elements.closeDispoItemModalButton?.addEventListener('click', closeDispoItemModal);
   elements.cancelDispoItemButton?.addEventListener('click', closeDispoItemModal);
   elements.dispoItemModal?.addEventListener('click', (event) => {
@@ -331,6 +355,7 @@ async function loadData() {
     uid: currentUid || null,
     name: profileName || String(userResult.data?.user?.email || '').trim(),
   };
+  await refreshDispoWeekAssignments();
   render();
 }
 
@@ -640,12 +665,14 @@ function renderProjectDocumentsTable() {
 function renderDispo() {
   renderDispoLayerProfileOptions();
   if (!elements.dispoMatrixHead || !elements.dispoMatrixBody) return;
+  renderDispoWeekHeader();
   elements.dispoMatrixHead.innerHTML = `<tr><th>Layer</th>${DISPO_WEEKDAYS.map((day) => `<th>${escapeHtml(day.label)}</th>`).join('')}</tr>`;
+  const hiddenLayerRow = renderDispoHiddenLayerRow();
   if (!state.dispoLayers.length) {
-    elements.dispoMatrixBody.innerHTML = `<tr><td colspan="${DISPO_WEEKDAYS.length + 1}"><p class="journal-empty">Noch keine Layer vorhanden.</p></td></tr>`;
+    elements.dispoMatrixBody.innerHTML = `${hiddenLayerRow}<tr><td colspan="${DISPO_WEEKDAYS.length + 1}"><p class="journal-empty">Noch keine Layer vorhanden.</p></td></tr>`;
     return;
   }
-  elements.dispoMatrixBody.innerHTML = state.dispoLayers.map((layer) => {
+  elements.dispoMatrixBody.innerHTML = `${hiddenLayerRow}${state.dispoLayers.map((layer) => {
     const profile = layer.profile_id ? state.profiles.find((item) => String(item.id) === String(layer.profile_id)) : null;
     return `<tr>
       <td class="dispo-layer-cell">
@@ -654,18 +681,19 @@ function renderDispo() {
       </td>
       ${DISPO_WEEKDAYS.map((day) => renderDispoCell(layer, day.key)).join('')}
     </tr>`;
-  }).join('');
+  }).join('')}`;
 }
 
 function renderDispoCell(layer, weekday) {
-  const items = state.dispoItems
+  const items = getDispoItemsForSelectedWeek()
     .filter((item) => String(item.layer_id) === String(layer.id) && Number(item.weekday) === Number(weekday))
     .sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
-  return `<td>
-    <div class="dispo-cell-actions">
+  const profileStatusClass = getPersonLayerCellStatusClass(layer, weekday);
+  return `<td class="${profileStatusClass}">
+    <div class="dispo-cell-actions dispo-cell-dropzone" data-layer-id="${escapeHtml(layer.id)}" data-weekday="${weekday}">
       <button class="column-add" type="button" data-action="open-dispo-item-modal" data-layer-id="${escapeHtml(layer.id)}" data-weekday="${weekday}" title="Karte hinzufügen">＋</button>
     </div>
-    <div class="dispo-cell-cards">
+    <div class="dispo-cell-cards dispo-cell-dropzone" data-layer-id="${escapeHtml(layer.id)}" data-weekday="${weekday}">
       ${items.length ? items.map((item) => renderDispoNoteCard(item)).join('') : '<p class="journal-empty">Keine Einträge</p>'}
     </div>
   </td>`;
@@ -675,9 +703,30 @@ function renderDispoNoteCard(dispoItem) {
   const note = state.notes.find((entry) => String(entry.id) === String(dispoItem.note_id));
   if (!note) return '';
   return `<div class="dispo-card-wrap" data-dispo-item-id="${escapeHtml(dispoItem.id)}">
-    ${renderCard(note).replace('task-card ', 'task-card dispo-card ')}
+    ${renderCard(note).replace('task-card ', `task-card dispo-card `).replace('draggable="true"', `draggable="true" data-dispo-item-id="${escapeHtml(dispoItem.id)}"`)}
     <button class="task-action danger" type="button" data-action="remove-dispo-item" data-dispo-item-id="${escapeHtml(dispoItem.id)}">Zuordnung entfernen</button>
   </div>`;
+}
+
+function renderDispoHiddenLayerRow() {
+  const weekRange = getWeekRange(state.selectedDispoWeek);
+  if (!weekRange) return '';
+  const notes = state.notes
+    .filter((note) => {
+      const visibleFrom = normalizeIsoDateOnly(note.visible_from_date);
+      return visibleFrom && visibleFrom > getTodayIsoDate() && visibleFrom >= weekRange.start && visibleFrom <= weekRange.end;
+    });
+  return `<tr class="dispo-hidden-layer-row">
+    <td class="dispo-layer-cell">
+      <p class="dispo-layer-name">Verborgene Dinge</p>
+      <p class="dispo-layer-meta">Automatischer Layer (sichtbar ab Datum)</p>
+    </td>
+    ${DISPO_WEEKDAYS.map((day) => {
+      const dayDate = getIsoDateForWeekday(state.selectedDispoWeek, day.key);
+      const dayNotes = notes.filter((note) => normalizeIsoDateOnly(note.visible_from_date) === dayDate);
+      return `<td><div class="dispo-cell-cards">${dayNotes.length ? dayNotes.map((note) => renderCard(note).replace('task-card ', 'task-card dispo-card ')).join('') : '<p class="journal-empty">—</p>'}</div></td>`;
+    }).join('')}
+  </tr>`;
 }
 
 function renderDispoLayerProfileOptions() {
@@ -766,16 +815,8 @@ function handleDispoMatrixClick(event) {
 
 function openDispoItemModal({ layerId, weekday }) {
   state.dispoItemContext = { layerId, weekday };
-  const noteOptions = state.notes
-    .map((note) => ({ note, entry: getLastConversationEntry(note) }))
-    .map(({ note, entry }) => ({
-      id: note.id,
-      label: truncateText((entry?.text || 'Ohne Inhalt'), 50),
-      status: note.status,
-    }));
-  elements.dispoItemNoteSelect.innerHTML = noteOptions.length
-    ? noteOptions.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`[${item.status}] ${item.label}`)}</option>`).join('')
-    : '<option value="">Keine Karten verfügbar</option>';
+  if (elements.dispoItemStatusFilterSelect) elements.dispoItemStatusFilterSelect.value = 'in_progress';
+  renderDispoNoteOptions();
   elements.dispoItemModal?.classList.remove('hidden');
 }
 
@@ -788,12 +829,14 @@ async function handleDispoItemSubmit(event) {
   event.preventDefault();
   const noteId = String(elements.dispoItemNoteSelect?.value || '');
   if (!noteId || !state.dispoItemContext?.layerId) return;
+  const weekStartDate = getWeekRange(state.selectedDispoWeek)?.start;
   const payload = {
     project_id: state.projectId,
     layer_id: state.dispoItemContext.layerId,
     note_id: noteId,
     weekday: state.dispoItemContext.weekday,
-    position: state.dispoItems.filter((item) => String(item.layer_id) === String(state.dispoItemContext.layerId) && Number(item.weekday) === Number(state.dispoItemContext.weekday)).length,
+    week_start_date: weekStartDate || null,
+    position: getDispoItemsForSelectedWeek().filter((item) => String(item.layer_id) === String(state.dispoItemContext.layerId) && Number(item.weekday) === Number(state.dispoItemContext.weekday)).length,
   };
   const { data, error } = await state.supabase.from(DISPO_ITEM_TABLE).insert(payload).select('*').single();
   if (error) {
@@ -805,6 +848,21 @@ async function handleDispoItemSubmit(event) {
   renderDispo();
 }
 
+function renderDispoNoteOptions() {
+  const filter = String(elements.dispoItemStatusFilterSelect?.value || 'in_progress');
+  const filteredNotes = state.notes.filter((note) => filter === 'all' || String(note.status || '') === filter);
+  const noteOptions = filteredNotes
+    .map((note) => ({ note, entry: getLastConversationEntry(note) }))
+    .map(({ note, entry }) => ({
+      id: note.id,
+      label: truncateText((entry?.text || 'Ohne Inhalt'), 50),
+      status: note.status,
+    }));
+  elements.dispoItemNoteSelect.innerHTML = noteOptions.length
+    ? noteOptions.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`[${item.status}] ${item.label}`)}</option>`).join('')
+    : '<option value="">Keine Karten verfügbar</option>';
+}
+
 async function deleteDispoItem(dispoItemId) {
   if (!dispoItemId) return;
   const { error } = await state.supabase.from(DISPO_ITEM_TABLE).delete().eq('id', dispoItemId);
@@ -813,6 +871,55 @@ async function deleteDispoItem(dispoItemId) {
     return;
   }
   state.dispoItems = state.dispoItems.filter((item) => String(item.id) !== String(dispoItemId));
+  renderDispo();
+}
+
+function handleDispoItemDragStart(event) {
+  const card = event.target.closest('[data-dispo-item-id]');
+  if (!card) return;
+  state.draggedDispoItemId = String(card.dataset.dispoItemId || '');
+  card.classList.add('dragging');
+}
+
+function handleDispoItemDragOver(event) {
+  const zone = event.target.closest('.dispo-cell-dropzone');
+  if (!zone || !state.draggedDispoItemId) return;
+  event.preventDefault();
+  zone.classList.add('drag-over');
+}
+
+function handleDispoItemDragEnd() {
+  state.draggedDispoItemId = '';
+  document.querySelectorAll('.dispo-cell-dropzone.drag-over').forEach((node) => node.classList.remove('drag-over'));
+  document.querySelectorAll('[data-dispo-item-id].dragging').forEach((node) => node.classList.remove('dragging'));
+}
+
+async function handleDispoItemDrop(event) {
+  const zone = event.target.closest('.dispo-cell-dropzone');
+  if (!zone || !state.draggedDispoItemId) return;
+  event.preventDefault();
+  const layerId = String(zone.dataset.layerId || '');
+  const weekday = Number(zone.dataset.weekday || NaN);
+  if (!layerId || Number.isNaN(weekday)) return;
+  await moveDispoItem(state.draggedDispoItemId, { layerId, weekday });
+  handleDispoItemDragEnd();
+}
+
+async function moveDispoItem(dispoItemId, { layerId, weekday }) {
+  const item = state.dispoItems.find((entry) => String(entry.id) === String(dispoItemId));
+  if (!item) return;
+  const position = getDispoItemsForSelectedWeek()
+    .filter((entry) => String(entry.layer_id) === layerId && Number(entry.weekday) === Number(weekday))
+    .length;
+  const updates = { layer_id: layerId, weekday, position };
+  const { error } = await state.supabase.from(DISPO_ITEM_TABLE).update(updates).eq('id', dispoItemId);
+  if (error) {
+    showAlert(error.message || 'Dispo-Eintrag konnte nicht verschoben werden.', true);
+    return;
+  }
+  item.layer_id = layerId;
+  item.weekday = weekday;
+  item.position = position;
   renderDispo();
 }
 
@@ -1722,6 +1829,115 @@ function formatDateLabel(value) {
   const date = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(date.getTime())) return isoDate;
   return date.toLocaleDateString('de-CH', { dateStyle: 'short' });
+}
+
+function getCurrentWeekValue() {
+  return getWeekValueFromIso(getTodayIsoDate());
+}
+
+function getWeekValueFromIso(isoDate) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  const temp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = temp.getUTCDay() || 7;
+  temp.setUTCDate(temp.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(temp.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((temp - yearStart) / 86400000) + 1) / 7);
+  return `${temp.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function shiftWeekValue(weekValue, delta) {
+  const range = getWeekRange(weekValue);
+  if (!range) return getCurrentWeekValue();
+  const monday = new Date(`${range.start}T00:00:00`);
+  monday.setDate(monday.getDate() + (delta * 7));
+  return getWeekValueFromIso(monday.toISOString().slice(0, 10));
+}
+
+function getWeekRange(weekValue) {
+  const match = String(weekValue || '').match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  const simple = new Date(Date.UTC(year, 0, 1 + (week - 1) * 7));
+  const dayOfWeek = simple.getUTCDay() || 7;
+  const monday = new Date(simple);
+  monday.setUTCDate(simple.getUTCDate() - dayOfWeek + 1);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+  return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) };
+}
+
+function getIsoDateForWeekday(weekValue, weekday) {
+  const range = getWeekRange(weekValue);
+  if (!range) return '';
+  const monday = new Date(`${range.start}T00:00:00`);
+  const offset = weekday === 0 ? 6 : Number(weekday) - 1;
+  monday.setDate(monday.getDate() + offset);
+  return monday.toISOString().slice(0, 10);
+}
+
+function getWeekLabel(weekValue) {
+  const match = String(weekValue || '').match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return 'KW –';
+  return `KW ${match[2]} / ${match[1]}`;
+}
+
+function renderDispoWeekHeader() {
+  if (elements.dispoWeekLabel) elements.dispoWeekLabel.textContent = getWeekLabel(state.selectedDispoWeek);
+  const range = getWeekRange(state.selectedDispoWeek);
+  if (elements.dispoWeekDateRange) {
+    elements.dispoWeekDateRange.textContent = range
+      ? `${formatDateLabel(range.start)} – ${formatDateLabel(range.end)}`
+      : '–';
+  }
+}
+
+function getDispoItemsForSelectedWeek() {
+  const weekStart = getWeekRange(state.selectedDispoWeek)?.start;
+  return state.dispoItems.filter((item) => {
+    const itemWeekStart = normalizeIsoDateOnly(item.week_start_date);
+    if (!itemWeekStart && !weekStart) return true;
+    return itemWeekStart === weekStart;
+  });
+}
+
+async function refreshDispoWeekAssignments() {
+  const range = getWeekRange(state.selectedDispoWeek);
+  if (!range || !state.supabase) {
+    state.dispoMainAssignments = [];
+    renderDispo();
+    return;
+  }
+  const profileIds = state.dispoLayers.map((layer) => layer.profile_id).filter(Boolean);
+  if (!profileIds.length) {
+    state.dispoMainAssignments = [];
+    renderDispo();
+    return;
+  }
+  const { data, error } = await state.supabase
+    .from('daily_assignments')
+    .select('profile_id, assignment_date')
+    .in('profile_id', profileIds)
+    .gte('assignment_date', range.start)
+    .lte('assignment_date', range.end);
+  if (error) {
+    state.dispoMainAssignments = [];
+    renderDispo();
+    return;
+  }
+  state.dispoMainAssignments = data || [];
+  renderDispo();
+}
+
+function getPersonLayerCellStatusClass(layer, weekday) {
+  if (!layer?.profile_id) return '';
+  const profileId = String(layer.profile_id);
+  if (!profileId) return 'dispo-cell-status-green';
+  if (weekday === 0 || weekday === 6) return '';
+  const targetDate = getIsoDateForWeekday(state.selectedDispoWeek, weekday);
+  const isAssigned = state.dispoMainAssignments.some((entry) => String(entry.profile_id) === profileId && normalizeIsoDateOnly(entry.assignment_date) === targetDate);
+  return isAssigned ? 'dispo-cell-status-green' : 'dispo-cell-status-red';
 }
 
 function showAlert(message, isError = false) {
