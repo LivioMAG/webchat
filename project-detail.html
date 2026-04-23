@@ -43,33 +43,56 @@
         </section>
 
         <section id="dispoPage" class="detail-page hidden" aria-label="Dispo">
-          <article class="panel">
-            <div class="detail-section-header">
-              <div>
-                <span class="eyebrow">Dispo</span>
-                <h2>Dispo</h2>
-                <p class="subtle-text">Wöchentliche Planung mit Layern und verknüpften Kanban-Karten.</p>
-              </div>
-              <div class="dispo-toolbar">
-                <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
-                  <button id="dispoPreviousWeekButton" class="button button-icon-only" type="button" aria-label="Vorherige Woche">←</button>
-                  <div class="week-toolbar-label">
-                    <span class="subtle-label">Kalenderwoche</span>
-                    <strong id="dispoWeekLabel">KW 00</strong>
-                    <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
-                  </div>
-                  <button id="dispoNextWeekButton" class="button button-icon-only" type="button" aria-label="Nächste Woche">→</button>
+          <div class="dispo-layout">
+            <article class="panel dispo-main-panel">
+              <div class="detail-section-header">
+                <div>
+                  <span class="eyebrow">Dispo</span>
+                  <h2>Dispo</h2>
+                  <p class="subtle-text">Wöchentliche Planung mit Layern und verknüpften Kanban-Karten.</p>
                 </div>
-                <button id="addDispoLayerButton" class="button button-primary dispo-add-layer-button" type="button">Layer hinzufügen</button>
+                <div class="dispo-toolbar">
+                  <div class="week-toolbar" aria-label="Kalenderwoche Navigation">
+                    <button id="dispoPreviousWeekButton" class="button button-icon-only" type="button" aria-label="Vorherige Woche">←</button>
+                    <div class="week-toolbar-label">
+                      <span class="subtle-label">Kalenderwoche</span>
+                      <strong id="dispoWeekLabel">KW 00</strong>
+                      <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
+                    </div>
+                    <button id="dispoNextWeekButton" class="button button-icon-only" type="button" aria-label="Nächste Woche">→</button>
+                  </div>
+                  <button id="addDispoLayerButton" class="button button-primary dispo-add-layer-button" type="button">Layer hinzufügen</button>
+                </div>
               </div>
-            </div>
-            <div class="dispo-matrix-scroll">
-              <table class="dispo-matrix-table">
-                <thead id="dispoMatrixHead"></thead>
-                <tbody id="dispoMatrixBody"></tbody>
-              </table>
-            </div>
-          </article>
+              <div class="dispo-matrix-scroll">
+                <table class="dispo-matrix-table">
+                  <thead id="dispoMatrixHead"></thead>
+                  <tbody id="dispoMatrixBody"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <aside id="dispoSidebar" class="panel dispo-sidebar" aria-label="Kanban Kartenpool">
+              <header class="dispo-sidebar-header">
+                <h3>Kanban-Karten</h3>
+                <button id="dispoSidebarToggleButton" class="button button-icon-only" type="button" aria-expanded="true" aria-label="Seitenleiste einklappen">▾</button>
+              </header>
+              <div id="dispoSidebarContent" class="dispo-sidebar-content">
+                <label>
+                  <span>Statusfilter</span>
+                  <select id="dispoSidebarStatusFilter" multiple>
+                    <option value="todo">Auftrag</option>
+                    <option value="planned">AVOR</option>
+                    <option value="in_progress" selected>In Bearbeitung</option>
+                    <option value="review">Backoffice</option>
+                    <option value="done">Erledigt</option>
+                  </select>
+                </label>
+                <p class="subtle-text dispo-sidebar-hint">Mehrere Stati mit Ctrl/Cmd auswählen.</p>
+                <div id="dispoSidebarCards" class="dispo-sidebar-cards"></div>
+              </div>
+            </aside>
+          </div>
         </section>
 
         <section id="settingsPage" class="detail-page hidden" aria-label="Einstellungen">

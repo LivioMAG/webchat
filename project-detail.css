@@ -660,6 +660,65 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   flex-wrap: wrap;
 }
 
+.dispo-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+.dispo-main-panel {
+  min-width: 0;
+}
+
+.dispo-sidebar {
+  position: sticky;
+  top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.dispo-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dispo-sidebar-header h3 {
+  margin: 0;
+}
+
+.dispo-sidebar-content {
+  display: grid;
+  gap: 10px;
+}
+
+.dispo-sidebar-hint {
+  margin: 0;
+}
+
+.dispo-sidebar-cards {
+  display: grid;
+  gap: 8px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.dispo-sidebar-card {
+  margin: 0;
+}
+
+.dispo-sidebar-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.dispo-sidebar-card .task-description {
+  margin: 8px 0 0;
+}
+
 .week-toolbar {
   display: flex;
   align-items: center;
@@ -742,6 +801,7 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   display: flex;
   justify-content: flex-end;
   padding: 8px 8px 0;
+  min-height: 34px;
 }
 
 .dispo-cell-dropzone.drag-over {
@@ -885,6 +945,14 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 
   .detail-nav-tabs {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
+
+  .dispo-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dispo-sidebar {
+    position: static;
   }
 }
 
