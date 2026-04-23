@@ -641,6 +641,178 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   font-size: 0.88rem;
 }
 
+.detail-section-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.detail-section-header h2 {
+  margin: 10px 0 8px;
+}
+
+.dispo-matrix-scroll {
+  overflow-x: auto;
+}
+
+.dispo-matrix-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.dispo-matrix-table th,
+.dispo-matrix-table td {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  vertical-align: top;
+  min-width: 190px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.dispo-matrix-table th {
+  padding: 10px;
+  font-size: 0.9rem;
+  background: #f7f8fa;
+}
+
+.dispo-layer-cell {
+  min-width: 230px;
+  max-width: 280px;
+  padding: 10px;
+}
+
+.dispo-layer-name {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.dispo-layer-name .layer-person-link {
+  color: inherit;
+}
+
+.dispo-layer-meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.dispo-cell-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 8px 0;
+}
+
+.dispo-cell-cards {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.task-card.dispo-card {
+  max-height: none;
+  cursor: default;
+}
+
+.journal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.journal-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.journal-entry {
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.journal-entry-meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.journal-entry-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.journal-attachments {
+  display: grid;
+  gap: 6px;
+}
+
+.journal-attachments h4 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.app-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  display: grid;
+  place-items: center;
+  z-index: 1350;
+}
+
+.app-modal-content {
+  width: min(560px, calc(100vw - 24px));
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.app-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-modal-header h3 {
+  margin: 0;
+}
+
+.app-form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.app-form-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.app-form-grid input,
+.app-form-grid select,
+.app-form-grid textarea {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.journal-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (max-width: 1500px) {
   .kanban-grid { grid-template-columns: repeat(3, minmax(240px, 1fr)); }
 }
