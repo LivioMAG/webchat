@@ -43,10 +43,21 @@
         </section>
 
         <section id="dispoPage" class="detail-page hidden" aria-label="Dispo">
-          <article class="panel placeholder-panel">
-            <span class="eyebrow">Dispo</span>
-            <h2>Dispo</h2>
-            <p class="subtle-text">Hier kommt dein Dispo-Inhalt als Platzhalter hinein.</p>
+          <article class="panel">
+            <div class="detail-section-header">
+              <div>
+                <span class="eyebrow">Dispo</span>
+                <h2>Dispo</h2>
+                <p class="subtle-text">Wöchentliche Planung mit Layern und verknüpften Kanban-Karten.</p>
+              </div>
+              <button id="addDispoLayerButton" class="button button-primary" type="button">Layer hinzufügen</button>
+            </div>
+            <div class="dispo-matrix-scroll">
+              <table class="dispo-matrix-table">
+                <thead id="dispoMatrixHead"></thead>
+                <tbody id="dispoMatrixBody"></tbody>
+              </table>
+            </div>
           </article>
         </section>
 
@@ -213,15 +224,22 @@
         </section>
 
         <section id="journalPage" class="detail-page hidden" aria-label="Journal">
-          <article class="panel placeholder-panel">
-            <span class="eyebrow">Journal</span>
-            <h2>Journal</h2>
-            <p class="subtle-text">Hier kommt dein Journal-Inhalt als Platzhalter hinein.</p>
+          <article class="panel">
+            <div class="detail-section-header">
+              <div>
+                <span class="eyebrow">Journal</span>
+                <h2>Journal</h2>
+                <p class="subtle-text">Chronologische Projekt-Einträge mit Bildern und Dokumenten.</p>
+              </div>
+              <button id="newJournalEntryButton" class="button button-primary" type="button">Neuer Eintrag</button>
+            </div>
+            <div id="journalList" class="journal-list"></div>
           </article>
         </section>
 
         <input id="attachmentInput" class="hidden" type="file" multiple />
         <input id="projectDocumentInput" class="hidden" type="file" multiple />
+        <input id="journalAttachmentInput" class="hidden" type="file" multiple />
 
         <div id="noteDetailModal" class="note-detail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="noteDetailModalTitle">
           <div class="note-detail-modal-content">
@@ -238,6 +256,78 @@
 
         <div id="dragDock" class="drag-dock" aria-hidden="true">
           <div class="drag-dock-inner" id="dragDockInner"></div>
+        </div>
+
+        <div id="dispoLayerModal" class="app-modal hidden" role="dialog" aria-modal="true" aria-labelledby="dispoLayerModalTitle">
+          <div class="app-modal-content">
+            <header class="app-modal-header">
+              <h3 id="dispoLayerModalTitle">Layer hinzufügen</h3>
+              <button id="closeDispoLayerModalButton" type="button" class="task-icon" aria-label="Schliessen">✕</button>
+            </header>
+            <form id="dispoLayerForm" class="app-form-grid">
+              <label>
+                <span>Layer-Typ</span>
+                <select id="dispoLayerTypeSelect">
+                  <option value="custom">Freier Layer</option>
+                  <option value="person">Personen-Layer</option>
+                </select>
+              </label>
+              <label id="dispoCustomLayerNameRow">
+                <span>Layer-Name</span>
+                <input id="dispoLayerNameInput" type="text" placeholder="z. B. Montage-Team" />
+              </label>
+              <label id="dispoPersonLayerRow" class="hidden">
+                <span>Person</span>
+                <select id="dispoLayerProfileSelect"></select>
+              </label>
+              <div class="modal-actions">
+                <button id="cancelDispoLayerButton" class="button" type="button">Abbrechen</button>
+                <button class="button button-primary" type="submit">Speichern</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="dispoItemModal" class="app-modal hidden" role="dialog" aria-modal="true" aria-labelledby="dispoItemModalTitle">
+          <div class="app-modal-content">
+            <header class="app-modal-header">
+              <h3 id="dispoItemModalTitle">Kanban-Karte zuordnen</h3>
+              <button id="closeDispoItemModalButton" type="button" class="task-icon" aria-label="Schliessen">✕</button>
+            </header>
+            <form id="dispoItemForm" class="app-form-grid">
+              <label>
+                <span>Karte wählen</span>
+                <select id="dispoItemNoteSelect"></select>
+              </label>
+              <div class="modal-actions">
+                <button id="cancelDispoItemButton" class="button" type="button">Abbrechen</button>
+                <button class="button button-primary" type="submit">Hinzufügen</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="journalEntryModal" class="app-modal hidden" role="dialog" aria-modal="true" aria-labelledby="journalEntryModalTitle">
+          <div class="app-modal-content">
+            <header class="app-modal-header">
+              <h3 id="journalEntryModalTitle">Journal-Eintrag</h3>
+              <button id="closeJournalEntryModalButton" type="button" class="task-icon" aria-label="Schliessen">✕</button>
+            </header>
+            <form id="journalEntryForm" class="app-form-grid">
+              <label>
+                <span>Text</span>
+                <textarea id="journalEntryTextInput" rows="5" placeholder="Eintragstext"></textarea>
+              </label>
+              <div class="journal-upload-row">
+                <button id="journalPickAttachmentsButton" class="button" type="button">Dateien wählen</button>
+                <span id="journalAttachmentSummary" class="subtle-text">Keine Dateien ausgewählt.</span>
+              </div>
+              <div class="modal-actions">
+                <button id="cancelJournalEntryButton" class="button" type="button">Abbrechen</button>
+                <button class="button button-primary" type="submit">Eintrag speichern</button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </main>

@@ -2,6 +2,20 @@ const CONFIG_PATH = './supabase-config.json';
 const KANBAN_TABLE = 'project_kanban_notes';
 const KANBAN_ATTACHMENT_BUCKET = 'project-kanban-attachments';
 const PROJECT_SETTINGS_DOCUMENT_BUCKET = 'project-settings-documents';
+const DISPO_TABLE = 'project_dispo';
+const DISPO_LAYER_TABLE = 'project_dispo_layer';
+const DISPO_ITEM_TABLE = 'project_dispo_items';
+const JOURNAL_TABLE = 'project_journal';
+const JOURNAL_ATTACHMENT_BUCKET = 'project-journal-attachments';
+const DISPO_WEEKDAYS = [
+  { key: 1, label: 'Montag' },
+  { key: 2, label: 'Dienstag' },
+  { key: 3, label: 'Mittwoch' },
+  { key: 4, label: 'Donnerstag' },
+  { key: 5, label: 'Freitag' },
+  { key: 6, label: 'Samstag' },
+  { key: 0, label: 'Sonntag' },
+];
 const MAX_TODOS_PER_NOTE = 6;
 const NOTE_COLOR_OPTIONS = ['green', 'blue', 'yellow', 'red'];
 const DRAG_DOCK_ICONS = ['⭐', '📌', '📁', '🏷️', '🧭', '🔔', '📅', '🗂️', '📤', '🧩'];
@@ -31,6 +45,12 @@ const state = {
   contacts: [],
   profiles: [],
   showHiddenNotes: false,
+  dispo: null,
+  dispoLayers: [],
+  dispoItems: [],
+  journalEntries: [],
+  dispoItemContext: null,
+  journalPendingFiles: [],
 };
 
 const elements = {};
@@ -100,6 +120,33 @@ function cacheElements() {
   elements.dragDock = document.getElementById('dragDock');
   elements.dragDockInner = document.getElementById('dragDockInner');
   elements.toggleHiddenNotesButton = document.getElementById('toggleHiddenNotesButton');
+  elements.dispoMatrixHead = document.getElementById('dispoMatrixHead');
+  elements.dispoMatrixBody = document.getElementById('dispoMatrixBody');
+  elements.addDispoLayerButton = document.getElementById('addDispoLayerButton');
+  elements.dispoLayerModal = document.getElementById('dispoLayerModal');
+  elements.dispoLayerForm = document.getElementById('dispoLayerForm');
+  elements.dispoLayerTypeSelect = document.getElementById('dispoLayerTypeSelect');
+  elements.dispoLayerNameInput = document.getElementById('dispoLayerNameInput');
+  elements.dispoLayerProfileSelect = document.getElementById('dispoLayerProfileSelect');
+  elements.dispoCustomLayerNameRow = document.getElementById('dispoCustomLayerNameRow');
+  elements.dispoPersonLayerRow = document.getElementById('dispoPersonLayerRow');
+  elements.closeDispoLayerModalButton = document.getElementById('closeDispoLayerModalButton');
+  elements.cancelDispoLayerButton = document.getElementById('cancelDispoLayerButton');
+  elements.dispoItemModal = document.getElementById('dispoItemModal');
+  elements.dispoItemForm = document.getElementById('dispoItemForm');
+  elements.dispoItemNoteSelect = document.getElementById('dispoItemNoteSelect');
+  elements.closeDispoItemModalButton = document.getElementById('closeDispoItemModalButton');
+  elements.cancelDispoItemButton = document.getElementById('cancelDispoItemButton');
+  elements.newJournalEntryButton = document.getElementById('newJournalEntryButton');
+  elements.journalList = document.getElementById('journalList');
+  elements.journalEntryModal = document.getElementById('journalEntryModal');
+  elements.journalEntryForm = document.getElementById('journalEntryForm');
+  elements.journalEntryTextInput = document.getElementById('journalEntryTextInput');
+  elements.journalAttachmentInput = document.getElementById('journalAttachmentInput');
+  elements.journalPickAttachmentsButton = document.getElementById('journalPickAttachmentsButton');
+  elements.journalAttachmentSummary = document.getElementById('journalAttachmentSummary');
+  elements.closeJournalEntryModalButton = document.getElementById('closeJournalEntryModalButton');
+  elements.cancelJournalEntryButton = document.getElementById('cancelJournalEntryButton');
 }
 
 function bindEvents() {
@@ -134,6 +181,31 @@ function bindEvents() {
   elements.dragDockInner?.addEventListener('dragover', handleDockDragOver);
   elements.dragDockInner?.addEventListener('drop', handleDockDrop);
   elements.toggleHiddenNotesButton?.addEventListener('click', handleToggleHiddenNotes);
+  elements.addDispoLayerButton?.addEventListener('click', openDispoLayerModal);
+  elements.dispoLayerTypeSelect?.addEventListener('change', handleDispoLayerTypeChange);
+  elements.dispoLayerForm?.addEventListener('submit', handleDispoLayerSubmit);
+  elements.closeDispoLayerModalButton?.addEventListener('click', closeDispoLayerModal);
+  elements.cancelDispoLayerButton?.addEventListener('click', closeDispoLayerModal);
+  elements.dispoLayerModal?.addEventListener('click', (event) => {
+    if (event.target === elements.dispoLayerModal) closeDispoLayerModal();
+  });
+  elements.dispoMatrixBody?.addEventListener('click', handleDispoMatrixClick);
+  elements.dispoItemForm?.addEventListener('submit', handleDispoItemSubmit);
+  elements.closeDispoItemModalButton?.addEventListener('click', closeDispoItemModal);
+  elements.cancelDispoItemButton?.addEventListener('click', closeDispoItemModal);
+  elements.dispoItemModal?.addEventListener('click', (event) => {
+    if (event.target === elements.dispoItemModal) closeDispoItemModal();
+  });
+  elements.newJournalEntryButton?.addEventListener('click', openJournalEntryModal);
+  elements.journalPickAttachmentsButton?.addEventListener('click', () => elements.journalAttachmentInput?.click());
+  elements.journalAttachmentInput?.addEventListener('change', handleJournalAttachmentSelection);
+  elements.journalEntryForm?.addEventListener('submit', handleJournalEntrySubmit);
+  elements.closeJournalEntryModalButton?.addEventListener('click', closeJournalEntryModal);
+  elements.cancelJournalEntryButton?.addEventListener('click', closeJournalEntryModal);
+  elements.journalEntryModal?.addEventListener('click', (event) => {
+    if (event.target === elements.journalEntryModal) closeJournalEntryModal();
+  });
+  elements.journalList?.addEventListener('click', handleJournalListClick);
 }
 
 function handleToggleHiddenNotes() {
@@ -185,7 +257,7 @@ async function initializeSupabase() {
 }
 
 async function loadData() {
-  const [projectResult, notesResult, contactsResult, profilesResult, userResult] = await Promise.all([
+  const [projectResult, notesResult, contactsResult, profilesResult, userResult, dispoResult, dispoLayersResult, dispoItemsResult, journalResult] = await Promise.all([
     state.supabase
       .from('projects')
       .select('id, commission_number, name, project_lead_profile_id, construction_lead_profile_id, street, postal_code, city, has_barrack, has_lunch_break, workday_start_time, workday_end_time, project_contacts, project_documents')
@@ -206,12 +278,35 @@ async function loadData() {
       .eq('is_active', true)
       .order('full_name', { ascending: true }),
     state.supabase.auth.getUser(),
+    state.supabase
+      .from(DISPO_TABLE)
+      .select('*')
+      .eq('project_id', state.projectId)
+      .maybeSingle(),
+    state.supabase
+      .from(DISPO_LAYER_TABLE)
+      .select('*')
+      .eq('project_id', state.projectId)
+      .order('position', { ascending: true }),
+    state.supabase
+      .from(DISPO_ITEM_TABLE)
+      .select('*')
+      .eq('project_id', state.projectId),
+    state.supabase
+      .from(JOURNAL_TABLE)
+      .select('*')
+      .eq('project_id', state.projectId)
+      .order('created_at', { ascending: false }),
   ]);
 
   if (projectResult.error) throw projectResult.error;
   if (notesResult.error) throw notesResult.error;
   if (contactsResult.error) throw contactsResult.error;
   if (profilesResult.error) throw profilesResult.error;
+  if (dispoResult.error) throw dispoResult.error;
+  if (dispoLayersResult.error) throw dispoLayersResult.error;
+  if (dispoItemsResult.error) throw dispoItemsResult.error;
+  if (journalResult.error) throw journalResult.error;
 
   const currentUid = String(userResult.data?.user?.id || '').trim();
   let profileName = '';
@@ -228,6 +323,10 @@ async function loadData() {
   state.notes = (notesResult.data || []).map(normalizeNote);
   state.contacts = contactsResult.data || [];
   state.profiles = profilesResult.data || [];
+  state.dispo = dispoResult.data || null;
+  state.dispoLayers = dispoLayersResult.data || [];
+  state.dispoItems = dispoItemsResult.data || [];
+  state.journalEntries = journalResult.data || [];
   state.currentUser = {
     uid: currentUid || null,
     name: profileName || String(userResult.data?.user?.email || '').trim(),
@@ -325,6 +424,8 @@ function render() {
   elements.projectMeta.textContent = `Kommissionsnummer: ${state.project.commission_number || '–'}`;
   renderBoard();
   renderSettings();
+  renderDispo();
+  renderJournal();
   setActivePage(state.currentPage);
 }
 
@@ -534,6 +635,302 @@ function renderProjectDocumentsTable() {
       </td>
     </tr>
   `).join('');
+}
+
+function renderDispo() {
+  renderDispoLayerProfileOptions();
+  if (!elements.dispoMatrixHead || !elements.dispoMatrixBody) return;
+  elements.dispoMatrixHead.innerHTML = `<tr><th>Layer</th>${DISPO_WEEKDAYS.map((day) => `<th>${escapeHtml(day.label)}</th>`).join('')}</tr>`;
+  if (!state.dispoLayers.length) {
+    elements.dispoMatrixBody.innerHTML = `<tr><td colspan="${DISPO_WEEKDAYS.length + 1}"><p class="journal-empty">Noch keine Layer vorhanden.</p></td></tr>`;
+    return;
+  }
+  elements.dispoMatrixBody.innerHTML = state.dispoLayers.map((layer) => {
+    const profile = layer.profile_id ? state.profiles.find((item) => String(item.id) === String(layer.profile_id)) : null;
+    return `<tr>
+      <td class="dispo-layer-cell">
+        <p class="dispo-layer-name">${profile ? `<a class="layer-person-link" href="./index.html#profile-${escapeHtml(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Person')}</a>` : escapeHtml(layer.name || 'Layer')}</p>
+        <p class="dispo-layer-meta">${profile ? 'Personen-Layer' : 'Freier Layer'}</p>
+      </td>
+      ${DISPO_WEEKDAYS.map((day) => renderDispoCell(layer, day.key)).join('')}
+    </tr>`;
+  }).join('');
+}
+
+function renderDispoCell(layer, weekday) {
+  const items = state.dispoItems
+    .filter((item) => String(item.layer_id) === String(layer.id) && Number(item.weekday) === Number(weekday))
+    .sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
+  return `<td>
+    <div class="dispo-cell-actions">
+      <button class="column-add" type="button" data-action="open-dispo-item-modal" data-layer-id="${escapeHtml(layer.id)}" data-weekday="${weekday}" title="Karte hinzufügen">＋</button>
+    </div>
+    <div class="dispo-cell-cards">
+      ${items.length ? items.map((item) => renderDispoNoteCard(item)).join('') : '<p class="journal-empty">Keine Einträge</p>'}
+    </div>
+  </td>`;
+}
+
+function renderDispoNoteCard(dispoItem) {
+  const note = state.notes.find((entry) => String(entry.id) === String(dispoItem.note_id));
+  if (!note) return '';
+  return `<div class="dispo-card-wrap" data-dispo-item-id="${escapeHtml(dispoItem.id)}">
+    ${renderCard(note).replace('task-card ', 'task-card dispo-card ')}
+    <button class="task-action danger" type="button" data-action="remove-dispo-item" data-dispo-item-id="${escapeHtml(dispoItem.id)}">Zuordnung entfernen</button>
+  </div>`;
+}
+
+function renderDispoLayerProfileOptions() {
+  if (!elements.dispoLayerProfileSelect) return;
+  const profiles = state.profiles || [];
+  if (!profiles.length) {
+    elements.dispoLayerProfileSelect.innerHTML = '<option value="">Keine Personen verfügbar</option>';
+    return;
+  }
+  elements.dispoLayerProfileSelect.innerHTML = profiles
+    .map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Unbekannt')}</option>`)
+    .join('');
+}
+
+function openDispoLayerModal() {
+  handleDispoLayerTypeChange();
+  elements.dispoLayerNameInput && (elements.dispoLayerNameInput.value = '');
+  elements.dispoLayerModal?.classList.remove('hidden');
+}
+
+function closeDispoLayerModal() {
+  elements.dispoLayerModal?.classList.add('hidden');
+}
+
+function handleDispoLayerTypeChange() {
+  const type = String(elements.dispoLayerTypeSelect?.value || 'custom');
+  elements.dispoCustomLayerNameRow?.classList.toggle('hidden', type !== 'custom');
+  elements.dispoPersonLayerRow?.classList.toggle('hidden', type !== 'person');
+}
+
+async function ensureDispoContext() {
+  if (state.dispo?.id) return state.dispo;
+  const { data, error } = await state.supabase.from(DISPO_TABLE).insert({ project_id: state.projectId }).select('*').single();
+  if (error) throw error;
+  state.dispo = data;
+  return data;
+}
+
+async function handleDispoLayerSubmit(event) {
+  event.preventDefault();
+  try {
+    const dispo = await ensureDispoContext();
+    const type = String(elements.dispoLayerTypeSelect?.value || 'custom');
+    const profileId = type === 'person' ? String(elements.dispoLayerProfileSelect?.value || '') : '';
+    const profile = profileId ? state.profiles.find((item) => String(item.id) === profileId) : null;
+    const customName = String(elements.dispoLayerNameInput?.value || '').trim();
+    const name = profile ? String(profile.full_name || profile.email || '').trim() : customName;
+    if (!name) {
+      showAlert('Bitte Layer-Namen oder Person wählen.', true);
+      return;
+    }
+    const payload = {
+      project_id: state.projectId,
+      project_dispo_id: dispo.id,
+      position: state.dispoLayers.length,
+      name,
+      profile_id: profile ? profile.id : null,
+    };
+    const { data, error } = await state.supabase.from(DISPO_LAYER_TABLE).insert(payload).select('*').single();
+    if (error) throw error;
+    state.dispoLayers.push(data);
+    closeDispoLayerModal();
+    renderDispo();
+  } catch (error) {
+    showAlert(error.message || 'Layer konnte nicht erstellt werden.', true);
+  }
+}
+
+function handleDispoMatrixClick(event) {
+  const addButton = event.target.closest('[data-action="open-dispo-item-modal"]');
+  if (addButton) {
+    const layerId = String(addButton.dataset.layerId || '');
+    const weekday = Number(addButton.dataset.weekday || 1);
+    openDispoItemModal({ layerId, weekday });
+    return;
+  }
+
+  const removeButton = event.target.closest('[data-action="remove-dispo-item"]');
+  if (removeButton) {
+    void deleteDispoItem(String(removeButton.dataset.dispoItemId || ''));
+    return;
+  }
+
+  void handleBoardClick(event);
+}
+
+function openDispoItemModal({ layerId, weekday }) {
+  state.dispoItemContext = { layerId, weekday };
+  const noteOptions = state.notes
+    .map((note) => ({ note, entry: getLastConversationEntry(note) }))
+    .map(({ note, entry }) => ({
+      id: note.id,
+      label: truncateText((entry?.text || 'Ohne Inhalt'), 50),
+      status: note.status,
+    }));
+  elements.dispoItemNoteSelect.innerHTML = noteOptions.length
+    ? noteOptions.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(`[${item.status}] ${item.label}`)}</option>`).join('')
+    : '<option value="">Keine Karten verfügbar</option>';
+  elements.dispoItemModal?.classList.remove('hidden');
+}
+
+function closeDispoItemModal() {
+  state.dispoItemContext = null;
+  elements.dispoItemModal?.classList.add('hidden');
+}
+
+async function handleDispoItemSubmit(event) {
+  event.preventDefault();
+  const noteId = String(elements.dispoItemNoteSelect?.value || '');
+  if (!noteId || !state.dispoItemContext?.layerId) return;
+  const payload = {
+    project_id: state.projectId,
+    layer_id: state.dispoItemContext.layerId,
+    note_id: noteId,
+    weekday: state.dispoItemContext.weekday,
+    position: state.dispoItems.filter((item) => String(item.layer_id) === String(state.dispoItemContext.layerId) && Number(item.weekday) === Number(state.dispoItemContext.weekday)).length,
+  };
+  const { data, error } = await state.supabase.from(DISPO_ITEM_TABLE).insert(payload).select('*').single();
+  if (error) {
+    showAlert(error.message || 'Dispo-Eintrag konnte nicht erstellt werden.', true);
+    return;
+  }
+  state.dispoItems.push(data);
+  closeDispoItemModal();
+  renderDispo();
+}
+
+async function deleteDispoItem(dispoItemId) {
+  if (!dispoItemId) return;
+  const { error } = await state.supabase.from(DISPO_ITEM_TABLE).delete().eq('id', dispoItemId);
+  if (error) {
+    showAlert(error.message || 'Dispo-Eintrag konnte nicht gelöscht werden.', true);
+    return;
+  }
+  state.dispoItems = state.dispoItems.filter((item) => String(item.id) !== String(dispoItemId));
+  renderDispo();
+}
+
+function renderJournal() {
+  if (!elements.journalList) return;
+  if (!state.journalEntries.length) {
+    elements.journalList.innerHTML = '<p class="journal-empty">Noch keine Journal-Einträge vorhanden.</p>';
+    return;
+  }
+  elements.journalList.innerHTML = state.journalEntries.map((entry) => `
+    <article class="journal-entry">
+      <p class="journal-entry-meta">${escapeHtml(formatDateTime(entry.created_at))} · ${escapeHtml(entry.created_by_name || 'Unbekannt')}</p>
+      <p class="journal-entry-text">${escapeHtml(entry.content || '')}</p>
+      ${(entry.attachments || []).length ? `<div class="journal-attachments"><h4>Dateien</h4>${renderJournalAttachmentList(entry.attachments || [], entry.id)}</div>` : ''}
+    </article>
+  `).join('');
+}
+
+function renderJournalAttachmentList(attachments, entryId) {
+  return `<ul class="attachment-list">
+    ${attachments.map((attachment, index) => {
+      const name = escapeHtml(String(attachment?.name || `Datei ${index + 1}`));
+      const sizeLabel = formatFileSize(attachment?.size || 0);
+      return `<li class="attachment-item">
+        <span class="attachment-name">${name} <small>${sizeLabel}</small></span>
+        <span class="attachment-actions">
+          <button class="task-action" type="button" data-action="download-attachment" data-note-id="${escapeHtml(entryId)}" data-attachment-index="${index}">Download</button>
+        </span>
+      </li>`;
+    }).join('')}
+  </ul>`;
+}
+
+function openJournalEntryModal() {
+  state.journalPendingFiles = [];
+  if (elements.journalEntryTextInput) elements.journalEntryTextInput.value = '';
+  if (elements.journalAttachmentSummary) elements.journalAttachmentSummary.textContent = 'Keine Dateien ausgewählt.';
+  elements.journalEntryModal?.classList.remove('hidden');
+}
+
+function closeJournalEntryModal() {
+  state.journalPendingFiles = [];
+  elements.journalEntryModal?.classList.add('hidden');
+}
+
+function handleJournalAttachmentSelection(event) {
+  state.journalPendingFiles = Array.from(event.target.files || []);
+  if (elements.journalAttachmentSummary) {
+    elements.journalAttachmentSummary.textContent = state.journalPendingFiles.length
+      ? `${state.journalPendingFiles.length} Datei(en) ausgewählt`
+      : 'Keine Dateien ausgewählt.';
+  }
+}
+
+async function handleJournalEntrySubmit(event) {
+  event.preventDefault();
+  const text = String(elements.journalEntryTextInput?.value || '').trim();
+  if (!text) {
+    showAlert('Journal-Text ist erforderlich.', true);
+    return;
+  }
+  try {
+    const attachments = [];
+    for (const file of state.journalPendingFiles) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `${state.projectId}/journal/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+      const { error } = await state.supabase.storage.from(JOURNAL_ATTACHMENT_BUCKET).upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
+      if (error) throw error;
+      attachments.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        bucket: JOURNAL_ATTACHMENT_BUCKET,
+        path,
+        uploaded_at: new Date().toISOString(),
+      });
+    }
+    const payload = {
+      project_id: state.projectId,
+      content: text,
+      attachments,
+      created_by_uid: state.currentUser?.uid || null,
+      created_by_name: state.currentUser?.name || '',
+    };
+    const { data, error } = await state.supabase.from(JOURNAL_TABLE).insert(payload).select('*').single();
+    if (error) throw error;
+    state.journalEntries = [data, ...state.journalEntries];
+    closeJournalEntryModal();
+    renderJournal();
+  } catch (error) {
+    showAlert(error.message || 'Journal-Eintrag konnte nicht gespeichert werden.', true);
+  } finally {
+    if (elements.journalAttachmentInput) elements.journalAttachmentInput.value = '';
+  }
+}
+
+async function handleJournalListClick(event) {
+  const downloadAttachmentButton = event.target.closest('[data-action="download-attachment"]');
+  if (!downloadAttachmentButton) return;
+  const noteId = String(downloadAttachmentButton.dataset.noteId || '');
+  const attachmentIndex = Number(downloadAttachmentButton.dataset.attachmentIndex || -1);
+  const entry = state.journalEntries.find((item) => String(item.id) === noteId);
+  const attachment = entry?.attachments?.[attachmentIndex];
+  if (!attachment) return;
+  const { data, error } = await state.supabase.storage.from(String(attachment.bucket || JOURNAL_ATTACHMENT_BUCKET)).download(String(attachment.path || ''));
+  if (error || !data) {
+    showAlert(error?.message || 'Download fehlgeschlagen.', true);
+    return;
+  }
+  const blobUrl = URL.createObjectURL(data);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = attachment.name || 'datei';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(blobUrl);
 }
 
 function getNotesByColumn(columnKey) {
