@@ -16,6 +16,7 @@ const DISPO_WEEKDAYS = [
   { key: 6, label: 'Samstag' },
   { key: 0, label: 'Sonntag' },
 ];
+const DISPO_WEEKDAY_DEFAULT_KEYS = [1, 2, 3, 4, 5];
 const MAX_TODOS_PER_NOTE = 6;
 const NOTE_COLOR_OPTIONS = ['green', 'blue', 'yellow', 'red'];
 const DRAG_DOCK_ICONS = ['⭐', '📌', '📁', '🏷️', '🧭', '🔔', '📅', '🗂️', '📤', '🧩'];
@@ -50,10 +51,9 @@ const state = {
   dispoItems: [],
   dispoMainAssignments: [],
   selectedDispoWeek: getCurrentWeekValue(),
+  showWeekendInDispo: false,
   draggedDispoItemId: '',
-  dispoSidebarCollapsed: false,
-  dispoSidebarStatusFilter: ['in_progress'],
-  collapsedDispoSidebarCardIds: new Set(),
+  dispoSidebarStatusFilter: 'in_progress',
   journalEntries: [],
   dispoItemContext: null,
   journalPendingFiles: [],
@@ -131,13 +131,14 @@ function cacheElements() {
   elements.addDispoLayerButton = document.getElementById('addDispoLayerButton');
   elements.dispoPreviousWeekButton = document.getElementById('dispoPreviousWeekButton');
   elements.dispoNextWeekButton = document.getElementById('dispoNextWeekButton');
+  elements.dispoToggleWeekendButton = document.getElementById('dispoToggleWeekendButton');
   elements.dispoWeekLabel = document.getElementById('dispoWeekLabel');
   elements.dispoWeekDateRange = document.getElementById('dispoWeekDateRange');
   elements.dispoSidebar = document.getElementById('dispoSidebar');
-  elements.dispoSidebarToggleButton = document.getElementById('dispoSidebarToggleButton');
   elements.dispoSidebarContent = document.getElementById('dispoSidebarContent');
   elements.dispoSidebarStatusFilter = document.getElementById('dispoSidebarStatusFilter');
   elements.dispoSidebarCards = document.getElementById('dispoSidebarCards');
+  elements.dispoRemoveCardButton = document.getElementById('dispoRemoveCardButton');
   elements.dispoLayerModal = document.getElementById('dispoLayerModal');
   elements.dispoLayerForm = document.getElementById('dispoLayerForm');
   elements.dispoLayerTypeSelect = document.getElementById('dispoLayerTypeSelect');
@@ -212,9 +213,11 @@ function bindEvents() {
   elements.dispoMatrixBody?.addEventListener('dragend', handleDispoItemDragEnd);
   elements.dispoSidebarCards?.addEventListener('dragstart', handleDispoSidebarDragStart);
   elements.dispoSidebarCards?.addEventListener('dragend', handleDispoSidebarDragEnd);
-  elements.dispoSidebarCards?.addEventListener('click', handleDispoSidebarClick);
   elements.dispoSidebarStatusFilter?.addEventListener('change', handleDispoSidebarStatusFilterChange);
-  elements.dispoSidebarToggleButton?.addEventListener('click', handleDispoSidebarToggle);
+  elements.dispoToggleWeekendButton?.addEventListener('click', handleDispoWeekendToggle);
+  elements.dispoRemoveCardButton?.addEventListener('dragover', handleDispoRemoveDropzoneDragOver);
+  elements.dispoRemoveCardButton?.addEventListener('dragleave', handleDispoRemoveDropzoneDragLeave);
+  elements.dispoRemoveCardButton?.addEventListener('drop', handleDispoRemoveDropzoneDrop);
   elements.dispoItemForm?.addEventListener('submit', handleDispoItemSubmit);
   elements.dispoItemStatusFilterSelect?.addEventListener('change', () => {
     if (elements.dispoItemModal?.classList.contains('hidden')) return;
@@ -679,11 +682,13 @@ function renderDispo() {
   renderDispoLayerProfileOptions();
   renderDispoSidebar();
   if (!elements.dispoMatrixHead || !elements.dispoMatrixBody) return;
+  updateDispoWeekendToggleButton();
   renderDispoWeekHeader();
-  elements.dispoMatrixHead.innerHTML = `<tr><th>Layer</th>${DISPO_WEEKDAYS.map((day) => `<th>${escapeHtml(day.label)}</th>`).join('')}</tr>`;
+  const visibleWeekdays = getVisibleDispoWeekdays();
+  elements.dispoMatrixHead.innerHTML = `<tr><th>Layer</th>${visibleWeekdays.map((day) => `<th>${escapeHtml(day.label)}</th>`).join('')}</tr>`;
   const hiddenLayerRow = renderDispoHiddenLayerRow();
   if (!state.dispoLayers.length) {
-    elements.dispoMatrixBody.innerHTML = `${hiddenLayerRow}<tr><td colspan="${DISPO_WEEKDAYS.length + 1}"><p class="journal-empty">Noch keine Layer vorhanden.</p></td></tr>`;
+    elements.dispoMatrixBody.innerHTML = `${hiddenLayerRow}<tr><td colspan="${visibleWeekdays.length + 1}"><p class="journal-empty">Noch keine Layer vorhanden.</p></td></tr>`;
     return;
   }
   elements.dispoMatrixBody.innerHTML = `${hiddenLayerRow}${state.dispoLayers.map((layer) => {
@@ -693,7 +698,7 @@ function renderDispo() {
         <p class="dispo-layer-name">${profile ? `<a class="layer-person-link" href="./index.html#profile-${escapeHtml(profile.id)}">${escapeHtml(profile.full_name || profile.email || 'Person')}</a>` : escapeHtml(layer.name || 'Layer')}</p>
         <p class="dispo-layer-meta">${profile ? 'Personen-Layer' : 'Freier Layer'}</p>
       </td>
-      ${DISPO_WEEKDAYS.map((day) => renderDispoCell(layer, day.key)).join('')}
+      ${visibleWeekdays.map((day) => renderDispoCell(layer, day.key)).join('')}
     </tr>`;
   }).join('')}`;
 }
@@ -717,24 +722,38 @@ function renderDispoNoteCard(dispoItem) {
   const note = state.notes.find((entry) => String(entry.id) === String(dispoItem.note_id));
   if (!note) return '';
   return `<div class="dispo-card-wrap" data-dispo-item-id="${escapeHtml(dispoItem.id)}">
-    ${renderCard(note).replace('task-card ', `task-card dispo-card `).replace('draggable="true"', `draggable="true" data-dispo-item-id="${escapeHtml(dispoItem.id)}"`)}
+    ${renderDispoCardForNote(note, { dispoItemId: dispoItem.id })}
     <button class="task-action danger" type="button" data-action="remove-dispo-item" data-dispo-item-id="${escapeHtml(dispoItem.id)}">Zuordnung entfernen</button>
   </div>`;
 }
 
+function renderDispoCardForNote(note, { dispoItemId = '' } = {}) {
+  return renderCard(note)
+    .replace('task-card ', 'task-card dispo-card ')
+    .replace('draggable="true"', `draggable="true"${dispoItemId ? ` data-dispo-item-id="${escapeHtml(dispoItemId)}"` : ''}`)
+    .replace(/<button class="task-icon" type="button" title="Löschen"[^>]*>🗑<\/button>/, '');
+}
+
+function getVisibleDispoWeekdays() {
+  if (state.showWeekendInDispo) return DISPO_WEEKDAYS;
+  return DISPO_WEEKDAYS.filter((day) => DISPO_WEEKDAY_DEFAULT_KEYS.includes(day.key));
+}
+
+function handleDispoWeekendToggle() {
+  state.showWeekendInDispo = !state.showWeekendInDispo;
+  renderDispo();
+}
+
+function updateDispoWeekendToggleButton() {
+  if (!elements.dispoToggleWeekendButton) return;
+  elements.dispoToggleWeekendButton.textContent = state.showWeekendInDispo ? 'Sa/So ausblenden' : 'Sa/So anzeigen';
+}
+
 function renderDispoSidebar() {
-  if (!elements.dispoSidebar || !elements.dispoSidebarCards || !elements.dispoSidebarToggleButton || !elements.dispoSidebarContent) return;
-  elements.dispoSidebar.classList.toggle('is-collapsed', state.dispoSidebarCollapsed);
-  elements.dispoSidebarContent.classList.toggle('hidden', state.dispoSidebarCollapsed);
-  elements.dispoSidebarToggleButton.textContent = state.dispoSidebarCollapsed ? '▸' : '▾';
-  elements.dispoSidebarToggleButton.setAttribute('aria-expanded', String(!state.dispoSidebarCollapsed));
+  if (!elements.dispoSidebar || !elements.dispoSidebarCards || !elements.dispoSidebarContent) return;
   if (elements.dispoSidebarStatusFilter) {
-    const selected = new Set(state.dispoSidebarStatusFilter);
-    Array.from(elements.dispoSidebarStatusFilter.options).forEach((option) => {
-      option.selected = selected.has(option.value);
-    });
+    elements.dispoSidebarStatusFilter.value = state.dispoSidebarStatusFilter;
   }
-  if (state.dispoSidebarCollapsed) return;
   const notes = getDispoSidebarFilteredNotes();
   elements.dispoSidebarCards.innerHTML = notes.length
     ? notes.map((note) => renderDispoSidebarCard(note)).join('')
@@ -742,46 +761,27 @@ function renderDispoSidebar() {
 }
 
 function getDispoSidebarFilteredNotes() {
-  const selected = state.dispoSidebarStatusFilter?.length ? state.dispoSidebarStatusFilter : ['in_progress'];
-  const statusSet = new Set(selected);
+  const selected = String(state.dispoSidebarStatusFilter || 'in_progress');
   return state.notes
-    .filter((note) => statusSet.has(String(note.status || 'todo')))
+    .filter((note) => selected === 'all' || String(note.status || 'todo') === selected)
     .sort((a, b) => Number(a.position || 0) - Number(b.position || 0));
 }
 
 function renderDispoSidebarCard(note) {
   const entry = getLastConversationEntry(note);
   const preview = truncateText(entry?.text || 'Ohne Inhalt', 90);
-  const isCollapsed = state.collapsedDispoSidebarCardIds.has(String(note.id));
   const column = KANBAN_COLUMNS.find((item) => item.key === String(note.status || 'todo'));
   const color = getEffectiveNoteColor(note);
-  return `<article class="task-card task-card-${escapeHtml(color)} dispo-sidebar-card ${isCollapsed ? 'is-collapsed' : ''}" draggable="true" data-note-id="${escapeHtml(note.id)}">
+  return `<article class="task-card task-card-${escapeHtml(color)} dispo-sidebar-card" draggable="true" data-note-id="${escapeHtml(note.id)}">
     <header class="dispo-sidebar-card-header">
       <strong>${escapeHtml(column?.label || note.status || 'Unbekannt')}</strong>
-      <button class="task-icon" type="button" data-action="toggle-dispo-sidebar-card" data-note-id="${escapeHtml(note.id)}" aria-expanded="${String(!isCollapsed)}">${isCollapsed ? '▸' : '▾'}</button>
     </header>
-    ${isCollapsed ? '' : `<p class="task-description readonly">${escapeHtml(preview)}</p>`}
+    <p class="task-description readonly">${escapeHtml(preview)}</p>
   </article>`;
 }
 
 function handleDispoSidebarStatusFilterChange(event) {
-  const values = Array.from(event.target.selectedOptions || []).map((option) => String(option.value || '')).filter(Boolean);
-  state.dispoSidebarStatusFilter = values.length ? values : ['in_progress'];
-  renderDispoSidebar();
-}
-
-function handleDispoSidebarToggle() {
-  state.dispoSidebarCollapsed = !state.dispoSidebarCollapsed;
-  renderDispoSidebar();
-}
-
-function handleDispoSidebarClick(event) {
-  const toggleButton = event.target.closest('[data-action="toggle-dispo-sidebar-card"]');
-  if (!toggleButton) return;
-  const noteId = String(toggleButton.dataset.noteId || '');
-  if (!noteId) return;
-  if (state.collapsedDispoSidebarCardIds.has(noteId)) state.collapsedDispoSidebarCardIds.delete(noteId);
-  else state.collapsedDispoSidebarCardIds.add(noteId);
+  state.dispoSidebarStatusFilter = String(event.target.value || 'in_progress');
   renderDispoSidebar();
 }
 
@@ -798,10 +798,10 @@ function renderDispoHiddenLayerRow() {
       <p class="dispo-layer-name">Verborgene Dinge</p>
       <p class="dispo-layer-meta">Automatischer Layer (sichtbar ab Datum)</p>
     </td>
-    ${DISPO_WEEKDAYS.map((day) => {
+    ${getVisibleDispoWeekdays().map((day) => {
       const dayDate = getIsoDateForWeekday(state.selectedDispoWeek, day.key);
       const dayNotes = notes.filter((note) => normalizeIsoDateOnly(note.visible_from_date) === dayDate);
-      return `<td><div class="dispo-cell-cards">${dayNotes.length ? dayNotes.map((note) => renderCard(note).replace('task-card ', 'task-card dispo-card ')).join('') : '<p class="journal-empty">—</p>'}</div></td>`;
+      return `<td><div class="dispo-cell-cards">${dayNotes.length ? dayNotes.map((note) => renderDispoCardForNote(note)).join('') : '<p class="journal-empty">—</p>'}</div></td>`;
     }).join('')}
   </tr>`;
 }
@@ -876,6 +876,16 @@ function handleDispoMatrixClick(event) {
   const removeButton = event.target.closest('[data-action="remove-dispo-item"]');
   if (removeButton) {
     void deleteDispoItem(String(removeButton.dataset.dispoItemId || ''));
+    return;
+  }
+  const deleteNoteButton = event.target.closest('[data-action="delete-note"]');
+  if (deleteNoteButton) {
+    const dispoItemCard = event.target.closest('[data-dispo-item-id]');
+    if (dispoItemCard?.dataset.dispoItemId) {
+      void deleteDispoItem(String(dispoItemCard.dataset.dispoItemId));
+    } else {
+      showAlert('Im Dispo werden Karten nur aus der Planung entfernt, nicht gelöscht.');
+    }
     return;
   }
 
@@ -981,6 +991,7 @@ function handleDispoSidebarDragEnd() {
   state.draggedNoteId = '';
   document.querySelectorAll('.dispo-sidebar-card.dragging').forEach((node) => node.classList.remove('dragging'));
   document.querySelectorAll('.dispo-cell-dropzone.drag-over').forEach((node) => node.classList.remove('drag-over'));
+  elements.dispoRemoveCardButton?.classList.remove('drag-over');
 }
 
 function handleDispoItemDragOver(event) {
@@ -994,6 +1005,7 @@ function handleDispoItemDragEnd() {
   state.draggedDispoItemId = '';
   document.querySelectorAll('.dispo-cell-dropzone.drag-over').forEach((node) => node.classList.remove('drag-over'));
   document.querySelectorAll('[data-dispo-item-id].dragging').forEach((node) => node.classList.remove('dragging'));
+  elements.dispoRemoveCardButton?.classList.remove('drag-over');
 }
 
 async function handleDispoItemDrop(event) {
@@ -1012,6 +1024,25 @@ async function handleDispoItemDrop(event) {
     await createDispoItemFromNote(state.draggedNoteId, { layerId, weekday });
     handleDispoSidebarDragEnd();
   }
+}
+
+function handleDispoRemoveDropzoneDragOver(event) {
+  if (!state.draggedDispoItemId) return;
+  event.preventDefault();
+  elements.dispoRemoveCardButton?.classList.add('drag-over');
+}
+
+function handleDispoRemoveDropzoneDragLeave() {
+  elements.dispoRemoveCardButton?.classList.remove('drag-over');
+}
+
+async function handleDispoRemoveDropzoneDrop(event) {
+  if (!state.draggedDispoItemId) return;
+  event.preventDefault();
+  const dispoItemId = state.draggedDispoItemId;
+  handleDispoRemoveDropzoneDragLeave();
+  await deleteDispoItem(dispoItemId);
+  handleDispoItemDragEnd();
 }
 
 async function moveDispoItem(dispoItemId, { layerId, weekday }) {

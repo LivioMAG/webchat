@@ -60,8 +60,10 @@
                       <span id="dispoWeekDateRange" class="subtle-text">00.00.0000 – 00.00.0000</span>
                     </div>
                     <button id="dispoNextWeekButton" class="button button-icon-only" type="button" aria-label="Nächste Woche">→</button>
+                    <button id="dispoToggleWeekendButton" class="button" type="button">Sa/So anzeigen</button>
                   </div>
                   <button id="addDispoLayerButton" class="button button-primary dispo-add-layer-button" type="button">Layer hinzufügen</button>
+                  <button id="dispoRemoveCardButton" class="button button-icon-only dispo-trash-dropzone" type="button" aria-label="Karte aus Dispo entfernen" title="Karte hierhin ziehen, um sie aus dem Dispo zu entfernen">🗑</button>
                 </div>
               </div>
               <div class="dispo-matrix-scroll">
@@ -75,20 +77,20 @@
             <aside id="dispoSidebar" class="panel dispo-sidebar" aria-label="Kanban Kartenpool">
               <header class="dispo-sidebar-header">
                 <h3>Kanban-Karten</h3>
-                <button id="dispoSidebarToggleButton" class="button button-icon-only" type="button" aria-expanded="true" aria-label="Seitenleiste einklappen">▾</button>
               </header>
               <div id="dispoSidebarContent" class="dispo-sidebar-content">
                 <label>
                   <span>Statusfilter</span>
-                  <select id="dispoSidebarStatusFilter" multiple>
-                    <option value="todo">Auftrag</option>
-                    <option value="planned">AVOR</option>
+                  <select id="dispoSidebarStatusFilter">
                     <option value="in_progress" selected>In Bearbeitung</option>
+                    <option value="planned">AVOR</option>
+                    <option value="todo">Auftrag</option>
+                    <option value="subscription">Abo</option>
                     <option value="review">Backoffice</option>
                     <option value="done">Erledigt</option>
+                    <option value="all">Alle</option>
                   </select>
                 </label>
-                <p class="subtle-text dispo-sidebar-hint">Mehrere Stati mit Ctrl/Cmd auswählen.</p>
                 <div id="dispoSidebarCards" class="dispo-sidebar-cards"></div>
               </div>
             </aside>
