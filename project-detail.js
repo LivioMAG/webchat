@@ -1678,29 +1678,38 @@ function renderNoteDetailModal() {
   const latestIsMine = isEntryByCurrentUser(latestEntry);
 
   elements.noteDetailEditor.innerHTML = `
-    <textarea class="note-primary-input" data-action="note-editor-input" placeholder="${latestIsMine ? 'Dein letzter Eintrag' : 'Neuen Eintrag schreiben ...'}">${escapeHtml(state.noteEditorDraft)}</textarea>
-    <div class="todo-modal-wrap" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note, { showCompleted: true })}</div>
-    <div class="attachments-wrap modal-attachments">
+    <section class="note-detail-section">
+      <h4 class="note-detail-section-title">Text</h4>
+      <textarea class="note-primary-input" data-action="note-editor-input" placeholder="${latestIsMine ? 'Dein letzter Eintrag' : 'Neuen Eintrag schreiben ...'}">${escapeHtml(state.noteEditorDraft)}</textarea>
+    </section>
+    <section class="note-detail-section">
+      <h4 class="note-detail-section-title">To-dos</h4>
+      <div class="todo-modal-wrap" data-modal-todos="${escapeHtml(note.id)}">${renderTodoList(note, { showCompleted: true })}</div>
+    </section>
+    <section class="note-detail-section">
       <div class="modal-attachments-header">
-        <h4>Anhänge</h4>
+        <h4 class="note-detail-section-title">Anhänge</h4>
         <button class="task-icon" type="button" title="Anhang hochladen" aria-label="Anhang hochladen" data-action="open-attachments" data-note-id="${escapeHtml(note.id)}">⤴︎</button>
       </div>
       ${renderAttachmentList(Array.isArray(note.attachments) ? note.attachments : [], note.id)}
-    </div>
-    <div class="note-card-controls-row">
-      <div class="note-color-picker" role="radiogroup" aria-label="Kartenfarbe auswählen">
-        ${NOTE_COLOR_OPTIONS.map((color) => `
-          <label class="note-color-option note-color-option-${color}">
-            <input type="radio" name="noteColor" value="${color}" data-action="change-note-color" ${note.color === color ? 'checked' : ''} />
-            <span class="note-color-swatch" aria-hidden="true"></span>
-          </label>
-        `).join('')}
+    </section>
+    <section class="note-detail-section">
+      <h4 class="note-detail-section-title">Kartensteuerung</h4>
+      <div class="note-card-controls-row">
+        <div class="note-color-picker" role="radiogroup" aria-label="Kartenfarbe auswählen">
+          ${NOTE_COLOR_OPTIONS.map((color) => `
+            <label class="note-color-option note-color-option-${color}">
+              <input type="radio" name="noteColor" value="${color}" data-action="change-note-color" ${note.color === color ? 'checked' : ''} />
+              <span class="note-color-swatch" aria-hidden="true"></span>
+            </label>
+          `).join('')}
+        </div>
+        <label class="note-visibility-label">
+          <span>Unsichtbar bis</span>
+          <input type="date" data-action="change-visible-from-date" data-note-id="${escapeHtml(note.id)}" value="${escapeHtml(note.visible_from_date || '')}" />
+        </label>
       </div>
-      <label class="note-visibility-label">
-        <span>Unsichtbar bis</span>
-        <input type="date" data-action="change-visible-from-date" data-note-id="${escapeHtml(note.id)}" value="${escapeHtml(note.visible_from_date || '')}" />
-      </label>
-    </div>
+    </section>
   `;
 
   elements.noteDetailTimeline.innerHTML = `

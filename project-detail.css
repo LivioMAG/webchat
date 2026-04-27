@@ -400,6 +400,24 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
   background: transparent;
 }
 
+.note-detail-left {
+  display: grid;
+  gap: 12px;
+}
+
+.note-detail-section {
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.note-detail-section-title {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
 .note-conversation-list {
   display: grid;
   gap: 8px;
@@ -428,8 +446,8 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 .note-primary-input {
   width: 100%;
   min-height: 120px;
-  border: none;
-  border-radius: 0;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 10px;
   padding: 10px;
   font: inherit;
   resize: vertical;
@@ -457,9 +475,6 @@ h1 { margin: 8px 0 10px; font-size: 1.6rem; }
 }
 
 .note-card-controls-row {
-  margin-top: 8px;
-  border-top: 1px solid rgba(17, 17, 17, 0.08);
-  padding-top: 10px;
   display: flex;
   align-items: center;
   gap: 12px;
