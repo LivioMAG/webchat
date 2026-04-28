@@ -691,6 +691,7 @@ const state = {
   currentProfile: null,
   profiles: [],
   weeklyReports: [],
+  futureVacationReports: [],
   projects: [],
   roleAssignments: [],
   dailyAssignments: [],
@@ -1586,6 +1587,7 @@ function resetAppState() {
   state.currentProfile = null;
   state.profiles = [];
   state.weeklyReports = [];
+  state.futureVacationReports = [];
   state.projects = [];
   state.roleAssignments = [];
   state.dailyAssignments = [];
@@ -1678,6 +1680,7 @@ async function loadData() {
     if (!state.hasAdminAccess) {
       state.profiles = [];
       state.weeklyReports = [];
+      state.futureVacationReports = [];
       state.projects = [];
       state.roleAssignments = [];
       state.dailyAssignments = [];
@@ -1708,6 +1711,12 @@ async function loadData() {
       .eq('kw', selectedKw)
       .order('work_date', { ascending: true })
       .order('start_time', { ascending: true });
+    const futureVacationReportsQuery = state.supabase
+      .from('weekly_reports')
+      .select('profile_id, work_date, total_work_minutes, total_adjusted_work_minutes, start_time, end_time, lunch_break_minutes, additional_break_minutes, abz_typ')
+      .eq('abz_typ', 1)
+      .gte('work_date', getTodayIsoDate())
+      .order('work_date', { ascending: true });
 
     const profilesQuery = fetchProfiles();
     const absencesQuery = state.supabase
@@ -1747,6 +1756,7 @@ async function loadData() {
     const [
       { data: reports, error: reportsError },
       { data: profiles, error: profilesError },
+      { data: futureVacationReports, error: futureVacationReportsError },
       { data: absences, error: absencesError },
       { data: projects, error: projectsError },
       { data: dailyAssignments, error: dailyAssignmentsError },
@@ -1757,6 +1767,7 @@ async function loadData() {
     ] = await Promise.all([
       reportsQuery,
       profilesQuery,
+      futureVacationReportsQuery,
       absencesQuery,
       projectsQuery,
       dailyAssignmentsQuery,
@@ -1768,6 +1779,7 @@ async function loadData() {
 
     if (reportsError) throw reportsError;
     if (profilesError) throw profilesError;
+    if (futureVacationReportsError) throw futureVacationReportsError;
     if (absencesError) throw absencesError;
     if (projectsError) throw projectsError;
     if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) throw dailyAssignmentsError;
@@ -1780,6 +1792,7 @@ async function loadData() {
     }
 
     state.weeklyReports = reports ?? [];
+    state.futureVacationReports = futureVacationReports ?? [];
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
     state.projects = projects ?? [];
@@ -1850,6 +1863,7 @@ async function loadDemoData() {
   if (!state.hasAdminAccess) {
     state.profiles = [];
     state.weeklyReports = [];
+    state.futureVacationReports = [];
     state.projects = [];
     state.roleAssignments = [];
     state.dailyAssignments = [];
@@ -1874,6 +1888,10 @@ async function loadDemoData() {
     return isoWeek.year === selectedYear && isoWeek.kw === selectedKw;
   });
   state.weeklyReports = reports;
+  state.futureVacationReports = demoWeeklyReports.filter((report) =>
+    Number(getAbsenceTypeCode(report)) === 1
+    && String(report.work_date || '') >= getTodayIsoDate()
+  );
   state.projects = [];
   state.roleAssignments = [];
   state.dailyAssignments = [];
@@ -7679,7 +7697,7 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
     profile.booked_vacations_hours ?? profile.booked_vacation_hours ?? 0
   );
   const todayIso = getTodayIsoDate();
-  const futureVacationsHours = state.weeklyReports
+  const futureVacationsHours = state.futureVacationReports
     .filter((report) =>
       String(report?.profile_id) === String(profile.id)
       && getAbsenceTypeCode(report) === 1
