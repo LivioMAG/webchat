@@ -2270,7 +2270,7 @@ function renderSaldoTable() {
 
   const profiles = getReportableProfiles();
   if (!profiles.length) {
-    elements.saldoTableBody.innerHTML = '<tr><td colspan="11">Keine Profile gefunden.</td></tr>';
+    elements.saldoTableBody.innerHTML = '<tr><td colspan="10">Keine Profile gefunden.</td></tr>';
     return;
   }
 
@@ -2286,7 +2286,6 @@ function renderSaldoTable() {
           <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
           <td>${metrics.bookedVacationHours.toFixed(2)}</td>
           <td>${metrics.bookedReportedHours.toFixed(2)}</td>
-          <td>${metrics.bookedVacationHours.toFixed(2)}</td>
           <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
           <td>${renderSaldoInput(profile.id, 'weekly_hours', metrics.weeklyHours, 0.25)}</td>
