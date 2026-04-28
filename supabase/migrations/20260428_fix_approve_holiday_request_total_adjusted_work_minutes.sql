@@ -1,21 +1,4 @@
--- Keep auto-generated weekly reports from approved absences unconfirmed and track approval status.
-alter table public.holiday_requests
-add column if not exists approval_status smallint not null default 1;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'holiday_requests_approval_status_check'
-      and conrelid = 'public.holiday_requests'::regclass
-  ) then
-    alter table public.holiday_requests
-    add constraint holiday_requests_approval_status_check
-    check (approval_status in (0, 1, 2));
-  end if;
-end $$;
-
+-- Fix GL/PL approval flow to insert into total_adjusted_work_minutes after dropping adjusted_work_minutes.
 create or replace function public.approve_holiday_request(
   p_request_id uuid,
   p_field_name text,
