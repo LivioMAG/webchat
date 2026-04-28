@@ -7416,8 +7416,11 @@ function getMatchingProfiles(profiles, query) {
 
 function getFilteredHolidayRequests() {
   return [...state.holidayRequests]
-    .filter((request) => !isHolidayRequestFullyApproved(request))
-    .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
+    .sort((a, b) => {
+      const approvalCompare = Number(isHolidayRequestFullyApproved(a)) - Number(isHolidayRequestFullyApproved(b));
+      if (approvalCompare !== 0) return approvalCompare;
+      return `${b.start_date}`.localeCompare(`${a.start_date}`);
+    });
 }
 
 function groupReportsByProfile(reports) {
