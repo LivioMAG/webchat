@@ -139,9 +139,6 @@ alter table public.app_profiles
 add column if not exists booked_unpaid_holiday_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
-add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
-
-alter table public.app_profiles
 add column if not exists reported_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
@@ -528,7 +525,6 @@ const demoProfiles = [
     is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
-    carryover_overtime_hours: 0,
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
@@ -543,7 +539,6 @@ const demoProfiles = [
     is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
-    carryover_overtime_hours: 0,
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
@@ -558,7 +553,6 @@ const demoProfiles = [
     is_active: true,
     vacation_allowance_hours: 200,
     booked_vacation_hours: 0,
-    carryover_overtime_hours: 0,
     reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
@@ -4258,13 +4252,11 @@ async function handleSaveSaldoProfile(profileId) {
   }
 
   const vacationAllowanceValue = getSaldoInputValue(profileId, 'vacation_allowance_hours');
-  const carryoverOvertimeValue = getSaldoInputValue(profileId, 'carryover_overtime_hours');
   const creditedHoursValue = getSaldoInputValue(profileId, 'credited_hours');
   const weeklyHoursValue = getSaldoInputValue(profileId, 'weekly_hours');
 
   const updates = {
     vacation_allowance_hours: vacationAllowanceValue ?? Number(profile.vacation_allowance_hours || 0),
-    carryover_overtime_hours: carryoverOvertimeValue ?? Number(profile.carryover_overtime_hours || 0),
     credited_hours: creditedHoursValue ?? Number(profile.credited_hours || 0),
     weekly_hours: weeklyHoursValue && weeklyHoursValue > 0 ? weeklyHoursValue : Number(profile.weekly_hours || 40) || 40,
   };
