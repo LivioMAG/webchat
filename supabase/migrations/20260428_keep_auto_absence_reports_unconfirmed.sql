@@ -1,4 +1,21 @@
--- Keep auto-generated weekly reports from approved absences unconfirmed.
+-- Keep auto-generated weekly reports from approved absences unconfirmed and track approval status.
+alter table public.holiday_requests
+add column if not exists approval_status smallint not null default 1;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'holiday_requests_approval_status_check'
+      and conrelid = 'public.holiday_requests'::regclass
+  ) then
+    alter table public.holiday_requests
+    add constraint holiday_requests_approval_status_check
+    check (approval_status in (0, 1, 2));
+  end if;
+end $$;
+
 create or replace function public.approve_holiday_request(
   p_request_id uuid,
   p_field_name text,
@@ -12,8 +29,6 @@ as $$
 declare
   current_request public.holiday_requests%rowtype;
   updated_request public.holiday_requests%rowtype;
-  archive_context text;
-  v_linked_report_ids jsonb;
 begin
   if p_field_name not in ('controll_pl', 'controll_gl') then
     raise exception 'Ungültiges Freigabefeld: %', p_field_name;
@@ -43,8 +58,7 @@ begin
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
-    with inserted_reports as (
-      insert into public.weekly_reports (
+    insert into public.weekly_reports (
         profile_id,
         work_date,
         year,
@@ -106,29 +120,11 @@ begin
           from public.weekly_reports existing
           where existing.profile_id = updated_request.profile_id
             and existing.work_date = work_day::date
-        )
-      returning id
-    )
-    select coalesce(jsonb_agg(id), '[]'::jsonb)
-    into v_linked_report_ids
-    from inserted_reports;
-
-    archive_context := format(
-      'Bestätigt durch PL: %s | GL: %s',
-      updated_request.controll_pl,
-      updated_request.controll_gl
-    );
-
-    insert into public.request_history (profile_id, request, context, linked_weekly_report_ids)
-    values (
-      updated_request.profile_id,
-      public.build_holiday_request_history_text(updated_request),
-      archive_context,
-      coalesce(v_linked_report_ids, '[]'::jsonb)
-    );
-
-    delete from public.holiday_requests
-    where id = updated_request.id;
+        );
+    update public.holiday_requests
+    set approval_status = 2
+    where id = updated_request.id
+    returning * into updated_request;
   end if;
 
   return updated_request;

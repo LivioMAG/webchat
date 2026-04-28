@@ -71,6 +71,7 @@ create table if not exists public.holiday_requests (
   notes text,
   controll_pl text,
   controll_gl text,
+  approval_status smallint not null default 1 check (approval_status in (0, 1, 2)),
   attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
@@ -181,6 +182,23 @@ add column if not exists controll_pl text;
 alter table public.holiday_requests
 add column if not exists controll_gl text;
 
+alter table public.holiday_requests
+add column if not exists approval_status smallint not null default 1;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'holiday_requests_approval_status_check'
+      and conrelid = 'public.holiday_requests'::regclass
+  ) then
+    alter table public.holiday_requests
+    add constraint holiday_requests_approval_status_check
+    check (approval_status in (0, 1, 2));
+  end if;
+end $$;
+
 alter table public.platform_holidays
 add column if not exists is_paid boolean not null default true;
 
@@ -231,8 +249,6 @@ as $$
 declare
   current_request public.holiday_requests%rowtype;
   updated_request public.holiday_requests%rowtype;
-  archive_context text;
-  v_linked_report_ids jsonb;
 begin
   if p_field_name not in ('controll_pl', 'controll_gl') then
     raise exception 'Ungültiges Freigabefeld: %', p_field_name;
@@ -262,8 +278,7 @@ begin
 
   if nullif(trim(coalesce(updated_request.controll_pl, '')), '') is not null
     and nullif(trim(coalesce(updated_request.controll_gl, '')), '') is not null then
-    with inserted_reports as (
-      insert into public.weekly_reports (
+    insert into public.weekly_reports (
         profile_id,
         work_date,
         year,
@@ -284,7 +299,7 @@ begin
         controll,
         attachments
       )
-      select
+    select
         updated_request.profile_id,
         work_day::date,
         extract(isoyear from work_day)::integer,
@@ -325,29 +340,11 @@ begin
           from public.weekly_reports existing
           where existing.profile_id = updated_request.profile_id
             and existing.work_date = work_day::date
-        )
-      returning id
-    )
-    select coalesce(jsonb_agg(id), '[]'::jsonb)
-    into v_linked_report_ids
-    from inserted_reports;
-
-    archive_context := format(
-      'Bestätigt durch PL: %s | GL: %s',
-      updated_request.controll_pl,
-      updated_request.controll_gl
-    );
-
-    insert into public.request_history (profile_id, request, context, linked_weekly_report_ids)
-    values (
-      updated_request.profile_id,
-      public.build_holiday_request_history_text(updated_request),
-      archive_context,
-      coalesce(v_linked_report_ids, '[]'::jsonb)
-    );
-
-    delete from public.holiday_requests
-    where id = updated_request.id;
+        );
+    update public.holiday_requests
+    set approval_status = 2
+    where id = updated_request.id
+    returning * into updated_request;
   end if;
 
   return updated_request;
@@ -679,29 +676,18 @@ security definer
 set search_path = public
 as $$
 declare
-  deleted_request public.holiday_requests%rowtype;
+  updated_request public.holiday_requests%rowtype;
 begin
-  with removed_request as (
-    delete from public.holiday_requests
-    where id = p_request_id
-    returning *
-  )
-  select *
-  into deleted_request
-  from removed_request;
+  update public.holiday_requests
+  set approval_status = 0
+  where id = p_request_id
+  returning * into updated_request;
 
   if not found then
     raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
   end if;
 
-  insert into public.request_history (profile_id, request, context)
-  values (
-    deleted_request.profile_id,
-    public.build_holiday_request_history_text(deleted_request),
-    coalesce(nullif(trim(p_context), ''), 'Abgelehnt')
-  );
-
-  return deleted_request;
+  return updated_request;
 end;
 $$;
 
