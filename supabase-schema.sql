@@ -765,29 +765,41 @@ returns numeric(10,2)
 language sql
 immutable
 as $$
+  with parsed as (
+    select
+      greatest(
+        0,
+        coalesce(
+          case
+            when nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
+              then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), ''), ',', '.')::numeric
+            when nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
+              then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), ''), ',', '.')::numeric
+            else null
+          end,
+          0
+        )
+      ) as adjusted_minutes,
+      greatest(
+        0,
+        coalesce(
+          case
+            when nullif(trim(coalesce(to_jsonb(p_report)->>'total_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
+              then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_work_minutes', '')), ''), ',', '.')::numeric
+            else null
+          end,
+          0
+        )
+      ) as total_minutes
+  )
   select round(
-    greatest(
-      0,
-      coalesce(
-        (case
-          when nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_time', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
-            then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_time', '')), ''), ',', '.')::numeric
-          else null
-        end),
-        (case
-          when nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
-            then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), ''), ',', '.')::numeric / 60.0
-          when nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
-            then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), ''), ',', '.')::numeric / 60.0
-          when nullif(trim(coalesce(to_jsonb(p_report)->>'total_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
-            then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_work_minutes', '')), ''), ',', '.')::numeric / 60.0
-          else null
-        end),
-        0
-      )
-    ),
+    case
+      when adjusted_minutes = 0 and total_minutes <> 0 then total_minutes / 60.0
+      else adjusted_minutes / 60.0
+    end,
     2
   )::numeric(10,2)
+  from parsed
 $$;
 
 create or replace function public.weekly_report_book_confirmation_hours()
