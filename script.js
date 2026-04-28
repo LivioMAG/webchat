@@ -148,6 +148,10 @@ alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.app_profiles
+alter column weekly_hours type numeric(10,2)
+using weekly_hours::numeric(10,2);
+
+alter table public.app_profiles
 add column if not exists target_revenue numeric(12,2) not null default 0;
 
 alter table public.app_profiles
@@ -7641,7 +7645,7 @@ function normalizeTimeForInput(value) {
 }
 
 function renderSaldoInput(profileId, fieldName, value, step = 0.5) {
-  return `<input class="saldo-input" type="number" step="${escapeAttribute(step)}" data-saldo-input="${escapeAttribute(fieldName)}" data-profile-id="${escapeAttribute(profileId)}" value="${escapeAttribute(Number(value || 0).toFixed(2))}" />`;
+  return `<input class="saldo-input" type="text" inputmode="decimal" data-step="${escapeAttribute(step)}" data-saldo-input="${escapeAttribute(fieldName)}" data-profile-id="${escapeAttribute(profileId)}" value="${escapeAttribute(Number(value || 0).toFixed(2))}" />`;
 }
 
 function renderSaldoBalance(value) {
@@ -7650,12 +7654,21 @@ function renderSaldoBalance(value) {
   return `<span class="${className}">${numericValue.toFixed(2)}</span>`;
 }
 
+function parseLocalizedNumber(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+
+  const normalized = raw.replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getSaldoInputValue(profileId, fieldName) {
   const input = document.querySelector(`[data-saldo-input="${fieldName}"][data-profile-id="${profileId}"]`);
   if (!input) {
     return null;
   }
-  return Number(input.value || 0);
+  return parseLocalizedNumber(input.value);
 }
 
 function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumber()) {
