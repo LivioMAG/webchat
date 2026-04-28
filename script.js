@@ -169,7 +169,7 @@ alter table public.weekly_reports
 add column if not exists project_name text;
 
 alter table public.weekly_reports
-add column if not exists adjusted_work_minutes integer not null default 0;
+add column if not exists total_adjusted_work_minutes integer not null default 0;
 
 alter table public.weekly_reports
 add column if not exists year integer;
@@ -342,7 +342,7 @@ begin
       lunch_break_minutes,
       additional_break_minutes,
       total_work_minutes,
-      adjusted_work_minutes,
+      total_adjusted_work_minutes,
       expenses_amount,
       other_costs_amount,
       expense_note,
@@ -587,7 +587,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 60,
     additional_break_minutes: 15,
     total_work_minutes: 525,
-    adjusted_work_minutes: 525,
+    total_adjusted_work_minutes: 525,
     expenses_amount: 24.5,
     other_costs_amount: 0,
     expense_note: 'Mittag auf Baustelle',
@@ -606,7 +606,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 60,
     additional_break_minutes: 15,
     total_work_minutes: 495,
-    adjusted_work_minutes: 495,
+    total_adjusted_work_minutes: 495,
     expenses_amount: 18,
     other_costs_amount: 0,
     expense_note: 'Spesen',
@@ -625,7 +625,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 45,
     additional_break_minutes: 15,
     total_work_minutes: 450,
-    adjusted_work_minutes: 450,
+    total_adjusted_work_minutes: 450,
     expenses_amount: 12,
     other_costs_amount: 8,
     expense_note: 'Parkhaus',
@@ -644,7 +644,7 @@ const demoWeeklyReports = [
     lunch_break_minutes: 0,
     additional_break_minutes: 0,
     total_work_minutes: 0,
-    adjusted_work_minutes: 0,
+    total_adjusted_work_minutes: 0,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -3190,7 +3190,7 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
         const holidayMinutes = getHolidayMinutesForProfile(report.profile_id);
         report.abz_typ = holidayTypeCode;
         report.total_work_minutes = holidayMinutes;
-        report.adjusted_work_minutes = holidayMinutes;
+        report.total_adjusted_work_minutes = holidayMinutes;
         report.notes = `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`;
       }
     });
@@ -3213,7 +3213,7 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
       id: report.id,
       abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
       total_work_minutes: holidayMinutes,
-      adjusted_work_minutes: holidayMinutes,
+      total_adjusted_work_minutes: holidayMinutes,
       notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`,
     };
   });
@@ -3256,7 +3256,7 @@ function buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid = tru
     lunch_break_minutes: 60,
     additional_break_minutes: 30,
     total_work_minutes: holidayMinutes,
-    adjusted_work_minutes: holidayMinutes,
+    total_adjusted_work_minutes: holidayMinutes,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -4420,7 +4420,7 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
         lunch_break_minutes: 60,
         additional_break_minutes: 30,
         total_work_minutes: 480,
-        adjusted_work_minutes: 480,
+        total_adjusted_work_minutes: 480,
         expenses_amount: 0,
         other_costs_amount: 0,
         expense_note: '',
@@ -7214,7 +7214,6 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
 }
 
 function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode) {
-  const adjustedMinutesField = getAdjustedMinutesFieldName();
   const isoWeek = getIsoYearAndWeekFromDateString(workDate);
   const dailyMinutes = getAutoAbsenceDailyMinutesForProfile(request.profile_id);
   return {
@@ -7231,7 +7230,7 @@ function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, reque
     lunch_break_minutes: 60,
     additional_break_minutes: 30,
     total_work_minutes: dailyMinutes,
-    [adjustedMinutesField]: dailyMinutes,
+    total_adjusted_work_minutes: dailyMinutes,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -7689,19 +7688,7 @@ function getCurrentIsoWeekNumber() {
 }
 
 function buildAdjustedMinutesUpdatePayload(report, adjustedMinutes) {
-  if (Object.prototype.hasOwnProperty.call(report || {}, 'total_adjusted_work_minutes')) {
-    return { total_adjusted_work_minutes: adjustedMinutes };
-  }
-  return { adjusted_work_minutes: adjustedMinutes };
-}
-
-function getAdjustedMinutesFieldName() {
-  const hasTotalAdjustedMinutes = state.weeklyReports.some((report) =>
-    Object.prototype.hasOwnProperty.call(report || {}, 'total_adjusted_work_minutes'));
-  if (hasTotalAdjustedMinutes) {
-    return 'total_adjusted_work_minutes';
-  }
-  return 'adjusted_work_minutes';
+  return { total_adjusted_work_minutes: adjustedMinutes };
 }
 
 function getAdjustedWorkMinutes(report) {
@@ -7714,19 +7701,21 @@ function getAdjustedWorkMinutes(report) {
 
 function getBaseAdjustedWorkMinutes(report) {
   const totalAdjustedMinutes = Number(report?.total_adjusted_work_minutes);
-  const adjustedMinutes = Number(report?.adjusted_work_minutes);
+  const totalWorkMinutes = Number(report?.total_work_minutes);
 
-  if (Number.isFinite(totalAdjustedMinutes) && totalAdjustedMinutes >= 0) {
-    if (totalAdjustedMinutes === 0 && Number.isFinite(adjustedMinutes) && adjustedMinutes > 0) {
-      return adjustedMinutes;
-    }
-    return totalAdjustedMinutes;
+  const normalizedAdjustedMinutes = Number.isFinite(totalAdjustedMinutes) && totalAdjustedMinutes >= 0
+    ? totalAdjustedMinutes
+    : 0;
+
+  if (normalizedAdjustedMinutes > 0) {
+    return normalizedAdjustedMinutes;
   }
 
-  if (Number.isFinite(adjustedMinutes) && adjustedMinutes >= 0) {
-    return adjustedMinutes;
+  if (Number.isFinite(totalWorkMinutes) && totalWorkMinutes > 0) {
+    return totalWorkMinutes;
   }
-  return Number(report?.total_work_minutes || 0);
+
+  return normalizedAdjustedMinutes;
 }
 
 function shouldApplyHolidayDoubleMinutes(report) {
