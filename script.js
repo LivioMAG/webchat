@@ -23,6 +23,9 @@ const SCHOOL_DAY_OPTIONS = [
 const SCHOOL_REPORT_NOTE_MARKER = 'Automatisch erstellter Berufsschultag';
 const BLOCK_DAY_REPORT_NOTE_MARKER = 'Automatisch erstellter Blocktag';
 const BLOCK_DAY_TYPE_CODE = 8;
+const PAID_HOLIDAY_TYPE_CODE = 5;
+const UNPAID_HOLIDAY_TYPE_CODE = 9;
+const HOLIDAY_TYPE_CODES = new Set([PAID_HOLIDAY_TYPE_CODE, UNPAID_HOLIDAY_TYPE_CODE]);
 const BLOCK_DAY_DEFAULT_START = '07:00';
 const BLOCK_DAY_DEFAULT_END = '16:30';
 const SCHOOL_VACATION_IMPORT_CANTONS = new Set(['LU', 'BE', 'SO', 'ZH']);
@@ -75,6 +78,7 @@ const ABSENCE_TYPE_CODE_LABELS = {
   6: 'ÜK',
   7: 'Berufsschule',
   8: 'Blocktag',
+  9: 'Feiertag (unbezahlt)',
 };
 const HOLIDAY_REQUEST_TYPE_TO_ABSENCE_TYPE_CODE = {
   ferien: 1,
@@ -99,8 +103,9 @@ const ABSENCE_CATEGORY_CONFIG = [
   { typeCode: 6, label: 'ÜK' },
   { typeCode: 7, label: 'Berufsschule' },
   { typeCode: 8, label: 'Blocktag' },
+  { typeCode: 9, label: 'Feiertag (unbezahlt)' },
 ];
-const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+const ABSENCE_TYPE_CODES = new Set([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 const MAX_VISIBLE_FILTER_OPTIONS = 5;
 const BLOCK_SCHEDULE_SCHEMA_HINT =
   "Die Datenbankspalte 'app_profiles.block_schedule' fehlt. Bitte das aktuelle Supabase-Schema (ALTER TABLE app_profiles ADD COLUMN block_schedule ...) ausführen und danach die Seite neu laden.";
@@ -3127,7 +3132,7 @@ async function deleteHolidayWeeklyReportsForDate(holidayDate) {
   if (state.isDemoMode) {
     for (let index = demoWeeklyReports.length - 1; index >= 0; index -= 1) {
       const report = demoWeeklyReports[index];
-      if (String(report.work_date) === String(holidayDate) && Number(report.abz_typ) === 5) {
+      if (String(report.work_date) === String(holidayDate) && HOLIDAY_TYPE_CODES.has(Number(report.abz_typ))) {
         demoWeeklyReports.splice(index, 1);
       }
     }
@@ -3138,7 +3143,7 @@ async function deleteHolidayWeeklyReportsForDate(holidayDate) {
     .from('weekly_reports')
     .delete()
     .eq('work_date', holidayDate)
-    .eq('abz_typ', 5);
+    .in('abz_typ', [...HOLIDAY_TYPE_CODES]);
   if (error) throw error;
 }
 
@@ -3170,8 +3175,10 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
     if (entry) {
       entry.is_paid = isPaid;
     }
+    const holidayTypeCode = isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE;
     demoWeeklyReports.forEach((report) => {
-      if (String(report.work_date) === String(holiday.holiday_date) && Number(report.abz_typ) === 5) {
+      if (String(report.work_date) === String(holiday.holiday_date) && HOLIDAY_TYPE_CODES.has(Number(report.abz_typ))) {
+        report.abz_typ = holidayTypeCode;
         report.total_work_minutes = isPaid ? 480 : 0;
         report.adjusted_work_minutes = isPaid ? 480 : 0;
         report.notes = `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`;
@@ -3188,10 +3195,11 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
     .update({
       total_work_minutes: isPaid ? 480 : 0,
       adjusted_work_minutes: isPaid ? 480 : 0,
+      abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
       notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`,
     })
     .eq('work_date', holiday.holiday_date)
-    .eq('abz_typ', 5);
+    .in('abz_typ', [...HOLIDAY_TYPE_CODES]);
   if (reportError) throw reportError;
 }
 
@@ -3208,7 +3216,7 @@ function buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid = tru
     kw: yearKw.kw,
     project_name: 'Feiertag',
     commission_number: label || 'Feiertag',
-    abz_typ: 5,
+    abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
     start_time: '07:00',
     end_time: '16:30',
     lunch_break_minutes: 60,
@@ -4347,7 +4355,7 @@ async function synchronizeApprenticeSchoolReportsForYear(profileId, year) {
   const todayIso = new Date().toISOString().slice(0, 10);
   const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
   profileReports.forEach((report) => {
-    if (Number(report.abz_typ) === 5 && report.work_date) {
+    if (HOLIDAY_TYPE_CODES.has(Number(report.abz_typ)) && report.work_date) {
       holidayDates.add(String(report.work_date));
     }
   });
@@ -7118,7 +7126,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
   if (state.isDemoMode) {
     const holidayDates = new Set(
       demoWeeklyReports
-        .filter((report) => String(report.profile_id) === String(request.profile_id) && Number(report.abz_typ) === 5)
+        .filter((report) => String(report.profile_id) === String(request.profile_id) && HOLIDAY_TYPE_CODES.has(Number(report.abz_typ)))
         .map((report) => String(report.work_date)),
     );
     state.platformHolidays.forEach((entry) => holidayDates.add(String(entry.holiday_date || '')));
@@ -7150,7 +7158,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
   }
   const holidayDates = new Set(state.platformHolidays.map((entry) => String(entry.holiday_date || '')));
   (existingReports || []).forEach((report) => {
-    if (Number(report.abz_typ) === 5 && report.work_date) {
+    if (HOLIDAY_TYPE_CODES.has(Number(report.abz_typ)) && report.work_date) {
       holidayDates.add(String(report.work_date));
     }
   });
@@ -7277,6 +7285,7 @@ function buildEmptyAbsenceRows() {
     { label: 'Militär', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Unfall', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Feiertag', days: Array(6).fill(''), total: '', notes: '' },
+    { label: 'Feiertag (unbezahlt)', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'ÜK', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Berufsschule', days: Array(6).fill(''), total: '', notes: '' },
     { label: 'Total Absenzen', days: Array(6).fill(''), total: '', notes: '' },
