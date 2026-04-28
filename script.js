@@ -127,7 +127,16 @@ alter table public.app_profiles
 add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
+add column if not exists booked_reported_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
 add column if not exists booked_vacation_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists booked_vacations_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists booked_unpaid_holiday_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
