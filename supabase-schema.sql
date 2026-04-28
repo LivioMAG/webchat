@@ -314,7 +314,7 @@ begin
         0,
         '',
         format('Automatisch aus bestätigter Absenz (%s).', initcap(replace(coalesce(updated_request.request_type, 'Absenz'), '_', ' '))),
-        coalesce(nullif(trim(updated_request.controll_gl), ''), nullif(trim(updated_request.controll_pl), ''), 'System'),
+        '',
         '[]'::jsonb
       from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
       left join public.app_profiles profile
