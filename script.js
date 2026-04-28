@@ -2268,7 +2268,7 @@ function renderSaldoTable() {
 
   const profiles = getReportableProfiles();
   if (!profiles.length) {
-    elements.saldoTableBody.innerHTML = '<tr><td colspan="10">Keine Profile gefunden.</td></tr>';
+    elements.saldoTableBody.innerHTML = '<tr><td colspan="11">Keine Profile gefunden.</td></tr>';
     return;
   }
 
@@ -2282,6 +2282,7 @@ function renderSaldoTable() {
           <td>${renderSaldoBalance(metrics.overtimeBalanceHours)}</td>
           <td>${renderSaldoBalance(metrics.vacationBalanceHours)}</td>
           <td>${metrics.bookedVacationsHours.toFixed(2)}</td>
+          <td>${metrics.futureVacationsHours.toFixed(2)}</td>
           <td>${metrics.bookedReportedHours.toFixed(2)}</td>
           <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
@@ -7677,18 +7678,26 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
   const bookedVacationsHours = Number(
     profile.booked_vacations_hours ?? profile.booked_vacation_hours ?? 0
   );
+  const todayIso = getTodayIsoDate();
+  const futureVacationsHours = state.weeklyReports
+    .filter((report) =>
+      String(report?.profile_id) === String(profile.id)
+      && getAbsenceTypeCode(report) === 1
+      && String(report?.work_date || '') > todayIso)
+    .reduce((sum, report) => sum + (getAbsenceMinutes(report) / 60), 0);
   const bookedUnpaidHolidayHours = Number(profile.booked_unpaid_holiday_hours || 0);
   const creditedHours = Number(profile.credited_hours || 0);
   const weeklyHours = Number(profile.weekly_hours || 40);
   const expectedHoursUntilLastWeek = Math.max(currentIsoWeek - 1, 0) * weeklyHours;
   const overtimeBalanceHours =
     expectedHoursUntilLastWeek - creditedHours - bookedReportedHours - bookedUnpaidHolidayHours;
-  const vacationBalanceHours = vacationAllowanceHours - bookedVacationsHours;
+  const vacationBalanceHours = vacationAllowanceHours - bookedVacationsHours - futureVacationsHours;
 
   return {
     vacationAllowanceHours,
     bookedReportedHours,
     bookedVacationsHours,
+    futureVacationsHours,
     bookedUnpaidHolidayHours,
     creditedHours,
     weeklyHours,
