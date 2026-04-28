@@ -357,8 +357,8 @@ begin
       '16:30'::time,
       60,
       30,
-      480,
-      480,
+      greatest(480, round((coalesce(profile.weekly_hours, 40) / 5.0) * 60.0)::integer),
+      greatest(480, round((coalesce(profile.weekly_hours, 40) / 5.0) * 60.0)::integer),
       0,
       0,
       '',
@@ -366,6 +366,8 @@ begin
       '',
       '[]'::jsonb
     from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
+    left join public.app_profiles profile
+      on profile.id = updated_request.profile_id
     where extract(isodow from work_day) between 1 and 5
       and not exists (
         select 1
@@ -7150,6 +7152,7 @@ async function createAutoReportsForApprovedHolidayRequest(request) {
 function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, requestTypeCode) {
   const adjustedMinutesField = getAdjustedMinutesFieldName();
   const isoWeek = getIsoYearAndWeekFromDateString(workDate);
+  const dailyMinutes = getAutoAbsenceDailyMinutesForProfile(request.profile_id);
   return {
     id: crypto.randomUUID(),
     profile_id: request.profile_id,
@@ -7163,8 +7166,8 @@ function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, reque
     end_time: '16:30',
     lunch_break_minutes: 60,
     additional_break_minutes: 30,
-    total_work_minutes: 480,
-    [adjustedMinutesField]: 480,
+    total_work_minutes: dailyMinutes,
+    [adjustedMinutesField]: dailyMinutes,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
@@ -7172,6 +7175,13 @@ function buildAutoAbsenceWeeklyReport(request, workDate, requestTypeLabel, reque
     controll: '',
     attachments: [],
   };
+}
+
+function getAutoAbsenceDailyMinutesForProfile(profileId) {
+  const profile = getProfileById(profileId);
+  const weeklyHours = Number(profile?.weekly_hours);
+  const normalizedWeeklyHours = Number.isFinite(weeklyHours) && weeklyHours > 0 ? weeklyHours : 40;
+  return Math.max(8 * 60, Math.round((normalizedWeeklyHours / 5) * 60));
 }
 
 function getHolidayRequestDurationLabel(request) {
