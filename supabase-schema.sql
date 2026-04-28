@@ -762,11 +762,15 @@ immutable
 as $$
   select greatest(
     0,
-    case
-      when p_report.adjusted_work_minutes is not null and p_report.adjusted_work_minutes >= 0
-        then p_report.adjusted_work_minutes
-      else coalesce(p_report.total_work_minutes, 0)
-    end
+    coalesce(
+      (to_jsonb(p_report)->>'total_adjusted_work_minutes')::integer,
+      case
+        when p_report.adjusted_work_minutes is not null and p_report.adjusted_work_minutes >= 0
+          then p_report.adjusted_work_minutes
+        else null
+      end,
+      coalesce(p_report.total_work_minutes, 0)
+    )
   )::integer
 $$;
 
