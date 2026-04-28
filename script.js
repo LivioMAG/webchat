@@ -2270,7 +2270,7 @@ function renderSaldoTable() {
 
   const profiles = getReportableProfiles();
   if (!profiles.length) {
-    elements.saldoTableBody.innerHTML = '<tr><td colspan="11">Keine Profile gefunden.</td></tr>';
+    elements.saldoTableBody.innerHTML = '<tr><td colspan="12">Keine Profile gefunden.</td></tr>';
     return;
   }
 
@@ -2281,15 +2281,16 @@ function renderSaldoTable() {
       return `
         <tr>
           <td>${escapeHtml(profile.full_name || '–')}</td>
-          <td>${escapeHtml(profile.email || '–')}</td>
+          <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
+          <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
           <td>${metrics.bookedVacationHours.toFixed(2)}</td>
-          <td>${renderSaldoInput(profile.id, 'carryover_overtime_hours', metrics.carryoverOvertimeHours)}</td>
           <td>${metrics.reportedHours.toFixed(2)}</td>
+          <td>${metrics.bookedReportedHours.toFixed(2)}</td>
+          <td>${metrics.bookedVacationHours.toFixed(2)}</td>
+          <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
           <td>${renderSaldoInput(profile.id, 'weekly_hours', metrics.weeklyHours, 0.25)}</td>
-          <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
-          <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
           <td>
             <button class="button button-small button-primary" type="button" data-action="save-saldo-profile" data-profile-id="${escapeAttribute(profile.id)}" ${state.isSavingSaldo ? 'disabled' : ''}>
               Speichern
@@ -4253,26 +4254,31 @@ async function handleSaveSaldoProfile(profileId) {
     return;
   }
 
+  const profile = getProfileById(profileId);
+  if (!profile) {
+    return;
+  }
+
   const vacationAllowanceValue = getSaldoInputValue(profileId, 'vacation_allowance_hours');
   const carryoverOvertimeValue = getSaldoInputValue(profileId, 'carryover_overtime_hours');
   const creditedHoursValue = getSaldoInputValue(profileId, 'credited_hours');
   const weeklyHoursValue = getSaldoInputValue(profileId, 'weekly_hours');
 
   const updates = {
-    vacation_allowance_hours: vacationAllowanceValue,
-    carryover_overtime_hours: carryoverOvertimeValue,
-    credited_hours: creditedHoursValue,
-    weekly_hours: weeklyHoursValue > 0 ? weeklyHoursValue : 40,
+    vacation_allowance_hours: vacationAllowanceValue ?? Number(profile.vacation_allowance_hours || 0),
+    carryover_overtime_hours: carryoverOvertimeValue ?? Number(profile.carryover_overtime_hours || 0),
+    credited_hours: creditedHoursValue ?? Number(profile.credited_hours || 0),
+    weekly_hours: weeklyHoursValue && weeklyHoursValue > 0 ? weeklyHoursValue : Number(profile.weekly_hours || 40) || 40,
   };
 
   state.isSavingSaldo = true;
   try {
     if (state.isDemoMode) {
-      const profile = demoProfiles.find((item) => String(item.id) === String(profileId));
-      if (!profile) {
+      const demoProfile = demoProfiles.find((item) => String(item.id) === String(profileId));
+      if (!demoProfile) {
         throw new Error('Demo-Profil nicht gefunden');
       }
-      Object.assign(profile, updates);
+      Object.assign(demoProfile, updates);
     } else {
       const { error } = await state.supabase.from('app_profiles').update(updates).eq('id', profileId);
       if (error) throw error;
@@ -7653,14 +7659,16 @@ function renderSaldoInput(profileId, fieldName, value, step = 0.5) {
 function getSaldoInputValue(profileId, fieldName) {
   const input = document.querySelector(`[data-saldo-input="${fieldName}"][data-profile-id="${profileId}"]`);
   if (!input) {
-    return 0;
+    return null;
   }
   return Number(input.value || 0);
 }
 
 function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumber()) {
   const vacationAllowanceHours = Number(profile.vacation_allowance_hours || 0);
+  const bookedReportedHours = Number(profile.booked_reported_hours || 0);
   const bookedVacationHours = Number(profile.booked_vacation_hours || 0);
+  const bookedUnpaidHolidayHours = Number(profile.booked_unpaid_holiday_hours || 0);
   const carryoverOvertimeHours = Number(profile.carryover_overtime_hours || 0);
   const reportedHours = Number(profile.reported_hours || 0);
   const creditedHours = Number(profile.credited_hours || 0);
@@ -7671,7 +7679,9 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
 
   return {
     vacationAllowanceHours,
+    bookedReportedHours,
     bookedVacationHours,
+    bookedUnpaidHolidayHours,
     carryoverOvertimeHours,
     reportedHours,
     creditedHours,
