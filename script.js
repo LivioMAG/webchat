@@ -7659,12 +7659,11 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
     profile.booked_vacations_hours ?? profile.booked_vacation_hours ?? 0
   );
   const bookedUnpaidHolidayHours = Number(profile.booked_unpaid_holiday_hours || 0);
-  const carryoverOvertimeHours = Number(profile.carryover_overtime_hours || 0);
-  const reportedHours = Number(profile.reported_hours || 0);
   const creditedHours = Number(profile.credited_hours || 0);
   const weeklyHours = Number(profile.weekly_hours || 40);
-  const expectedHours = currentIsoWeek * weeklyHours;
-  const overtimeBalanceHours = carryoverOvertimeHours + creditedHours + (reportedHours - expectedHours);
+  const expectedHoursUntilLastWeek = Math.max(currentIsoWeek - 1, 0) * weeklyHours;
+  const overtimeBalanceHours =
+    expectedHoursUntilLastWeek - creditedHours - bookedReportedHours - bookedUnpaidHolidayHours;
   const vacationBalanceHours = vacationAllowanceHours - bookedVacationsHours;
 
   return {
@@ -7672,8 +7671,6 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
     bookedReportedHours,
     bookedVacationsHours,
     bookedUnpaidHolidayHours,
-    carryoverOvertimeHours,
-    reportedHours,
     creditedHours,
     weeklyHours,
     overtimeBalanceHours,
