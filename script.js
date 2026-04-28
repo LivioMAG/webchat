@@ -3211,7 +3211,6 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
     const holidayMinutes = getHolidayMinutesForProfile(report.profile_id);
     return {
       id: report.id,
-      profile_id: report.profile_id,
       abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
       total_work_minutes: holidayMinutes,
       adjusted_work_minutes: holidayMinutes,
@@ -3220,10 +3219,14 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
   });
   if (!reportsToUpdate.length) return;
 
-  const { error: reportError } = await state.supabase
-    .from('weekly_reports')
-    .upsert(reportsToUpdate, { onConflict: 'id' });
-  if (reportError) throw reportError;
+  for (const report of reportsToUpdate) {
+    const { id, ...updates } = report;
+    const { error: reportError } = await state.supabase
+      .from('weekly_reports')
+      .update(updates)
+      .eq('id', id);
+    if (reportError) throw reportError;
+  }
 }
 
 function isAbsenceTypeCode(value) {
