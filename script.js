@@ -4251,12 +4251,10 @@ async function handleSaveSaldoProfile(profileId) {
     return;
   }
 
-  const vacationAllowanceValue = getSaldoInputValue(profileId, 'vacation_allowance_hours');
   const creditedHoursValue = getSaldoInputValue(profileId, 'credited_hours');
   const weeklyHoursValue = getSaldoInputValue(profileId, 'weekly_hours');
 
   const updates = {
-    vacation_allowance_hours: vacationAllowanceValue ?? Number(profile.vacation_allowance_hours || 0),
     credited_hours: creditedHoursValue ?? Number(profile.credited_hours || 0),
     weekly_hours: weeklyHoursValue && weeklyHoursValue > 0 ? weeklyHoursValue : Number(profile.weekly_hours || 40) || 40,
   };
