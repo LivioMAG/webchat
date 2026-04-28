@@ -932,6 +932,16 @@ tbody tr:hover {
   min-width: 110px;
 }
 
+.saldo-balance-positive {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.saldo-balance-negative {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .page {
   display: grid;
   gap: 24px;

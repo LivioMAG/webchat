@@ -2275,12 +2275,12 @@ function renderSaldoTable() {
       return `
         <tr>
           <td>${escapeHtml(profile.full_name || '–')}</td>
-          <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
-          <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
-          <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
+          <td>${renderSaldoBalance(metrics.overtimeBalanceHours)}</td>
+          <td>${renderSaldoBalance(metrics.vacationBalanceHours)}</td>
           <td>${metrics.bookedVacationsHours.toFixed(2)}</td>
           <td>${metrics.bookedReportedHours.toFixed(2)}</td>
           <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
+          <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
           <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
           <td>${renderSaldoInput(profile.id, 'weekly_hours', metrics.weeklyHours, 0.25)}</td>
           <td>
@@ -7642,6 +7642,12 @@ function normalizeTimeForInput(value) {
 
 function renderSaldoInput(profileId, fieldName, value, step = 0.5) {
   return `<input class="saldo-input" type="number" step="${escapeAttribute(step)}" data-saldo-input="${escapeAttribute(fieldName)}" data-profile-id="${escapeAttribute(profileId)}" value="${escapeAttribute(Number(value || 0).toFixed(2))}" />`;
+}
+
+function renderSaldoBalance(value) {
+  const numericValue = Number(value) || 0;
+  const className = numericValue < 0 ? 'saldo-balance-negative' : 'saldo-balance-positive';
+  return `<span class="${className}">${numericValue.toFixed(2)}</span>`;
 }
 
 function getSaldoInputValue(profileId, fieldName) {
