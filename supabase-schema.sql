@@ -308,8 +308,8 @@ begin
         '16:30'::time,
         60,
         30,
-        480,
-        480,
+        greatest(480, round((coalesce(profile.weekly_hours, 40) / 5.0) * 60.0)::integer),
+        greatest(480, round((coalesce(profile.weekly_hours, 40) / 5.0) * 60.0)::integer),
         0,
         0,
         '',
@@ -317,6 +317,8 @@ begin
         coalesce(nullif(trim(updated_request.controll_gl), ''), nullif(trim(updated_request.controll_pl), ''), 'System'),
         '[]'::jsonb
       from generate_series(updated_request.start_date, updated_request.end_date, interval '1 day') as work_day
+      left join public.app_profiles profile
+        on profile.id = updated_request.profile_id
       where extract(isodow from work_day) between 1 and 5
         and not exists (
           select 1
