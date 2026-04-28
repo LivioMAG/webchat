@@ -3187,9 +3187,10 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
     const holidayTypeCode = isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE;
     demoWeeklyReports.forEach((report) => {
       if (String(report.work_date) === String(holiday.holiday_date) && HOLIDAY_TYPE_CODES.has(Number(report.abz_typ))) {
+        const holidayMinutes = getHolidayMinutesForProfile(report.profile_id);
         report.abz_typ = holidayTypeCode;
-        report.total_work_minutes = isPaid ? 480 : 0;
-        report.adjusted_work_minutes = isPaid ? 480 : 0;
+        report.total_work_minutes = holidayMinutes;
+        report.adjusted_work_minutes = holidayMinutes;
         report.notes = `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`;
       }
     });
@@ -3199,16 +3200,29 @@ async function updatePlatformHolidayCompensation(holidayId, isPaid) {
   const { error: holidayError } = await state.supabase.from(HOLIDAY_TABLE).update({ is_paid: isPaid }).eq('id', holidayId);
   if (holidayError) throw holidayError;
 
-  const { error: reportError } = await state.supabase
+  const { data: holidayReports, error: reportsLoadError } = await state.supabase
     .from('weekly_reports')
-    .update({
-      total_work_minutes: isPaid ? 480 : 0,
-      adjusted_work_minutes: isPaid ? 480 : 0,
-      abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
-      notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`,
-    })
+    .select('id, profile_id')
     .eq('work_date', holiday.holiday_date)
     .in('abz_typ', [...HOLIDAY_TYPE_CODES]);
+  if (reportsLoadError) throw reportsLoadError;
+
+  const reportsToUpdate = (holidayReports || []).map((report) => {
+    const holidayMinutes = getHolidayMinutesForProfile(report.profile_id);
+    return {
+      id: report.id,
+      profile_id: report.profile_id,
+      abz_typ: isPaid ? PAID_HOLIDAY_TYPE_CODE : UNPAID_HOLIDAY_TYPE_CODE,
+      total_work_minutes: holidayMinutes,
+      adjusted_work_minutes: holidayMinutes,
+      notes: `Automatisch aus ${isPaid ? 'bezahltem' : 'unbezahltem'} Feiertag (${holiday.label || 'Feiertag'}) erstellt.`,
+    };
+  });
+  if (!reportsToUpdate.length) return;
+
+  const { error: reportError } = await state.supabase
+    .from('weekly_reports')
+    .upsert(reportsToUpdate, { onConflict: 'id' });
   if (reportError) throw reportError;
 }
 
@@ -3216,8 +3230,16 @@ function isAbsenceTypeCode(value) {
   return ABSENCE_TYPE_CODES.has(Number(value));
 }
 
+function getHolidayMinutesForProfile(profileId) {
+  const profile = state.profiles.find((entry) => String(entry.id) === String(profileId));
+  const weeklyHours = Number(profile?.weekly_hours);
+  const normalizedWeeklyHours = Number.isFinite(weeklyHours) && weeklyHours > 0 ? weeklyHours : 40;
+  return Math.max(480, Math.round((normalizedWeeklyHours / 5) * 60));
+}
+
 function buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid = true) {
   const yearKw = getIsoYearAndWeekFromDateString(holidayDate);
+  const holidayMinutes = getHolidayMinutesForProfile(profileId);
   return {
     profile_id: profileId,
     work_date: holidayDate,
@@ -3230,8 +3252,8 @@ function buildHolidayWeeklyReportRow(profileId, holidayDate, label, isPaid = tru
     end_time: '16:30',
     lunch_break_minutes: 60,
     additional_break_minutes: 30,
-    total_work_minutes: isPaid ? 480 : 0,
-    adjusted_work_minutes: isPaid ? 480 : 0,
+    total_work_minutes: holidayMinutes,
+    adjusted_work_minutes: holidayMinutes,
     expenses_amount: 0,
     other_costs_amount: 0,
     expense_note: '',
