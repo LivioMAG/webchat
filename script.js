@@ -112,6 +112,9 @@ add column if not exists controll_pl text;
 alter table public.holiday_requests
 add column if not exists controll_gl text;
 
+alter table public.holiday_requests
+add column if not exists approval_status smallint not null default 1;
+
 alter table public.platform_holidays
 add column if not exists is_paid boolean not null default true;
 
@@ -382,15 +385,11 @@ begin
       updated_request.controll_gl
     );
 
-    insert into public.request_history (profile_id, request, context)
-    values (
-      updated_request.profile_id,
-      public.build_holiday_request_history_text(updated_request),
-      archive_context
-    );
+    update public.holiday_requests
+    set approval_status = 2
+    where id = updated_request.id
+    returning * into updated_request;
 
-    delete from public.holiday_requests
-    where id = updated_request.id;
   end if;
 
   return updated_request;
@@ -407,29 +406,18 @@ security definer
 set search_path = public
 as $$
 declare
-  deleted_request public.holiday_requests%rowtype;
+  updated_request public.holiday_requests%rowtype;
 begin
-  with removed_request as (
-    delete from public.holiday_requests
-    where id = p_request_id
-    returning *
-  )
-  select *
-  into deleted_request
-  from removed_request;
+  update public.holiday_requests
+  set approval_status = 0
+  where id = p_request_id
+  returning * into updated_request;
 
   if not found then
     raise exception 'Absenzgesuch % wurde nicht gefunden.', p_request_id;
   end if;
 
-  insert into public.request_history (profile_id, request, context)
-  values (
-    deleted_request.profile_id,
-    public.build_holiday_request_history_text(deleted_request),
-    coalesce(nullif(trim(p_context), ''), 'Abgelehnt')
-  );
-
-  return deleted_request;
+  return updated_request;
 end;
 $$;
 
@@ -660,6 +648,7 @@ const demoHolidayRequests = [
     end_date: getDateForWeekOffset(0, 4),
     request_type: 'ferien',
     notes: 'Bereits mit Team abgestimmt.',
+    approval_status: 1,
     controll_pl: '',
     controll_gl: '',
     attachments: [],
@@ -671,6 +660,7 @@ const demoHolidayRequests = [
     end_date: getDateForWeekOffset(1, 2),
     request_type: 'militaer',
     notes: 'WK laut Aufgebot.',
+    approval_status: 1,
     controll_pl: '',
     controll_gl: '',
     attachments: [],
@@ -722,6 +712,7 @@ const state = {
   showControlledAbsences: false,
   includeConfirmationHistory: false,
   isConfirmationsModalOpen: false,
+  isRejectedAbsencesModalOpen: false,
   isBulkConfirmModalOpen: false,
   bulkConfirmSelectedProjectId: '',
   isBulkConfirmSaving: false,
@@ -832,6 +823,7 @@ function cacheElements() {
   elements.reportsTableBody = document.getElementById('reportsTableBody');
   elements.absencesTableBody = document.getElementById('absencesTableBody');
   elements.confirmationsTableBody = document.getElementById('confirmationsTableBody');
+  elements.rejectedAbsencesTableBody = document.getElementById('rejectedAbsencesTableBody');
   elements.saldoTableBody = document.getElementById('saldoTableBody');
   elements.missingReports = document.getElementById('missingReports');
   elements.submissionList = document.getElementById('submissionList');
@@ -851,8 +843,11 @@ function cacheElements() {
   elements.clearAbsenceSelectionButton = document.getElementById('clearAbsenceSelectionButton');
   elements.showControlledAbsencesInput = document.getElementById('showControlledAbsencesInput');
   elements.openConfirmationsModalButton = document.getElementById('openConfirmationsModalButton');
+  elements.openRejectedAbsencesModalButton = document.getElementById('openRejectedAbsencesModalButton');
   elements.confirmationsModal = document.getElementById('confirmationsModal');
+  elements.rejectedAbsencesModal = document.getElementById('rejectedAbsencesModal');
   elements.closeConfirmationsModalButton = document.getElementById('closeConfirmationsModalButton');
+  elements.closeRejectedAbsencesModalButton = document.getElementById('closeRejectedAbsencesModalButton');
   elements.bulkConfirmModal = document.getElementById('bulkConfirmModal');
   elements.closeBulkConfirmModalButton = document.getElementById('closeBulkConfirmModalButton');
   elements.bulkConfirmProjectSelect = document.getElementById('bulkConfirmProjectSelect');
@@ -865,8 +860,6 @@ function cacheElements() {
   elements.cancelMissingReportsCallButton = document.getElementById('cancelMissingReportsCallButton');
   elements.submitMissingReportsCallButton = document.getElementById('submitMissingReportsCallButton');
   elements.missingReportsCallResult = document.getElementById('missingReportsCallResult');
-  elements.includeConfirmationHistoryInput = document.getElementById('includeConfirmationHistoryInput');
-  elements.exportConfirmationsPdfButton = document.getElementById('exportConfirmationsPdfButton');
   elements.reportsPrevPageButton = document.getElementById('reportsPrevPageButton');
   elements.reportsNextPageButton = document.getElementById('reportsNextPageButton');
   elements.reportsPaginationSummary = document.getElementById('reportsPaginationSummary');
@@ -1061,8 +1054,10 @@ function bindEvents() {
   if (elements.clearAbsenceSelectionButton) elements.clearAbsenceSelectionButton.addEventListener('click', clearAbsenceSelection);
   if (elements.showControlledAbsencesInput) elements.showControlledAbsencesInput.addEventListener('change', handleShowControlledAbsencesToggle);
   if (elements.absenceFilterList) elements.absenceFilterList.addEventListener('change', handleAbsenceSelectionChange);
-  elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
-  elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
+  if (elements.openConfirmationsModalButton) elements.openConfirmationsModalButton.addEventListener('click', openConfirmationsModal);
+  if (elements.closeConfirmationsModalButton) elements.closeConfirmationsModalButton.addEventListener('click', closeConfirmationsModal);
+  if (elements.openRejectedAbsencesModalButton) elements.openRejectedAbsencesModalButton.addEventListener('click', openRejectedAbsencesModal);
+  if (elements.closeRejectedAbsencesModalButton) elements.closeRejectedAbsencesModalButton.addEventListener('click', closeRejectedAbsencesModal);
   if (elements.closeBulkConfirmModalButton) {
     elements.closeBulkConfirmModalButton.addEventListener('click', closeBulkConfirmModal);
   }
@@ -1084,11 +1079,8 @@ function bindEvents() {
   if (elements.submitMissingReportsCallButton) {
     elements.submitMissingReportsCallButton.addEventListener('click', handleMissingReportsCallSubmit);
   }
-  elements.includeConfirmationHistoryInput.addEventListener('change', handleConfirmationHistoryToggle);
-  elements.exportConfirmationsPdfButton.addEventListener('click', exportFilteredConfirmationsPdf);
   elements.reportsTableBody.addEventListener('click', handleReportsTableClick);
   elements.absencesTableBody.addEventListener('click', handleAbsencesTableClick);
-  elements.confirmationsTableBody.addEventListener('click', handleConfirmationsTableClick);
   elements.saldoTableBody.addEventListener('click', handleSaldoTableClick);
   elements.reportsPrevPageButton.addEventListener('click', goToPreviousReportsPage);
   elements.reportsNextPageButton.addEventListener('click', goToNextReportsPage);
@@ -1155,11 +1147,20 @@ function bindEvents() {
       closeDispoAssignModal();
     }
   });
-  elements.confirmationsModal.addEventListener('click', (event) => {
-    if (event.target?.dataset?.closeConfirmationsModal === 'true') {
-      closeConfirmationsModal();
-    }
-  });
+  if (elements.confirmationsModal) {
+    elements.confirmationsModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeConfirmationsModal === 'true') {
+        closeConfirmationsModal();
+      }
+    });
+  }
+  if (elements.rejectedAbsencesModal) {
+    elements.rejectedAbsencesModal.addEventListener('click', (event) => {
+      if (event.target?.dataset?.closeRejectedAbsencesModal === 'true') {
+        closeRejectedAbsencesModal();
+      }
+    });
+  }
   if (elements.bulkConfirmModal) {
     elements.bulkConfirmModal.addEventListener('click', (event) => {
       if (event.target?.dataset?.closeBulkConfirmModal === 'true') {
@@ -1595,11 +1596,12 @@ function resetAppState() {
   state.absenceSelectionInitialized = false;
   state.absenceSelectionTouched = false;
   state.showControlledAbsences = false;
+  state.includeConfirmationHistory = false;
   state.reportsPage = 1;
   state.selectedProjectId = null;
   state.dispoAllowMultiplePerDay = true;
-  state.includeConfirmationHistory = false;
   state.isConfirmationsModalOpen = false;
+  state.isRejectedAbsencesModalOpen = false;
   state.editingReportId = null;
   state.isSavingReport = false;
   state.isSavingProject = false;
@@ -1668,7 +1670,6 @@ async function loadData() {
       state.roleAssignments = [];
       state.dailyAssignments = [];
       state.holidayRequests = [];
-      state.requestHistory = [];
       state.platformHolidays = [];
       state.schoolVacations = [];
       state.crmContacts = [];
@@ -1702,11 +1703,6 @@ async function loadData() {
       .select('*')
       .order('start_date', { ascending: false })
       .limit(200);
-    const requestHistoryQuery = state.supabase
-      .from('request_history')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(500);
     const projectsQuery = state.supabase
       .from('projects')
       .select('*')
@@ -1740,7 +1736,6 @@ async function loadData() {
       { data: reports, error: reportsError },
       { data: profiles, error: profilesError },
       { data: absences, error: absencesError },
-      { data: requestHistory, error: requestHistoryError },
       { data: projects, error: projectsError },
       { data: dailyAssignments, error: dailyAssignmentsError },
       { data: platformHolidays, error: platformHolidaysError },
@@ -1751,7 +1746,6 @@ async function loadData() {
       reportsQuery,
       profilesQuery,
       absencesQuery,
-      requestHistoryQuery,
       projectsQuery,
       dailyAssignmentsQuery,
       platformHolidaysQuery,
@@ -1763,7 +1757,6 @@ async function loadData() {
     if (reportsError) throw reportsError;
     if (profilesError) throw profilesError;
     if (absencesError) throw absencesError;
-    if (requestHistoryError) throw requestHistoryError;
     if (projectsError) throw projectsError;
     if (dailyAssignmentsError && !isMissingTableError(dailyAssignmentsError, 'daily_assignments')) throw dailyAssignmentsError;
     if (platformHolidaysError && !isMissingTableError(platformHolidaysError, HOLIDAY_TABLE)) throw platformHolidaysError;
@@ -1777,7 +1770,6 @@ async function loadData() {
     state.weeklyReports = reports ?? [];
     state.profiles = profiles ?? [];
     state.holidayRequests = absences ?? [];
-    state.requestHistory = requestHistory ?? [];
     state.projects = projects ?? [];
     state.dailyAssignments = dailyAssignments ?? [];
     state.platformHolidays = platformHolidays ?? [];
@@ -1874,7 +1866,7 @@ async function loadDemoData() {
   state.roleAssignments = [];
   state.dailyAssignments = [];
   state.holidayRequests = [...demoHolidayRequests];
-  state.requestHistory = [...demoRequestHistory];
+  state.requestHistory = [];
   state.platformHolidays = [...demoPlatformHolidays];
   state.schoolVacations = [];
   state.crmContacts = [];
@@ -1927,6 +1919,8 @@ function render() {
   renderBulkConfirmModalState();
   renderConfirmationsModalState();
   renderConfirmationsTable();
+  renderRejectedAbsencesModalState();
+  renderRejectedAbsencesTable();
   renderSaldoTable();
   renderProjectForm();
   renderProjectsTable();
@@ -2195,8 +2189,7 @@ function renderAbsenceTable() {
 
 
 function renderConfirmationsModalState() {
-  if (!elements.includeConfirmationHistoryInput || !elements.confirmationsModal) return;
-  elements.includeConfirmationHistoryInput.checked = state.includeConfirmationHistory;
+  if (!elements.confirmationsModal) return;
   elements.confirmationsModal.classList.toggle('hidden', !state.isConfirmationsModalOpen);
 }
 
@@ -2205,37 +2198,51 @@ function renderConfirmationsTable() {
     return;
   }
 
-  const filteredHistory = getFilteredRequestHistory();
+  const approvedRequests = getHolidayRequestsByApprovalStatus(2);
 
-  if (!state.requestHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="6">Keine Bestätigungen in request_history gefunden.</td></tr>';
+  if (!approvedRequests.length) {
+    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="4">Keine bestätigten Absenzen vorhanden.</td></tr>';
     return;
   }
 
-  if (!filteredHistory.length) {
-    elements.confirmationsTableBody.innerHTML = '<tr><td colspan="6">Für den gewählten Zeitraum wurden keine Bestätigungen gefunden.</td></tr>';
-    return;
-  }
-
-  elements.confirmationsTableBody.innerHTML = filteredHistory
-    .map((entry) => {
-      const details = parseRequestHistoryEntry(entry);
-      const profile = getProfileById(entry.profile_id);
+  elements.confirmationsTableBody.innerHTML = approvedRequests
+    .map((request) => {
+      const profile = getProfileById(request.profile_id);
       const personLabel = profile?.full_name || profile?.email || 'Unbekannt';
-      const personSubLabel = profile?.email && profile?.email !== personLabel ? `<div class="subtle-text">${escapeHtml(profile.email)}</div>` : '';
       return `
         <tr>
-          <td>
-            <div class="status-stack compact">
-              <strong>${escapeHtml(personLabel)}</strong>
-              ${personSubLabel}
-            </div>
-          </td>
-          <td>${escapeHtml(details.typeLabel)}</td>
-          <td>${escapeHtml(details.periodLabel)}</td>
-          <td>${escapeHtml(details.approvedByLabel)}</td>
-          <td>${escapeHtml(formatDateTime(entry.created_at))}</td>
-          <td>${renderHistoryActionsCell(entry)}</td>
+          <td>${escapeHtml(personLabel)}</td>
+          <td>${escapeHtml(getAbsenceTypeLabel(request, request.request_type))}</td>
+          <td>${escapeHtml(formatDate(request.start_date))} bis ${escapeHtml(formatDate(request.end_date))}</td>
+          <td>${escapeHtml(buildApprovalByLabel(request))}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function renderRejectedAbsencesModalState() {
+  if (!elements.rejectedAbsencesModal) return;
+  elements.rejectedAbsencesModal.classList.toggle('hidden', !state.isRejectedAbsencesModalOpen);
+}
+
+function renderRejectedAbsencesTable() {
+  if (!elements.rejectedAbsencesTableBody) return;
+  const rejectedRequests = getHolidayRequestsByApprovalStatus(0);
+  if (!rejectedRequests.length) {
+    elements.rejectedAbsencesTableBody.innerHTML = '<tr><td colspan="4">Keine abgelehnten Absenzen vorhanden.</td></tr>';
+    return;
+  }
+  elements.rejectedAbsencesTableBody.innerHTML = rejectedRequests
+    .map((request) => {
+      const profile = getProfileById(request.profile_id);
+      const personLabel = profile?.full_name || profile?.email || 'Unbekannt';
+      return `
+        <tr>
+          <td>${escapeHtml(personLabel)}</td>
+          <td>${escapeHtml(getAbsenceTypeLabel(request, request.request_type))}</td>
+          <td>${escapeHtml(formatDate(request.start_date))}</td>
+          <td>${escapeHtml(formatDate(request.end_date))}</td>
         </tr>
       `;
     })
@@ -2349,11 +2356,6 @@ function handleShowControlledAbsencesToggle() {
 function handleDispoMultiEntryToggle() {
   state.dispoAllowMultiplePerDay = Boolean(elements.dispoMultiEntryInput?.checked);
   renderDispoPlanner();
-}
-
-function handleConfirmationHistoryToggle() {
-  state.includeConfirmationHistory = Boolean(elements.includeConfirmationHistoryInput?.checked);
-  renderConfirmationsTable();
 }
 
 function handleEmployeeSelectionChange(event) {
@@ -3920,9 +3922,8 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
         updateDemoHolidayRequest(requestId, updates);
         const updatedRequest = demoHolidayRequests.find((item) => String(item.id) === String(requestId));
         if (isHolidayRequestFullyApproved(updatedRequest)) {
+          updateDemoHolidayRequest(requestId, { approval_status: 2 });
           await createAutoReportsForApprovedHolidayRequest(updatedRequest);
-          archiveDemoHolidayRequestDecision(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
-          deleteDemoHolidayRequest(requestId);
         }
       } else {
         let updatedRequest = request ? { ...request, ...updates } : null;
@@ -3942,7 +3943,6 @@ async function handleConfirmHolidayRequest(requestId, fieldName, roleLabel) {
 
         if (request && isHolidayRequestFullyApproved(updatedRequest)) {
           await createAutoReportsForApprovedHolidayRequest(updatedRequest);
-          await deleteHolidayRequestAttachmentsSafely(request.attachments);
         }
       }
 
@@ -3968,21 +3968,18 @@ async function handleRejectHolidayRequest(requestId) {
     return;
   }
 
-  const shouldDelete = window.confirm('Soll dieses Absenzgesuch wirklich abgelehnt und gelöscht werden?');
-  if (!shouldDelete) {
+  const shouldReject = window.confirm('Soll dieses Absenzgesuch wirklich abgelehnt werden?');
+  if (!shouldReject) {
     return;
   }
 
   state.isSavingAbsence = true;
   try {
     if (state.isDemoMode) {
-      archiveDemoHolidayRequestDecision(request, buildRejectedHolidayRequestContext(request));
-      deleteDemoHolidayRequest(requestId);
+      updateDemoHolidayRequest(requestId, { approval_status: 0 });
     } else {
-      const rejectionContext = buildRejectedHolidayRequestContext(request);
       const { error } = await state.supabase.rpc('reject_holiday_request', {
         p_request_id: requestId,
-        p_context: rejectionContext,
       });
 
       if (error) {
@@ -3990,10 +3987,8 @@ async function handleRejectHolidayRequest(requestId) {
           throw error;
         }
 
-        await rejectHolidayRequestWithoutRpc(request, rejectionContext);
+        await rejectHolidayRequestWithoutRpc(request);
       }
-
-      await deleteHolidayRequestAttachmentsSafely(request.attachments);
     }
 
     await loadData();
@@ -4606,9 +4601,13 @@ async function insertHolidayRequestHistoryEntry(request, context) {
 }
 
 async function approveHolidayRequestWithoutRpc(request, fieldName, approvalName) {
+  const updatePayload = { [fieldName]: approvalName };
+  if (isHolidayRequestFullyApproved({ ...request, ...updatePayload })) {
+    updatePayload.approval_status = 2;
+  }
   const { data: updatedRequest, error: updateError } = await state.supabase
     .from('holiday_requests')
-    .update({ [fieldName]: approvalName })
+    .update(updatePayload)
     .eq('id', request.id)
     .select()
     .single();
@@ -4617,28 +4616,13 @@ async function approveHolidayRequestWithoutRpc(request, fieldName, approvalName)
     throw updateError;
   }
 
-  if (isHolidayRequestFullyApproved(updatedRequest)) {
-    await insertHolidayRequestHistoryEntry(updatedRequest, buildApprovedHolidayRequestContext(updatedRequest));
-
-    const { error: deleteError } = await state.supabase
-      .from('holiday_requests')
-      .delete()
-      .eq('id', updatedRequest.id);
-
-    if (deleteError) {
-      throw deleteError;
-    }
-  }
-
   return updatedRequest;
 }
 
-async function rejectHolidayRequestWithoutRpc(request, context) {
-  await insertHolidayRequestHistoryEntry(request, context);
-
+async function rejectHolidayRequestWithoutRpc(request) {
   const { error } = await state.supabase
     .from('holiday_requests')
-    .delete()
+    .update({ approval_status: 0 })
     .eq('id', request.id);
 
   if (error) {
@@ -6004,6 +5988,10 @@ function handleGlobalKeydown(event) {
     closeConfirmationsModal();
     return;
   }
+  if (elements.rejectedAbsencesModal && !elements.rejectedAbsencesModal.classList.contains('hidden')) {
+    closeRejectedAbsencesModal();
+    return;
+  }
   if (elements.bulkConfirmModal && !elements.bulkConfirmModal.classList.contains('hidden')) {
     closeBulkConfirmModal();
     return;
@@ -6022,6 +6010,17 @@ function openConfirmationsModal() {
 function closeConfirmationsModal() {
   state.isConfirmationsModalOpen = false;
   renderConfirmationsModalState();
+}
+
+function openRejectedAbsencesModal() {
+  state.isRejectedAbsencesModalOpen = true;
+  renderRejectedAbsencesModalState();
+  renderRejectedAbsencesTable();
+}
+
+function closeRejectedAbsencesModal() {
+  state.isRejectedAbsencesModalOpen = false;
+  renderRejectedAbsencesModalState();
 }
 
 function getProjectLeadProjects() {
@@ -7068,7 +7067,30 @@ function getAbsenceMinutes(report) {
 }
 
 function isHolidayRequestFullyApproved(request) {
-  return Boolean(String(request?.controll_pl || '').trim() && String(request?.controll_gl || '').trim());
+  return getHolidayRequestApprovalStatus(request) === 2;
+}
+
+function getHolidayRequestApprovalStatus(request) {
+  const explicitStatus = Number(request?.approval_status);
+  if (explicitStatus === 0 || explicitStatus === 1 || explicitStatus === 2) {
+    return explicitStatus;
+  }
+  const hasRejectionMarker = String(request?.controll_pl || '').trim() === 'Abgelehnt'
+    || String(request?.controll_gl || '').trim() === 'Abgelehnt';
+  if (hasRejectionMarker) return 0;
+  const isApproved = Boolean(String(request?.controll_pl || '').trim() && String(request?.controll_gl || '').trim());
+  return isApproved ? 2 : 1;
+}
+
+function getHolidayRequestsByApprovalStatus(status) {
+  return [...state.holidayRequests]
+    .filter((request) => getHolidayRequestApprovalStatus(request) === status)
+    .sort((a, b) => `${b.start_date}`.localeCompare(`${a.start_date}`));
+}
+
+function buildApprovalByLabel(request) {
+  const names = [String(request?.controll_pl || '').trim(), String(request?.controll_gl || '').trim()].filter(Boolean);
+  return names.length ? names.join(' / ') : '–';
 }
 
 async function createAutoReportsForApprovedHolidayRequest(request) {
@@ -7416,6 +7438,7 @@ function getMatchingProfiles(profiles, query) {
 
 function getFilteredHolidayRequests() {
   return [...state.holidayRequests]
+    .filter((request) => getHolidayRequestApprovalStatus(request) === 1)
     .sort((a, b) => {
       const approvalCompare = Number(isHolidayRequestFullyApproved(a)) - Number(isHolidayRequestFullyApproved(b));
       if (approvalCompare !== 0) return approvalCompare;

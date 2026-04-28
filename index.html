@@ -243,6 +243,15 @@
                 >
                   ✅
                 </button>
+                <button
+                  id="openRejectedAbsencesModalButton"
+                  class="button button-secondary button-icon"
+                  type="button"
+                  aria-label="Abgelehnte Absenzen anzeigen"
+                  title="Abgelehnte Absenzen anzeigen"
+                >
+                  ❌
+                </button>
               </div>
               <div class="table-wrapper">
                 <table>
@@ -891,15 +900,7 @@
           </div>
 
           <div class="report-filter-panel confirmation-filter-panel">
-            <div class="report-filter-toolbar">
-              <label class="checkbox-inline">
-                <input id="includeConfirmationHistoryInput" type="checkbox" />
-                <span>Historie anzeigen</span>
-              </label>
-              <div class="report-filter-actions">
-                <button id="exportConfirmationsPdfButton" class="button button-secondary" type="button">Alle gefilterten als PDF</button>
-              </div>
-            </div>
+            <p class="subtle-text">Hier werden alle angenommenen Absenzen (Status 2) angezeigt.</p>
           </div>
 
           <div class="table-wrapper">
@@ -910,11 +911,36 @@
                   <th>Typ</th>
                   <th>Von - Bis</th>
                   <th>Bestätigt durch</th>
-                  <th>Ausgelöst am</th>
-                  <th>Aktionen</th>
                 </tr>
               </thead>
               <tbody id="confirmationsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="rejectedAbsencesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rejectedAbsencesModalTitle">
+        <div class="modal-backdrop" data-close-rejected-absences-modal="true"></div>
+        <div class="modal-card panel">
+          <div class="section-heading compact">
+            <div>
+              <h3 id="rejectedAbsencesModalTitle">Abgelehnte Absenzen</h3>
+              <p>Hier werden alle abgelehnten Absenzen (Status 0) angezeigt.</p>
+            </div>
+            <button id="closeRejectedAbsencesModalButton" class="button button-ghost" type="button">Schliessen</button>
+          </div>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Typ</th>
+                  <th>Von</th>
+                  <th>Bis</th>
+                </tr>
+              </thead>
+              <tbody id="rejectedAbsencesTableBody"></tbody>
             </table>
           </div>
         </div>
