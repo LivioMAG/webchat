@@ -152,6 +152,10 @@ alter table public.app_profiles
 add column if not exists weekly_hours numeric(10,2) not null default 40;
 
 alter table public.app_profiles
+alter column weekly_hours type numeric(10,2)
+using weekly_hours::numeric(10,2);
+
+alter table public.app_profiles
 add column if not exists target_revenue numeric(12,2) not null default 0;
 
 alter table public.request_history
