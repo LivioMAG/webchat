@@ -2278,7 +2278,7 @@ function renderSaldoTable() {
           <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
           <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
-          <td>${metrics.bookedVacationHours.toFixed(2)}</td>
+          <td>${metrics.bookedVacationsHours.toFixed(2)}</td>
           <td>${metrics.bookedReportedHours.toFixed(2)}</td>
           <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
@@ -7655,7 +7655,9 @@ function getSaldoInputValue(profileId, fieldName) {
 function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumber()) {
   const vacationAllowanceHours = Number(profile.vacation_allowance_hours || 0);
   const bookedReportedHours = Number(profile.booked_reported_hours || 0);
-  const bookedVacationHours = Number(profile.booked_vacation_hours || 0);
+  const bookedVacationsHours = Number(
+    profile.booked_vacations_hours ?? profile.booked_vacation_hours ?? 0
+  );
   const bookedUnpaidHolidayHours = Number(profile.booked_unpaid_holiday_hours || 0);
   const carryoverOvertimeHours = Number(profile.carryover_overtime_hours || 0);
   const reportedHours = Number(profile.reported_hours || 0);
@@ -7663,12 +7665,12 @@ function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumbe
   const weeklyHours = Number(profile.weekly_hours || 40);
   const expectedHours = currentIsoWeek * weeklyHours;
   const overtimeBalanceHours = carryoverOvertimeHours + creditedHours + (reportedHours - expectedHours);
-  const vacationBalanceHours = vacationAllowanceHours - bookedVacationHours;
+  const vacationBalanceHours = vacationAllowanceHours - bookedVacationsHours;
 
   return {
     vacationAllowanceHours,
     bookedReportedHours,
-    bookedVacationHours,
+    bookedVacationsHours,
     bookedUnpaidHolidayHours,
     carryoverOvertimeHours,
     reportedHours,
