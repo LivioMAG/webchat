@@ -23,13 +23,10 @@ create table if not exists public.app_profiles (
   role_label text not null default 'Monteur',
   is_admin boolean not null default false,
   is_active boolean not null default true,
-  vacation_allowance_hours numeric(10,2) not null default 0,
   booked_reported_hours numeric(10,2) not null default 0,
-  booked_vacation_hours numeric(10,2) not null default 0,
   booked_vacations_hours numeric(10,2) not null default 0,
   booked_unpaid_holiday_hours numeric(10,2) not null default 0,
-  carryover_overtime_hours numeric(10,2) not null default 0,
-  reported_hours numeric(10,2) not null default 0,
+  created_holiday_hours numeric(10,2) not null default 0,
   credited_hours numeric(10,2) not null default 0,
   weekly_hours numeric(10,2) not null default 40,
   target_revenue numeric(12,2) not null default 0,
@@ -129,13 +126,7 @@ alter table public.app_profiles
 add column if not exists is_active boolean not null default true;
 
 alter table public.app_profiles
-add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
-
-alter table public.app_profiles
 add column if not exists booked_reported_hours numeric(10,2) not null default 0;
-
-alter table public.app_profiles
-add column if not exists booked_vacation_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists booked_vacations_hours numeric(10,2) not null default 0;
@@ -144,10 +135,7 @@ alter table public.app_profiles
 add column if not exists booked_unpaid_holiday_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
-add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
-
-alter table public.app_profiles
-add column if not exists reported_hours numeric(10,2) not null default 0;
+add column if not exists created_holiday_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists credited_hours numeric(10,2) not null default 0;
@@ -828,10 +816,7 @@ begin
 
   update public.app_profiles
   set booked_reported_hours = coalesce(booked_reported_hours, 0) + v_hours,
-      reported_hours = coalesce(reported_hours, 0) + v_hours,
       booked_vacations_hours = coalesce(booked_vacations_hours, 0)
-        + case when coalesce(new.abz_typ, 0) = 1 then v_hours else 0 end,
-      booked_vacation_hours = coalesce(booked_vacation_hours, 0)
         + case when coalesce(new.abz_typ, 0) = 1 then v_hours else 0 end,
       booked_unpaid_holiday_hours = coalesce(booked_unpaid_holiday_hours, 0)
         + case when coalesce(new.abz_typ, 0) = 9 then v_hours else 0 end
