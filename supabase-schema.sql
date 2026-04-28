@@ -54,7 +54,7 @@ create table if not exists public.weekly_reports (
   lunch_break_minutes integer not null default 60,
   additional_break_minutes integer not null default 30,
   total_work_minutes integer not null default 0,
-  adjusted_work_minutes integer not null default 0,
+  total_adjusted_work_minutes integer not null default 0,
   expenses_amount numeric(10,2) not null default 0,
   other_costs_amount numeric(10,2) not null default 0,
   expense_note text,
@@ -177,7 +177,10 @@ alter table public.weekly_reports
 add column if not exists project_name text;
 
 alter table public.weekly_reports
-add column if not exists adjusted_work_minutes integer not null default 0;
+add column if not exists total_adjusted_work_minutes integer not null default 0;
+
+alter table public.weekly_reports
+drop column if exists adjusted_work_minutes;
 
 alter table public.weekly_reports
 add column if not exists year integer;
@@ -303,7 +306,7 @@ begin
         lunch_break_minutes,
         additional_break_minutes,
         total_work_minutes,
-        adjusted_work_minutes,
+        total_adjusted_work_minutes,
         expenses_amount,
         other_costs_amount,
         expense_note,
@@ -773,8 +776,6 @@ as $$
           case
             when nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
               then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'total_adjusted_work_minutes', '')), ''), ',', '.')::numeric
-            when nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), '') ~ '^-?[0-9]+([.,][0-9]+)?$'
-              then replace(nullif(trim(coalesce(to_jsonb(p_report)->>'adjusted_work_minutes', '')), ''), ',', '.')::numeric
             else null
           end,
           0
