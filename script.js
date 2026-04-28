@@ -124,7 +124,13 @@ alter table public.platform_holidays
 add column if not exists is_paid boolean not null default true;
 
 alter table public.app_profiles
+add column if not exists vacation_allowance_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
 add column if not exists booked_reported_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists booked_vacation_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists booked_vacations_hours numeric(10,2) not null default 0;
@@ -133,7 +139,10 @@ alter table public.app_profiles
 add column if not exists booked_unpaid_holiday_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
-add column if not exists created_holiday_hours numeric(10,2) not null default 0;
+add column if not exists carryover_overtime_hours numeric(10,2) not null default 0;
+
+alter table public.app_profiles
+add column if not exists reported_hours numeric(10,2) not null default 0;
 
 alter table public.app_profiles
 add column if not exists credited_hours numeric(10,2) not null default 0;
@@ -517,9 +526,10 @@ const demoProfiles = [
     role_label: 'Administration',
     is_admin: true,
     is_active: true,
-    booked_vacations_hours: 0,
-    booked_unpaid_holiday_hours: 0,
-    created_holiday_hours: 80,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
     target_revenue: 0,
@@ -531,9 +541,10 @@ const demoProfiles = [
     role_label: 'Monteur',
     is_admin: false,
     is_active: true,
-    booked_vacations_hours: 0,
-    booked_unpaid_holiday_hours: 0,
-    created_holiday_hours: 80,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
     target_revenue: 0,
@@ -545,9 +556,10 @@ const demoProfiles = [
     role_label: 'Monteurin',
     is_admin: false,
     is_active: true,
-    booked_vacations_hours: 0,
-    booked_unpaid_holiday_hours: 0,
-    created_holiday_hours: 80,
+    vacation_allowance_hours: 200,
+    booked_vacation_hours: 0,
+    carryover_overtime_hours: 0,
+    reported_hours: 0,
     credited_hours: 0,
     weekly_hours: 40,
     target_revenue: 0,
@@ -2262,15 +2274,17 @@ function renderSaldoTable() {
     return;
   }
 
+  const currentIsoWeek = getCurrentIsoWeekNumber();
   elements.saldoTableBody.innerHTML = profiles
     .map((profile) => {
-      const metrics = getProfileSaldoMetrics(profile);
+      const metrics = getProfileSaldoMetrics(profile, currentIsoWeek);
       return `
         <tr>
           <td>${escapeHtml(profile.full_name || '–')}</td>
-          <td>${renderSaldoInput(profile.id, 'created_holiday_hours', metrics.createdHolidayHours)}</td>
+          <td>${metrics.overtimeBalanceHours.toFixed(2)}</td>
+          <td>${renderSaldoInput(profile.id, 'vacation_allowance_hours', metrics.vacationAllowanceHours)}</td>
           <td>${metrics.vacationBalanceHours.toFixed(2)}</td>
-          <td>${metrics.bookedVacationsHours.toFixed(2)}</td>
+          <td>${metrics.bookedVacationHours.toFixed(2)}</td>
           <td>${metrics.bookedReportedHours.toFixed(2)}</td>
           <td>${metrics.bookedUnpaidHolidayHours.toFixed(2)}</td>
           <td>${renderSaldoInput(profile.id, 'credited_hours', metrics.creditedHours)}</td>
@@ -4243,12 +4257,14 @@ async function handleSaveSaldoProfile(profileId) {
     return;
   }
 
-  const createdHolidayHoursValue = getSaldoInputValue(profileId, 'created_holiday_hours');
+  const vacationAllowanceValue = getSaldoInputValue(profileId, 'vacation_allowance_hours');
+  const carryoverOvertimeValue = getSaldoInputValue(profileId, 'carryover_overtime_hours');
   const creditedHoursValue = getSaldoInputValue(profileId, 'credited_hours');
   const weeklyHoursValue = getSaldoInputValue(profileId, 'weekly_hours');
 
   const updates = {
-    created_holiday_hours: createdHolidayHoursValue ?? Number(profile.created_holiday_hours || 0),
+    vacation_allowance_hours: vacationAllowanceValue ?? Number(profile.vacation_allowance_hours || 0),
+    carryover_overtime_hours: carryoverOvertimeValue ?? Number(profile.carryover_overtime_hours || 0),
     credited_hours: creditedHoursValue ?? Number(profile.credited_hours || 0),
     weekly_hours: weeklyHoursValue && weeklyHoursValue > 0 ? weeklyHoursValue : Number(profile.weekly_hours || 40) || 40,
   };
@@ -7646,22 +7662,29 @@ function getSaldoInputValue(profileId, fieldName) {
   return Number(input.value || 0);
 }
 
-function getProfileSaldoMetrics(profile) {
+function getProfileSaldoMetrics(profile, currentIsoWeek = getCurrentIsoWeekNumber()) {
+  const vacationAllowanceHours = Number(profile.vacation_allowance_hours || 0);
   const bookedReportedHours = Number(profile.booked_reported_hours || 0);
-  const bookedVacationsHours = Number(profile.booked_vacations_hours || 0);
+  const bookedVacationHours = Number(profile.booked_vacation_hours || 0);
   const bookedUnpaidHolidayHours = Number(profile.booked_unpaid_holiday_hours || 0);
-  const createdHolidayHours = Number(profile.created_holiday_hours || 0);
+  const carryoverOvertimeHours = Number(profile.carryover_overtime_hours || 0);
+  const reportedHours = Number(profile.reported_hours || 0);
   const creditedHours = Number(profile.credited_hours || 0);
   const weeklyHours = Number(profile.weekly_hours || 40);
-  const vacationBalanceHours = createdHolidayHours - bookedVacationsHours;
+  const expectedHours = currentIsoWeek * weeklyHours;
+  const overtimeBalanceHours = carryoverOvertimeHours + creditedHours + (reportedHours - expectedHours);
+  const vacationBalanceHours = vacationAllowanceHours - bookedVacationHours;
 
   return {
+    vacationAllowanceHours,
     bookedReportedHours,
-    bookedVacationsHours,
+    bookedVacationHours,
     bookedUnpaidHolidayHours,
-    createdHolidayHours,
+    carryoverOvertimeHours,
+    reportedHours,
     creditedHours,
     weeklyHours,
+    overtimeBalanceHours,
     vacationBalanceHours,
   };
 }
