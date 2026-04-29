@@ -953,6 +953,9 @@ function cacheElements() {
   elements.dispoAssignTargetLabel = document.getElementById('dispoAssignTargetLabel');
   elements.dispoAssignProjectsList = document.getElementById('dispoAssignProjectsList');
   elements.dispoAssignSpecialList = document.getElementById('dispoAssignSpecialList');
+  elements.dispoAssignManualFields = document.getElementById('dispoAssignManualFields');
+  elements.dispoAssignManualCommissionInput = document.getElementById('dispoAssignManualCommissionInput');
+  elements.dispoAssignManualProjectNameInput = document.getElementById('dispoAssignManualProjectNameInput');
   elements.dispoAssignStartTime = document.getElementById('dispoAssignStartTime');
   elements.dispoAssignEndTime = document.getElementById('dispoAssignEndTime');
   elements.closeDispoAssignModalButton = document.getElementById('closeDispoAssignModalButton');
@@ -1153,6 +1156,7 @@ function bindEvents() {
   }
   elements.dispoMultiEntryInput.addEventListener('change', handleDispoMultiEntryToggle);
   elements.dispoAssignForm.addEventListener('submit', handleDispoAssignSubmit);
+  elements.dispoAssignForm.addEventListener('change', handleDispoAssignChoiceChange);
   elements.closeDispoAssignModalButton.addEventListener('click', closeDispoAssignModal);
   elements.cancelDispoAssignButton.addEventListener('click', closeDispoAssignModal);
   elements.dispoAssignModal.addEventListener('click', (event) => {
@@ -5964,9 +5968,10 @@ function openDispoAssignModal({ targets, label }) {
     return leftLabel.localeCompare(rightLabel, 'de');
   });
   elements.dispoAssignProjectsList.innerHTML = `<table class="dispo-select-table"><thead><tr><th>Projekte</th><th>Auswahl</th></tr></thead><tbody>${sortedProjects.map((project, index) => `<tr><td>${escapeHtml(`${project.commission_number || ''} ${project.name || ''}`.trim())}</td><td><input type="radio" name="dispoAssignChoice" value="project:${escapeAttribute(project.id)}" ${index === 0 ? 'checked' : ''} /></td></tr>`).join('')}</tbody></table>`;
-  elements.dispoAssignSpecialList.innerHTML = '<p class="subtle-text">Nur Projekt-Zuweisungen verfügbar.</p>';
+  elements.dispoAssignSpecialList.innerHTML = '<label><input type="radio" name="dispoAssignChoice" value="manual" /> Eigene Kommissionsnummer + Projektname eingeben</label>';
   elements.dispoAssignStartTime.value = DISPO_DEFAULT_START_TIME;
   elements.dispoAssignEndTime.value = DISPO_DEFAULT_END_TIME;
+  handleDispoAssignChoiceChange();
   if (!state.projects.length) {
     showInlineAlert(elements.dispoAlert, 'Keine Projekte vorhanden. Bitte zuerst ein Projekt erfassen.', true);
     return;
@@ -5980,6 +5985,13 @@ function closeDispoAssignModal() {
   elements.dispoAssignForm.reset();
 }
 
+function handleDispoAssignChoiceChange() {
+  const checked = elements.dispoAssignForm?.querySelector('input[name="dispoAssignChoice"]:checked');
+  const isManual = checked?.value === 'manual';
+  if (elements.dispoAssignManualCommissionInput) elements.dispoAssignManualCommissionInput.disabled = !isManual;
+  if (elements.dispoAssignManualProjectNameInput) elements.dispoAssignManualProjectNameInput.disabled = !isManual;
+}
+
 async function handleDispoAssignSubmit(event) {
   event.preventDefault();
   const targets = state.dispoAssignContext?.targets || [];
@@ -5989,17 +6001,28 @@ async function handleDispoAssignSubmit(event) {
     showInlineAlert(elements.dispoAlert, 'Bitte zuerst eine Zuweisung auswählen.', true);
     return;
   }
-  const [type, rawValue] = checked.value.split(':');
-  if (type !== 'project') {
-    showInlineAlert(elements.dispoAlert, 'Nur Projekt-Zuweisungen sind erlaubt.', true);
-    return;
-  }
   const startTime = normalizeDispoTimeValue(elements.dispoAssignStartTime?.value, DISPO_DEFAULT_START_TIME);
   const endTime = normalizeDispoTimeValue(elements.dispoAssignEndTime?.value, DISPO_DEFAULT_END_TIME);
-  const selectedProject = state.projects.find((project) => String(project.id) === String(rawValue));
-  const item = { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim(), start_time: startTime, end_time: endTime };
-  if (!item.label) {
-    showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
+  const [type, rawValue] = checked.value.split(':');
+  let item = null;
+  if (type === 'project') {
+    const selectedProject = state.projects.find((project) => String(project.id) === String(rawValue));
+    item = { type: 'project', project_id: rawValue, label: `${selectedProject?.commission_number || ''} ${selectedProject?.name || ''}`.trim(), start_time: startTime, end_time: endTime };
+    if (!item.label) {
+      showInlineAlert(elements.dispoAlert, 'Projekt konnte nicht zugeordnet werden. Bitte Auswahl neu öffnen.', true);
+      return;
+    }
+  } else if (checked.value === 'manual') {
+    const commission = String(elements.dispoAssignManualCommissionInput?.value || '').trim();
+    const projectName = String(elements.dispoAssignManualProjectNameInput?.value || '').trim();
+    const manualLabel = `${commission} ${projectName}`.trim();
+    if (!manualLabel) {
+      showInlineAlert(elements.dispoAlert, 'Bitte Kommissionsnummer und/oder Projektnamen erfassen.', true);
+      return;
+    }
+    item = { type: 'manual_project', project_id: null, label: manualLabel, start_time: startTime, end_time: endTime };
+  } else {
+    showInlineAlert(elements.dispoAlert, 'Ungültige Auswahl. Bitte erneut versuchen.', true);
     return;
   }
   const mode = state.dispoAllowMultiplePerDay ? 'append' : 'replace';
